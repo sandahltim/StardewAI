@@ -1,7 +1,7 @@
 # Next Session - StardewAI
 
 **Last Updated:** 2026-01-08 by Claude
-**Status:** 🔧 NAVIGATION FIXES APPLIED - NEEDS GAME RESTART TO TEST
+**Status:** ✅ READY - Navigation fixes applied, SMAPI collision fix restored
 
 ---
 
@@ -33,9 +33,9 @@
 4. **⚠️ SMAPI mod collision fix** - May need debugging, game crashed after rebuild
 5. **REQUIRES GAME RESTART** - SMAPI mod was rebuilt
 
-**Known Issues to Fix Next Session:**
-- SMAPI mod `MoveInDirection` changes may have caused crash - check SMAPI logs
-- If crash persists, revert to direct position setting and just rely on Python collision check
+**Next Session Test Plan:**
+- SMAPI collision fix restored - test if it works (crash may have been unrelated)
+- If SMAPI fix causes issues, revert and rely on Python collision check only
 
 **Session 6 (Codex Deliverables):**
 1. Calendar table: Egg Festival, Flower Dance, Luau, Spirit's Eve, etc.
