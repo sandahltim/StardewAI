@@ -14,6 +14,15 @@ from pydantic import BaseModel, Field
 from starlette.requests import Request
 import sqlite3
 
+try:
+    import chromadb
+    from chromadb.config import Settings
+    HAS_CHROMA = True
+except ImportError:  # pragma: no cover - optional dependency
+    HAS_CHROMA = False
+    chromadb = None
+    Settings = None
+
 from . import storage
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -21,6 +30,9 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 STATUS_PATH = Path("/home/tim/StardewAI/logs/ui/status.json")
 GAME_KNOWLEDGE_DB = BASE_DIR.parents[1] / "data" / "game_knowledge.db"
+CHROMA_DIR = BASE_DIR.parents[1] / "data" / "chromadb"
+CHROMA_COLLECTION = "rusty_memories"
+_chroma_collection = None
 TTS_OUTPUT_DIR = Path("/home/tim/StardewAI/logs/ui/tts")
 TTS_CACHE_DIR = TTS_OUTPUT_DIR / "cache"
 TTS_MODEL_DIR = Path("/home/tim/StardewAI/models/tts")
@@ -260,6 +272,60 @@ def _query_game_knowledge(entity_type: str, name: str) -> Optional[Dict[str, Any
         conn.close()
 
 
+def _get_chroma_collection():
+    global _chroma_collection
+    if not HAS_CHROMA:
+        return None
+    if _chroma_collection is None:
+        client = chromadb.PersistentClient(
+            path=str(CHROMA_DIR),
+            settings=Settings(anonymized_telemetry=False)
+        )
+        _chroma_collection = client.get_or_create_collection(
+            name=CHROMA_COLLECTION,
+            metadata={"description": "Rusty's episodic memories from Stardew Valley"}
+        )
+    return _chroma_collection
+
+
+def _get_recent_memories(limit: int = 10) -> List[Dict[str, Any]]:
+    collection = _get_chroma_collection()
+    if not collection:
+        return []
+    results = collection.get(include=["documents", "metadatas"])
+    if not results.get("ids"):
+        return []
+    memories = []
+    for i, mem_id in enumerate(results["ids"]):
+        memories.append({
+            "id": mem_id,
+            "text": results["documents"][i],
+            "metadata": results["metadatas"][i] if results["metadatas"] else {},
+        })
+    memories.sort(key=lambda m: m["metadata"].get("timestamp", ""), reverse=True)
+    return memories[:limit]
+
+
+def _search_memories(query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    collection = _get_chroma_collection()
+    if not collection or not query:
+        return []
+    results = collection.query(query_texts=[query], n_results=limit)
+    memories = []
+    docs = results.get("documents", [[]])[0]
+    metas = results.get("metadatas", [[]])[0]
+    ids = results.get("ids", [[]])[0]
+    distances = results.get("distances", [[]])[0] if results.get("distances") else []
+    for idx, doc in enumerate(docs):
+        memories.append({
+            "id": ids[idx] if idx < len(ids) else None,
+            "text": doc,
+            "metadata": metas[idx] if idx < len(metas) else {},
+            "distance": distances[idx] if idx < len(distances) else None,
+        })
+    return memories
+
+
 def _speak_text(text: str, voice: str) -> Dict[str, Any]:
     if not shutil.which(PIPER_CMD):
         return {"ok": False, "error": f"Piper not found at '{PIPER_CMD}'"}
@@ -390,7 +456,15 @@ def get_game_knowledge(entity_type: str = Query(..., alias="type"), name: str = 
     data = _query_game_knowledge(entity_type, name)
     if not data:
         raise HTTPException(status_code=404, detail="Game knowledge not found")
+    storage.add_session_event("knowledge_lookup", {"type": entity_type, "name": name})
     return data
+
+
+@app.get("/api/episodic-memories")
+def get_episodic_memories(limit: int = 10, query: Optional[str] = None) -> List[Dict[str, Any]]:
+    if query:
+        return _search_memories(query, limit=limit)
+    return _get_recent_memories(limit=limit)
 
 
 @app.post("/api/messages")

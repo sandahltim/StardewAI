@@ -89,6 +89,41 @@ LOCATION_TYPE_OVERRIDES = {
     "Mine": "Mine",
 }
 
+SCHEDULE_NOTES = {
+    "Abigail": "Hangs around Pierre's or the cemetery. Plays flute on rainy afternoons.",
+    "Alex": "Works out at the beach on sunny days. Often at the ice cream stand in summer.",
+    "Elliott": "Lives in the beach cabin. Often on the beach or at the saloon evenings.",
+    "Emily": "Works at the Saloon evenings. Spends afternoons at home or town square.",
+    "Haley": "Often at home or by the fountain. Shops in town afternoons.",
+    "Harvey": "Runs the clinic 9am-3pm. Spends evenings at the saloon.",
+    "Leah": "Lives in the forest cottage. Often in Cindersap Forest afternoons.",
+    "Maru": "Works at the clinic Tue/Thu. Spends time in the lab or at home.",
+    "Penny": "Teaches Jas and Vincent at museum 10am-2pm Tue/Wed/Fri.",
+    "Sam": "Hangs at home or the beach. Plays pool at the saloon evenings.",
+    "Sebastian": "Often in his room; visits the mountain or saloon evenings.",
+    "Shane": "Works at JojaMart 9am-5pm. Drinks at Saloon evenings.",
+    "Pierre": "Runs Pierre's General Store 9am-5pm. Closed Wednesdays.",
+    "Marnie": "Runs the ranch most days. Visits the saloon some evenings.",
+    "Gus": "Runs the Saloon daily 12pm-12am.",
+    "Clint": "Runs the Blacksmith most days (9am-4pm).",
+    "Robin": "Runs the Carpenter's Shop. Closed Tuesdays.",
+    "Willy": "At the Fish Shop/Beach mornings and afternoons.",
+}
+
+CALENDAR_EVENTS = [
+    {"season": "Spring", "day": 13, "name": "Egg Festival", "type": "festival", "description": "Town festival with egg hunt."},
+    {"season": "Spring", "day": 24, "name": "Flower Dance", "type": "festival", "description": "Dance in the forest."},
+    {"season": "Summer", "day": 11, "name": "Luau", "type": "festival", "description": "Community potluck at the beach."},
+    {"season": "Summer", "day": 28, "name": "Dance of the Moonlight Jellies", "type": "festival", "description": "Night festival at the beach."},
+    {"season": "Fall", "day": 16, "name": "Stardew Valley Fair", "type": "festival", "description": "Grange display and fair games."},
+    {"season": "Fall", "day": 27, "name": "Spirit's Eve", "type": "festival", "description": "Spooky festival in town."},
+    {"season": "Winter", "day": 8, "name": "Festival of Ice", "type": "festival", "description": "Ice fishing and snowman contest."},
+    {"season": "Winter", "day": 15, "name": "Night Market", "type": "festival", "description": "Night Market on the beach."},
+    {"season": "Winter", "day": 16, "name": "Night Market", "type": "festival", "description": "Night Market on the beach."},
+    {"season": "Winter", "day": 17, "name": "Night Market", "type": "festival", "description": "Night Market on the beach."},
+    {"season": "Winter", "day": 25, "name": "Feast of the Winter Star", "type": "festival", "description": "Gift exchange in town."},
+]
+
 
 def fetch_csv(name: str):
     url = BASE_URL + name
@@ -268,6 +303,15 @@ def create_schema(conn):
             ingredients TEXT,
             unlock_condition TEXT
         );
+
+        CREATE TABLE calendar (
+            season TEXT,
+            day INTEGER,
+            event_name TEXT,
+            event_type TEXT,
+            description TEXT,
+            PRIMARY KEY (season, day, event_name)
+        );
         """
     )
 
@@ -321,7 +365,7 @@ def main():
                     json.dumps(neutral),
                     json.dumps(disliked),
                     json.dumps(hated),
-                    "",
+                    SCHEDULE_NOTES.get(name, ""),
                 ),
             )
 
@@ -486,6 +530,37 @@ def main():
                     row.get("Unlock Conditions") or "",
                 ),
             )
+
+        for event in CALENDAR_EVENTS:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO calendar (season, day, event_name, event_type, description)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    event["season"],
+                    event["day"],
+                    event["name"],
+                    event["type"],
+                    event["description"],
+                ),
+            )
+
+        for season in ["Spring", "Summer", "Fall", "Winter"]:
+            for day in [5, 7, 12, 14, 19, 21, 26, 28]:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO calendar (season, day, event_name, event_type, description)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        season,
+                        day,
+                        "Traveling Cart",
+                        "shop",
+                        "Traveling Cart at Cindersap Forest (Fri/Sun).",
+                    ),
+                )
 
         conn.commit()
         print(f"Game knowledge DB built at {DB_PATH}")

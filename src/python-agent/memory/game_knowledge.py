@@ -104,6 +104,39 @@ def get_locations_by_type(location_type: str) -> List[Dict[str, Any]]:
     return [_row_to_dict(row) for row in rows]
 
 
+def get_events_for_day(season: str, day: int) -> List[Dict[str, Any]]:
+    if not season or not day:
+        return []
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT season, day, event_name, event_type, description
+            FROM calendar
+            WHERE lower(season) = lower(?) AND day = ?
+            ORDER BY event_type, event_name
+            """,
+            (season, day),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_upcoming_events(season: str, day: int, days_ahead: int = 7) -> List[Dict[str, Any]]:
+    if not season or not day:
+        return []
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT season, day, event_name, event_type, description
+            FROM calendar
+            WHERE lower(season) = lower(?)
+              AND day BETWEEN ? AND ?
+            ORDER BY day, event_type, event_name
+            """,
+            (season, day, day + days_ahead),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_crops_for_season(season: str) -> List[Dict[str, Any]]:
     """Get all crops that can be grown in a given season."""
     if not season:

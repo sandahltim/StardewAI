@@ -1,7 +1,7 @@
 # Next Session - StardewAI
 
 **Last Updated:** 2026-01-08 by Claude
-**Status:** ✅ Game Knowledge DB EXPANDED
+**Status:** ✅ READY FOR EXTENDED AGENT TEST
 
 ---
 
@@ -19,28 +19,28 @@
 | **Game Knowledge DB** | **EXPANDED** | SQLite: 35 NPCs, 46 crops, 647 items, 23 locations, 210 recipes |
 | **Episodic Memory** | Working | ChromaDB: semantic search over experiences |
 | **Memory Integration** | Working | Context injected into VLM prompt per tick |
+| **Memory Triggers** | **NEW** | Auto-store on new location, NPC met, notable events |
 
 ## Session Accomplishments (2026-01-08)
 
+**Session 5 (Memory Triggers):**
+1. Added automatic memory storage triggers:
+   - First visit to new location
+   - Meeting NPC for first time (includes gift preferences)
+   - VLM reasoning with importance markers
+2. Memory state persistence - loads on startup to prevent duplicates
+3. Assigned Codex: Calendar/Festival table, NPC schedules
+4. All systems tested and working
+
 **Session 4 (DB Expansion):**
-1. Expanded game_knowledge.db:
-   - 35 NPCs (all villagers, not just marriage candidates)
-   - 46 crops (all seasons)
-   - 647 items (fish with locations, forage, tools)
-   - 23 locations (with types: Farm, Town, Nature, Mine, Building)
-   - 210 recipes (cooking + crafting)
-2. Added query helpers:
-   - `get_location_info(name)`
-   - `get_locations_by_type(type)`
+1. Expanded game_knowledge.db: 35 NPCs, 46 crops, 647 items, 23 locations, 210 recipes
+2. Added location query helpers
 3. Enhanced build script with forage/fish location parsing
-4. Tested full agent with memory - working correctly
 
 **Session 3 (Memory System):**
-1. Installed ChromaDB for episodic memory
-2. Created `src/python-agent/memory/` module
-3. Created game_knowledge.db (initial version)
-4. Integrated memory into unified_agent.py
-5. Tested full system - NPC knowledge + episodic memories working
+1. ChromaDB for episodic memory
+2. SQLite for game knowledge
+3. Memory integration into VLM prompt
 
 ## Files Changed (Session 3)
 
@@ -54,35 +54,34 @@
 
 ## Next Steps (Priority Order)
 
-### High Priority
-1. **Memory Storage Triggers** ✨
-   - Auto-store on NPC interaction
-   - Auto-store on new location visited
-   - Auto-store when VLM says "remember this"
-   - Currently: manual storage only
+### High Priority - NEXT SESSION
+1. **Extended Agent Test: Farming & Exploring** 🌾
+   - Run agent for 10-15 minutes
+   - Goals: "Water crops and explore the farm" or "Go meet villagers"
+   - Watch for: memory accumulation, navigation, decision quality
+   - Monitor: UI dashboard for real-time status
 
-2. **Long-Running Agent Test**
-   - Run agent for extended period with social goal
-   - Verify memory accumulation works
-   - Check for stability issues
+### What to Watch For
+- Does Rusty remember locations visited?
+- Does Rusty remember NPCs met?
+- Does spatial awareness prevent getting stuck?
+- Does memory context help with decisions?
+- Any stability issues or crashes?
 
 ### Medium Priority
-3. **UI Memory Viewer**
-   - Show recent episodic memories
-   - Show game knowledge lookups
-   - Search interface
+2. **Calendar/Festival Data** (Codex assigned)
+   - Egg Festival, Flower Dance, etc.
+   - Upcoming events in VLM prompt
 
-4. **Item Recognition Enhancement**
-   - Use items DB to identify objects in screenshots
-   - VLM can now query "what is this item?" from DB
+3. **NPC Schedule Notes** (Codex assigned)
+   - Where to find NPCs at what times
+   - Currently 0/35 populated
 
-### Low Priority
-5. **Memory Pruning**
-   - Consolidate similar memories
-   - Forget old irrelevant memories
-   - Keep memory count manageable
+4. **UI Memory Viewer** (Codex - LOW)
+   - Show episodic memories in dashboard
 
 ### Completed ✅
+- ~~Memory Storage Triggers~~ (auto-store on location, NPC, notable events)
 - ~~Expand Game Knowledge DB~~ (35 NPCs, 647 items, 23 locations, 210 recipes)
 - ~~Test Memory in Action~~ (birthday detection, NPC gifts working)
 
@@ -136,12 +135,41 @@ Screenshot → Qwen3VL (8780) → Actions → ModBridgeController → SMAPI mod 
 
 | Team Member | Status | Current Focus |
 |-------------|--------|---------------|
-| Claude | PM | DB expanded, next: memory triggers |
-| Codex | Active | Expanded DB with items/locations/recipes |
-| Tim | Lead | Testing, direction |
+| Claude | PM | Memory triggers complete, ready for test |
+| Codex | Active | Calendar table, NPC schedules, UI work |
+| Tim | Lead | Next: watch Rusty farm & explore |
 
 ---
 
-*Game knowledge DB expanded. 35 NPCs, 647 items, 23 locations, 210 recipes. Memory integration working.*
+## Quick Start: Extended Agent Test
+
+```bash
+# 1. Verify services
+curl -s http://localhost:8790/health | jq .  # SMAPI mod
+curl -s http://localhost:8780/health | jq .  # llama-server
+
+# 2. Open UI dashboard in browser
+# http://localhost:9001
+
+# 3. Start Stardew Valley (if not running)
+# Load a save with some crops to water
+
+# 4. Run agent with farming goal
+cd /home/tim/StardewAI
+source venv/bin/activate
+python src/python-agent/unified_agent.py --ui --goal "Water the crops, then explore and meet villagers"
+
+# OR for observe-only (no control)
+python src/python-agent/unified_agent.py --observe --ui --goal "Water crops and explore"
+```
+
+**Monitor:**
+- Terminal: Watch for 💾 memory storage, 🧭 spatial awareness, 💭 reasoning
+- UI Dashboard: Real-time status, movement history, VLM decisions
+- Game: Watch Rusty's behavior
+
+---
+
+*All systems ready. Memory triggers active. Next session: extended farming & exploration test.*
 
 — Claude (PM)
