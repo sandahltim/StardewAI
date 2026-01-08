@@ -444,6 +444,12 @@ class UnifiedVLM:
                         pass  # No extra params needed
                     elif action_type == "menu":
                         pass  # No extra params needed
+                    elif action_type == "warp":
+                        params["location"] = action_data.get("location", "farm")
+                    elif action_type == "face":
+                        params["direction"] = action_data.get("direction", "down")
+                    elif action_type == "select_slot":
+                        params["slot"] = action_data.get("slot", 0)
 
                     result.actions.append(Action(
                         action_type=action_type,
@@ -571,12 +577,19 @@ class ModBridgeController:
                 })
 
             elif action_type == "warp":
-                location = action.params.get("location", "")
-                if location:
+                location = action.params.get("location", "").lower()
+                if location == "farm" or location == "outside":
+                    return self._send_action({"action": "warp_to_farm"})
+                elif location == "house" or location == "farmhouse":
+                    return self._send_action({"action": "warp_to_house"})
+                elif location:
                     return self._send_action({
                         "action": "warp_location",
                         "location": location
                     })
+                else:
+                    # Default: warp to farm if no location specified
+                    return self._send_action({"action": "warp_to_farm"})
 
             elif action_type == "equip":
                 tool = action.params.get("tool", "")
@@ -1104,6 +1117,19 @@ class StardewAgent:
         # Execute queued actions first
         if self.action_queue:
             action = self.action_queue.pop(0)
+
+            # Collision check for move actions - skip if direction is blocked
+            if action.action_type == "move" and isinstance(self.controller, ModBridgeController):
+                direction = action.params.get("direction", "").lower()
+                surroundings = self.controller.get_surroundings()
+                if surroundings:
+                    dirs = surroundings.get("directions", {})
+                    dir_info = dirs.get(direction, {})
+                    if not dir_info.get("clear", True) and dir_info.get("tilesUntilBlocked", 1) == 0:
+                        logging.warning(f"⚠️ Skipping move {direction} - blocked by {dir_info.get('blocker', 'obstacle')}")
+                        self._send_ui_status()
+                        return
+
             self.vlm_status = "Executing"
             self.recent_actions.append(self._format_action(action))
             self.recent_actions = self.recent_actions[-3:]

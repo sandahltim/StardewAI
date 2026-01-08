@@ -135,8 +135,15 @@ model:
     - MENU: Only true if there's a large overlay covering the gameplay (inventory, shop, dialog box).
       The toolbar at bottom is NOT a menu. Normal gameplay = menu_open: false.
     - ENERGY: Green bar on right side. Full=tall, low=short, exhausted=red/empty.
-    - LOCATION: House (interior with bed/furniture), Farm (outdoor with farmhouse visible),
-      Town (buildings/paths), Mine (dark/underground), Beach (water/sand), Forest (dense trees), Shop (interior with counter)
+    - LOCATION: Key distinction - INSIDE vs OUTSIDE!
+      * House = INSIDE with walls, floor, bed, furniture. You can see interior walls.
+      * Farm = OUTSIDE! Sky visible, grass/dirt, trees. Farmhouse building visible but you're OUTSIDE it.
+      * Town = OUTSIDE with cobblestone paths, multiple buildings
+      * Mine = underground/dark tunnels
+      * Beach = sand and ocean water
+      * Forest = dense trees and paths
+      * Shop = INSIDE a store with counter and shelves
+      If you see sky and ground, you're OUTSIDE (Farm/Town/etc), not inside House.
 
     RESPOND WITH ONLY A JSON OBJECT. Nothing before or after it.
 
@@ -209,6 +216,13 @@ model:
     - Fish sell well early game
     - Preserve jars and kegs multiply crop value
     - Don't clear the whole farm day 1, pace yourself
+
+    NAVIGATION:
+    - If stuck in a building, USE WARP to teleport: {"type": "warp", "location": "Farm"}
+    - Warp locations: Farm, Town, Beach, Mountain, Forest, Mine, BusStop, Desert, Railroad
+    - Building exits: FarmHouse, SeedShop (Pierre's), Saloon, JojaMart, Blacksmith, etc.
+    - Example: stuck in house? Use {"type": "warp", "location": "Farm"} to get outside
+    - Door navigation is unreliable, prefer warp when stuck
 
     PRIORITIES (in order):
     1. Don't pass out (watch time + energy)
