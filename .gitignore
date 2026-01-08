@@ -22,9 +22,11 @@ logs/
 *.swo
 
 # Local data
-*.db
 *.sqlite
 *.sqlite3
+
+# ChromaDB runtime data (regenerated)
+src/data/chromadb/
 
 # Environment and secrets
 .env

@@ -1,0 +1,370 @@
+#!/usr/bin/env python3
+import csv
+import io
+import json
+import sqlite3
+import urllib.request
+from pathlib import Path
+
+BASE_URL = "https://raw.githubusercontent.com/aftonsteps/stardewdata/master/"
+DATA_DIR = Path(__file__).resolve().parents[1] / "src" / "data"
+DB_PATH = DATA_DIR / "game_knowledge.db"
+
+CSV_FILES = {
+    "npc_dispositions": "NPC%20Dispositions.csv",
+    "npc_gift_tastes": "NPC%20Gift%20Tastes.csv",
+    "universal_gifts": "Universal%20Gift%20Tastes.csv",
+    "objects": "Objects.csv",
+    "crops": "Crops.csv",
+    "crop_objects": "Crops%20Object%20Information.csv",
+    "seeds": "Seeds%20Object%20Information.csv",
+    "locations": "Locations.csv",
+    "cooking": "Cooking%20Recipes.csv",
+    "crafting": "Crafting%20Recipes.csv",
+}
+
+CATEGORY_LABELS = {
+    -2: "Gem",
+    -4: "Fish",
+    -5: "Egg",
+    -6: "Milk",
+    -7: "Cooking",
+    -8: "Crafting",
+    -12: "Mineral",
+    -14: "Meat",
+    -15: "Metal",
+    -16: "Building Resource",
+    -17: "Animal Product",
+    -18: "Artisan Goods",
+    -19: "Syrup",
+    -20: "Trash",
+    -21: "Bait",
+    -22: "Tackle",
+    -23: "Fertilizer",
+    -24: "Seeds",
+    -25: "Vegetable",
+    -26: "Fruit",
+    -27: "Flower",
+    -28: "Forage",
+    -74: "Seed",
+    -75: "Vegetable",
+    -79: "Fish",
+    -80: "Egg",
+    -81: "Milk",
+}
+
+
+def fetch_csv(name: str):
+    url = BASE_URL + name
+    req = urllib.request.Request(url, headers={"User-Agent": "stardewai"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        text = resp.read().decode("utf-8-sig")
+    return list(csv.DictReader(io.StringIO(text)))
+
+
+def build_object_maps(rows):
+    by_id = {}
+    for row in rows:
+        try:
+            item_id = int(row["Object Id"])
+        except (KeyError, ValueError):
+            continue
+        name = row.get("English Name") or row.get("Name")
+        by_id[item_id] = {
+            "name": name,
+            "price": int(row.get("Price") or 0),
+            "category": row.get("Type") or row.get("Category") or "",
+            "description": row.get("Description") or "",
+        }
+    return by_id
+
+
+def parse_item_ids(raw: str, object_map):
+    if not raw:
+        return []
+    names = []
+    for token in raw.split():
+        try:
+            item_id = int(token)
+        except ValueError:
+            continue
+        if item_id in object_map:
+            names.append(object_map[item_id]["name"])
+        elif item_id in CATEGORY_LABELS:
+            names.append(f"Category:{CATEGORY_LABELS[item_id]}")
+        else:
+            names.append(f"Id:{item_id}")
+    return names
+
+
+def find_seed_for_crop(crop_name, seed_rows):
+    crop_lower = crop_name.lower()
+    candidates = []
+    for row in seed_rows:
+        seed_name = row.get("English Name") or row.get("Name") or ""
+        if crop_lower in seed_name.lower():
+            candidates.append(row)
+    if not candidates:
+        return None
+    for row in candidates:
+        if "seed" in (row.get("English Name") or "").lower():
+            return row
+    return candidates[0]
+
+
+def parse_recipe_ingredients(raw, object_map):
+    if not raw:
+        return {}
+    parts = raw.split()
+    ingredients = {}
+    for i in range(0, len(parts), 2):
+        try:
+            item_id = int(parts[i])
+            qty = int(parts[i + 1])
+        except (ValueError, IndexError):
+            continue
+        if item_id in object_map:
+            name = object_map[item_id]["name"]
+        elif item_id in CATEGORY_LABELS:
+            name = f"Category:{CATEGORY_LABELS[item_id]}"
+        else:
+            name = f"Id:{item_id}"
+        ingredients[name] = qty
+    return ingredients
+
+
+def create_schema(conn):
+    conn.executescript(
+        """
+        DROP TABLE IF EXISTS npcs;
+        DROP TABLE IF EXISTS crops;
+        DROP TABLE IF EXISTS items;
+        DROP TABLE IF EXISTS locations;
+        DROP TABLE IF EXISTS recipes;
+
+        CREATE TABLE npcs (
+            name TEXT PRIMARY KEY,
+            birthday TEXT,
+            location TEXT,
+            loved_gifts TEXT,
+            liked_gifts TEXT,
+            neutral_gifts TEXT,
+            disliked_gifts TEXT,
+            hated_gifts TEXT,
+            schedule_notes TEXT
+        );
+
+        CREATE TABLE crops (
+            name TEXT PRIMARY KEY,
+            season TEXT,
+            growth_days INTEGER,
+            regrows INTEGER,
+            regrow_days INTEGER,
+            sell_price INTEGER,
+            seed_name TEXT,
+            seed_price INTEGER
+        );
+
+        CREATE TABLE items (
+            name TEXT PRIMARY KEY,
+            category TEXT,
+            description TEXT,
+            sell_price INTEGER,
+            locations TEXT
+        );
+
+        CREATE TABLE locations (
+            name TEXT PRIMARY KEY,
+            type TEXT,
+            unlocked_by TEXT,
+            notable_features TEXT
+        );
+
+        CREATE TABLE recipes (
+            name TEXT PRIMARY KEY,
+            type TEXT,
+            ingredients TEXT,
+            unlock_condition TEXT
+        );
+        """
+    )
+
+
+def main():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    objects = fetch_csv(CSV_FILES["objects"])
+    object_map = build_object_maps(objects)
+    seeds = fetch_csv(CSV_FILES["seeds"])
+
+    npcs = fetch_csv(CSV_FILES["npc_dispositions"])
+    npc_gifts = {row["Name"]: row for row in fetch_csv(CSV_FILES["npc_gift_tastes"])}
+
+    crops = fetch_csv(CSV_FILES["crops"])
+    crop_objects = fetch_csv(CSV_FILES["crop_objects"])
+    crop_object_map = build_object_maps(crop_objects)
+
+    locations = fetch_csv(CSV_FILES["locations"])
+    cooking = fetch_csv(CSV_FILES["cooking"])
+    crafting = fetch_csv(CSV_FILES["crafting"])
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        create_schema(conn)
+
+        for row in npcs:
+            name = row.get("Name", "").strip()
+            if not name:
+                continue
+            gifts = npc_gifts.get(name, {})
+            loved = parse_item_ids(gifts.get("Loved Items", ""), object_map)
+            liked = parse_item_ids(gifts.get("Liked Items", ""), object_map)
+            neutral = parse_item_ids(gifts.get("Neutral Items", ""), object_map)
+            disliked = parse_item_ids(gifts.get("Disliked Items", ""), object_map)
+            hated = parse_item_ids(gifts.get("Hated Items", ""), object_map)
+            location = row.get("Start Location") or row.get("Home Region") or ""
+
+            conn.execute(
+                """
+                INSERT INTO npcs
+                (name, birthday, location, loved_gifts, liked_gifts, neutral_gifts, disliked_gifts, hated_gifts, schedule_notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    name,
+                    row.get("Birthday") or "",
+                    location,
+                    json.dumps(loved),
+                    json.dumps(liked),
+                    json.dumps(neutral),
+                    json.dumps(disliked),
+                    json.dumps(hated),
+                    "",
+                ),
+            )
+
+        for row in crops:
+            try:
+                harvest_id = int(row.get("Index Of Harvest") or 0)
+            except ValueError:
+                harvest_id = 0
+            crop_name = ""
+            sell_price = 0
+            if harvest_id in crop_object_map:
+                crop_name = crop_object_map[harvest_id]["name"]
+                sell_price = crop_object_map[harvest_id]["price"]
+            elif harvest_id in object_map:
+                crop_name = object_map[harvest_id]["name"]
+                sell_price = object_map[harvest_id]["price"]
+            if not crop_name:
+                continue
+
+            stages = [
+                int(row.get("Days in Stage 1 Growth") or 0),
+                int(row.get("Days in Stage 2 Growth") or 0),
+                int(row.get("Days in Stage 3 Growth") or 0),
+                int(row.get("Days in Stage 4 Growth") or 0),
+                int(row.get("Days in Stage 5 Growth") or 0),
+            ]
+            growth_days = sum(stages)
+            regrow_days = int(row.get("Regrow After Harvest") or -1)
+            regrows = 1 if regrow_days and regrow_days > 0 else 0
+
+            seed_row = find_seed_for_crop(crop_name, seeds)
+            seed_name = seed_row.get("English Name") if seed_row else ""
+            seed_price = int(seed_row.get("Sell Price") or 0) if seed_row else 0
+
+            conn.execute(
+                """
+                INSERT INTO crops
+                (name, season, growth_days, regrows, regrow_days, sell_price, seed_name, seed_price)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    crop_name,
+                    row.get("Growth Seasons") or "",
+                    growth_days,
+                    regrows,
+                    regrow_days if regrows else 0,
+                    sell_price,
+                    seed_name,
+                    seed_price,
+                ),
+            )
+
+        for item in object_map.values():
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO items (name, category, description, sell_price, locations)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    item["name"],
+                    item["category"],
+                    item["description"],
+                    item["price"],
+                    json.dumps([]),
+                ),
+            )
+
+        for row in locations:
+            name = row.get("Name", "").strip()
+            if not name:
+                continue
+            conn.execute(
+                """
+                INSERT INTO locations (name, type, unlocked_by, notable_features)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    name,
+                    "Unknown",
+                    "",
+                    json.dumps([]),
+                ),
+            )
+
+        for row in cooking:
+            name = row.get("Name", "").strip()
+            if not name:
+                continue
+            ingredients = parse_recipe_ingredients(row.get("Ingredients", ""), object_map)
+            conn.execute(
+                """
+                INSERT INTO recipes (name, type, ingredients, unlock_condition)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    name,
+                    "Cooking",
+                    json.dumps(ingredients),
+                    row.get("Unlock Conditions") or "",
+                ),
+            )
+
+        for row in crafting:
+            name = row.get("Name", "").strip()
+            if not name:
+                continue
+            ingredients = parse_recipe_ingredients(row.get("Ingredients", ""), object_map)
+            conn.execute(
+                """
+                INSERT INTO recipes (name, type, ingredients, unlock_condition)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    name,
+                    "Crafting",
+                    json.dumps(ingredients),
+                    row.get("Unlock Conditions") or "",
+                ),
+            )
+
+        conn.commit()
+        print(f"Game knowledge DB built at {DB_PATH}")
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    main()

@@ -8,85 +8,89 @@
 
 ## Active Tasks
 
-### 1. Game Knowledge Database (Priority: HIGH)
+### 1. Expand Game Knowledge DB - Items Table (Priority: HIGH)
 
 **Status:** NEW - Next Session Priority
 **Assigned:** 2026-01-08
-**Depends on:** None
-**Reference:** `docs/MEMORY_ARCHITECTURE.md`
 
-Create SQLite database with Stardew Valley game knowledge so Rusty understands the game.
+Add items table to `src/data/game_knowledge.db`:
 
-**Deliverables:**
-1. Create `src/data/game_knowledge.db` with schema:
-   - `npcs` - name, birthday, gifts (loved/liked/hated), location
-   - `crops` - name, season, growth_days, sell_price, seed info
-   - `items` - name, category, sell_price, where to find
-   - `locations` - name, type, how to unlock
-   - `recipes` - name, type, ingredients
+```sql
+CREATE TABLE items (
+    name TEXT PRIMARY KEY,
+    category TEXT,       -- "Tool", "Fish", "Forage", "Artifact", "Mineral"
+    description TEXT,
+    sell_price INTEGER,
+    locations TEXT       -- JSON array of where to find
+);
+```
 
-2. Populate with data:
-   - Find existing Stardew JSON/CSV data (modding community has these)
-   - Or scrape from wiki if needed
-   - Priority: NPCs (gifts), Crops, basic Items
+**Data to populate:**
+1. **Tools** (5-10 items):
+   - Hoe, Watering Can, Pickaxe, Axe, Fishing Rod, Scythe
+   - Include upgrade levels if useful
 
-3. Create query helpers in `src/python-agent/memory/game_knowledge.py`:
-   ```python
-   def get_npc_info(name: str) -> dict
-   def get_npc_gift_reaction(npc: str, item: str) -> str  # "loved"/"liked"/etc
-   def get_crop_info(name: str) -> dict
-   def get_item_locations(name: str) -> list
-   ```
+2. **Forage by Season** (20+ items):
+   - Spring: Leek, Daffodil, Dandelion, Spring Onion
+   - Summer: Grape, Spice Berry, Sweet Pea
+   - Fall: Hazelnut, Wild Plum, Blackberry
+   - Winter: Crystal Fruit, Crocus, Holly
 
-4. Expose via `/api/game-knowledge?type=npc&name=Shane`
+3. **Common Fish** (15-20 items):
+   - Include location, time of day, season
+   - Priority: Carp, Sunfish, Catfish, Sturgeon, etc.
 
-**Test:** `curl http://localhost:9001/api/game-knowledge?type=npc&name=Shane` returns his gift preferences.
+**Update `src/data/create_game_knowledge_db.py`** to include items data.
+
+**Test:** `python -c "from memory.game_knowledge import get_item_locations; print(get_item_locations('Leek'))"`
 
 ---
 
-### 2. UI: Directional Compass Widget (Priority: Medium)
+### 2. Expand Game Knowledge DB - Locations Table (Priority: MEDIUM)
 
 **Status:** NEW
 **Assigned:** 2026-01-08
 
-Add visual compass to VLM dashboard:
+Add locations table to the database:
+
+```sql
+CREATE TABLE locations (
+    name TEXT PRIMARY KEY,
+    type TEXT,           -- "Farm", "Town", "Nature", "Mine", "Building"
+    unlocked_by TEXT,    -- How to access (default available, repair bus, etc.)
+    notable_features TEXT -- JSON array ["fishing", "foraging", "npcs"]
+);
 ```
-     ↑ (5)
-  ← (5)  ✗ (1)
-     ✗ (2)
+
+**Locations to add:**
+- Farm areas: Farm, FarmHouse, Greenhouse, Barn, Coop
+- Town: Pierre's, Blacksmith, Saloon, Clinic, JojaMart
+- Nature: Beach, Forest, Mountain, Desert, Railroad
+- Mine: Mines (note floor ranges: 1-40 ice, 41-79 lava, 80-120 skull)
+
+**Add query helper** to `game_knowledge.py`:
+```python
+def get_location_info(name: str) -> Optional[Dict[str, Any]]
+def get_locations_by_type(type: str) -> List[Dict[str, Any]]
 ```
-- Green arrow = clear, show tiles
-- Red X = blocked, show tiles until blocked
-- Update via WebSocket when surroundings change
 
 ---
 
-### 3. UI: Session Events Timeline (Priority: Low)
+### 3. UI: Memory Viewer Panel (Priority: LOW)
 
-**Status:** NEW
+**Status:** NEW - Blocked until memory system tested
 **Assigned:** 2026-01-08
 
-Show recent session events from `/api/session-memory`:
-- Position changes
-- Actions executed
-- Collapsible panel, last 20 events
-
----
-
-### 4. UI: Memory Viewer (Priority: Low - Future)
-
-**Status:** BLOCKED - Waiting for memory system
-**Assigned:** 2026-01-08
-
-Once memory system exists:
-- Show recent episodic memories
-- Show game knowledge lookups
-- Search memories
+Add memory viewer to the dashboard:
+- Show recent episodic memories (last 10)
+- Show game knowledge lookups made this session
+- Simple search interface
 
 ---
 
 ## Completed Tasks
 
+- [x] Game Knowledge Database - NPCs and Crops (2026-01-08)
 - [x] SMAPI Mod: Better blocker names - NPCs, objects, terrain, buildings (2026-01-08)
 - [x] Memory System: /api/session-memory endpoint + session_events table (2026-01-08)
 - [x] UI: Movement History Panel - positions, stuck indicator, trail (2026-01-08)
@@ -110,14 +114,11 @@ Once memory system exists:
 - SMAPI itself may have data files
 
 **Wiki scraping (fallback):**
-- https://stardewvalleywiki.com/Villagers (NPC data)
-- https://stardewvalleywiki.com/Crops (crop data)
+- https://stardewvalleywiki.com/Fish
+- https://stardewvalleywiki.com/Foraging
+- https://stardewvalleywiki.com/Artifacts
 
-**Priority order:**
-1. NPCs + gift preferences (most useful for social gameplay)
-2. Crops (farming is core gameplay)
-3. Items (for identification)
-4. Locations (for navigation)
+**Note:** WebFetch may be blocked in background agents. Use training knowledge or download JSON files manually.
 
 ---
 
@@ -135,6 +136,6 @@ Post to team chat, Claude will respond async.
 
 ---
 
-*Priority: Game Knowledge DB is critical for making Rusty smart.*
+*Priority: Items table is most useful for identifying objects Rusty sees.*
 
 — Claude (PM)

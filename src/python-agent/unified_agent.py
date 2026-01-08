@@ -39,6 +39,15 @@ except ImportError:
     UIClient = None
     HAS_UI = False
 
+try:
+    from memory import get_memory, get_context_for_vlm, should_remember
+    HAS_MEMORY = True
+except ImportError:
+    get_memory = None
+    get_context_for_vlm = None
+    should_remember = None
+    HAS_MEMORY = False
+
 # =============================================================================
 # Optional Input Methods
 # =============================================================================
@@ -248,7 +257,7 @@ class UnifiedVLM:
         img.save(buffer, format="PNG")
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
-    def think(self, img: Image.Image, goal: str = "", spatial_context: str = "") -> ThinkResult:
+    def think(self, img: Image.Image, goal: str = "", spatial_context: str = "", memory_context: str = "") -> ThinkResult:
         """
         Unified perception + planning in a single inference call.
 
@@ -257,12 +266,15 @@ class UnifiedVLM:
 
         Args:
             spatial_context: Optional directional info (e.g., "up: clear | down: BLOCKED")
+            memory_context: Optional memory context (NPC info, past experiences)
         """
         start_time = time.time()
         img_b64 = self.image_to_base64(img)
 
-        # Build user prompt with spatial context if available
+        # Build user prompt with all context
         user_prompt = f"CURRENT GOAL: {goal or 'Explore and help with farming'}"
+        if memory_context:
+            user_prompt += f"\n\n{memory_context}"
         if spatial_context:
             user_prompt += f"\n\n{spatial_context}"
         user_prompt += "\n\nAnalyze this Stardew Valley screenshot and plan your next actions."
@@ -1022,9 +1034,33 @@ class StardewAgent:
                 if spatial_context:
                     logging.info(f"   🧭 {spatial_context}")
 
+            # Get memory context (NPC knowledge + past experiences)
+            memory_context = ""
+            if HAS_MEMORY and get_context_for_vlm:
+                try:
+                    # Extract nearby NPCs from game state if available
+                    nearby_npcs = []
+                    game_day = ""
+                    if self.last_state:
+                        loc_data = self.last_state.get("location", {})
+                        nearby_npcs = [npc.get("name", "") for npc in loc_data.get("npcs", [])]
+                        time_data = self.last_state.get("time", {})
+                        game_day = f"{time_data.get('season', '')} {time_data.get('day', '')} Y{time_data.get('year', 1)}"
+
+                    memory_context = get_context_for_vlm(
+                        location=self.last_state.get("location", {}).get("name", "") if self.last_state else "",
+                        nearby_npcs=nearby_npcs,
+                        current_goal=self.goal,
+                        game_day=game_day
+                    )
+                    if memory_context:
+                        logging.info(f"   🧠 Memory: {len(memory_context)} chars context loaded")
+                except Exception as e:
+                    logging.debug(f"Memory context failed: {e}")
+
             # Think! (unified perception + planning)
             logging.info("🧠 Thinking...")
-            result = self.vlm.think(img, self.goal, spatial_context=spatial_context)
+            result = self.vlm.think(img, self.goal, spatial_context=spatial_context, memory_context=memory_context)
 
             # Log perception with personality
             energy_emoji = {"full": "💪", "good": "👍", "half": "😐", "low": "😓", "exhausted": "💀"}.get(result.energy, "❓")

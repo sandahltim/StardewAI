@@ -6,12 +6,13 @@ import os
 import shutil
 import subprocess
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from starlette.requests import Request
+import sqlite3
 
 from . import storage
 
@@ -19,6 +20,7 @@ BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 STATUS_PATH = Path("/home/tim/StardewAI/logs/ui/status.json")
+GAME_KNOWLEDGE_DB = BASE_DIR.parents[1] / "data" / "game_knowledge.db"
 TTS_OUTPUT_DIR = Path("/home/tim/StardewAI/logs/ui/tts")
 TTS_CACHE_DIR = TTS_OUTPUT_DIR / "cache"
 TTS_MODEL_DIR = Path("/home/tim/StardewAI/models/tts")
@@ -206,6 +208,58 @@ def _resolve_tts_model(voice: str) -> Dict[str, Optional[Path]]:
     }
 
 
+def _query_game_knowledge(entity_type: str, name: str) -> Optional[Dict[str, Any]]:
+    if not GAME_KNOWLEDGE_DB.exists():
+        return None
+    conn = sqlite3.connect(GAME_KNOWLEDGE_DB)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = None
+        if entity_type == "npc":
+            row = conn.execute(
+                "SELECT * FROM npcs WHERE lower(name) = lower(?)",
+                (name,),
+            ).fetchone()
+        elif entity_type == "crop":
+            row = conn.execute(
+                "SELECT * FROM crops WHERE lower(name) = lower(?)",
+                (name,),
+            ).fetchone()
+        elif entity_type == "item":
+            row = conn.execute(
+                "SELECT * FROM items WHERE lower(name) = lower(?)",
+                (name,),
+            ).fetchone()
+        elif entity_type == "location":
+            row = conn.execute(
+                "SELECT * FROM locations WHERE lower(name) = lower(?)",
+                (name,),
+            ).fetchone()
+        elif entity_type == "recipe":
+            row = conn.execute(
+                "SELECT * FROM recipes WHERE lower(name) = lower(?)",
+                (name,),
+            ).fetchone()
+        if not row:
+            return None
+        data = dict(row)
+        for key in [
+            "loved_gifts",
+            "liked_gifts",
+            "neutral_gifts",
+            "disliked_gifts",
+            "hated_gifts",
+            "locations",
+            "notable_features",
+            "ingredients",
+        ]:
+            if key in data and data[key]:
+                data[key] = json.loads(data[key])
+        return data
+    finally:
+        conn.close()
+
+
 def _speak_text(text: str, voice: str) -> Dict[str, Any]:
     if not shutil.which(PIPER_CMD):
         return {"ok": False, "error": f"Piper not found at '{PIPER_CMD}'"}
@@ -329,6 +383,14 @@ async def clear_pending_action() -> Dict[str, Any]:
 @app.get("/api/messages")
 def get_messages(limit: int = 200, since_id: Optional[int] = None) -> List[Dict[str, Any]]:
     return storage.list_messages(limit=limit, since_id=since_id)
+
+
+@app.get("/api/game-knowledge")
+def get_game_knowledge(entity_type: str = Query(..., alias="type"), name: str = "") -> Dict[str, Any]:
+    data = _query_game_knowledge(entity_type, name)
+    if not data:
+        raise HTTPException(status_code=404, detail="Game knowledge not found")
+    return data
 
 
 @app.post("/api/messages")
