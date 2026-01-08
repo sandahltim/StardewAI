@@ -577,7 +577,21 @@ class ModBridgeController:
             crops = state.get("location", {}).get("crops", []) if state else []
             crop_here = next((c for c in crops if c.get("x") == player_x and c.get("y") == player_y), None)
 
-            if crop_here and crop_here.get("isReadyForHarvest"):
+            # PRIORITY CHECK: Empty watering can + unwatered crops = REFILL FIRST
+            # This prevents conflicting guidance (crop directions vs refill message)
+            water_left = state.get("player", {}).get("wateringCanWater", 0) if state else 0
+            unwatered_crops = [c for c in crops if not c.get("isWatered", False)]
+
+            if water_left <= 0 and unwatered_crops:
+                # CAN IS EMPTY AND CROPS NEED WATER - REFILL IS THE ONLY PRIORITY
+                nearest_water = data.get("nearestWater")
+                if nearest_water:
+                    water_dir = nearest_water.get("direction", "nearby")
+                    water_dist = nearest_water.get("distance", "?")
+                    front_info = f">>> ⚠️ WATERING CAN EMPTY! REFILL FIRST! Water is {water_dist} tiles {water_dir} - go there and use_tool! <<<"
+                else:
+                    front_info = ">>> ⚠️ WATERING CAN EMPTY! REFILL FIRST! Find water (pond/river) and use_tool! <<<"
+            elif crop_here and crop_here.get("isReadyForHarvest"):
                 crop_name = crop_here.get("cropName", "crop")
                 front_info = f">>> 🌾 HARVEST TIME! {crop_name} is READY! use_tool to PICK IT! <<<"
             elif tile_state == "tilled":
