@@ -1,6 +1,8 @@
 from .game_knowledge import (
     get_crop_info,
     get_item_locations,
+    get_location_info,
+    get_locations_by_type,
     get_npc_gift_reaction,
     get_npc_info,
 )
@@ -11,6 +13,8 @@ __all__ = [
     # Game knowledge (SQLite)
     "get_crop_info",
     "get_item_locations",
+    "get_location_info",
+    "get_locations_by_type",
     "get_npc_gift_reaction",
     "get_npc_info",
     # Episodic memory (ChromaDB)

@@ -53,6 +53,42 @@ CATEGORY_LABELS = {
     -81: "Milk",
 }
 
+TOOL_ITEMS = [
+    {"name": "Hoe", "category": "Tool", "description": "Used to till soil.", "price": 0},
+    {"name": "Watering Can", "category": "Tool", "description": "Used to water crops.", "price": 0},
+    {"name": "Pickaxe", "category": "Tool", "description": "Breaks rocks and stones.", "price": 0},
+    {"name": "Axe", "category": "Tool", "description": "Chops trees and stumps.", "price": 0},
+    {"name": "Fishing Rod", "category": "Tool", "description": "Used to catch fish.", "price": 0},
+    {"name": "Scythe", "category": "Tool", "description": "Cuts grass and weeds.", "price": 0},
+]
+
+FORAGE_FALLBACK = {
+    "spring": ["Leek", "Daffodil", "Dandelion", "Spring Onion"],
+    "summer": ["Grape", "Spice Berry", "Sweet Pea"],
+    "fall": ["Hazelnut", "Wild Plum", "Blackberry"],
+    "winter": ["Crystal Fruit", "Crocus", "Holly"],
+}
+
+LOCATION_TYPE_OVERRIDES = {
+    "Farm": "Farm",
+    "FarmHouse": "Farm",
+    "Greenhouse": "Farm",
+    "Barn": "Farm",
+    "Coop": "Farm",
+    "Town": "Town",
+    "SeedShop": "Building",
+    "Blacksmith": "Building",
+    "Saloon": "Building",
+    "Hospital": "Building",
+    "JojaMart": "Building",
+    "Beach": "Nature",
+    "Forest": "Nature",
+    "Mountain": "Nature",
+    "Desert": "Nature",
+    "Railroad": "Nature",
+    "Mine": "Mine",
+}
+
 
 def fetch_csv(name: str):
     url = BASE_URL + name
@@ -70,10 +106,18 @@ def build_object_maps(rows):
         except (KeyError, ValueError):
             continue
         name = row.get("English Name") or row.get("Name")
+        raw_category = row.get("Category") or ""
+        category_label = row.get("Type") or ""
+        try:
+            category_id = int(raw_category)
+        except ValueError:
+            category_id = None
+        if category_id in CATEGORY_LABELS:
+            category_label = CATEGORY_LABELS[category_id]
         by_id[item_id] = {
             "name": name,
             "price": int(row.get("Price") or 0),
-            "category": row.get("Type") or row.get("Category") or "",
+            "category": category_label or raw_category,
             "description": row.get("Description") or "",
         }
     return by_id
@@ -95,6 +139,37 @@ def parse_item_ids(raw: str, object_map):
         else:
             names.append(f"Id:{item_id}")
     return names
+
+
+def parse_id_list(raw: str):
+    if not raw or raw.strip() == "-1":
+        return []
+    ids = []
+    for token in raw.split():
+        try:
+            value = int(token)
+        except ValueError:
+            continue
+        if value == -1:
+            continue
+        ids.append(value)
+    return ids
+
+
+def parse_fishing_list(raw: str):
+    if not raw or raw.strip() == "-1":
+        return []
+    values = []
+    tokens = raw.split()
+    for i in range(0, len(tokens), 2):
+        try:
+            item_id = int(tokens[i])
+        except ValueError:
+            continue
+        if item_id == -1:
+            continue
+        values.append(item_id)
+    return values
 
 
 def find_seed_for_crop(crop_name, seed_rows):
@@ -131,6 +206,13 @@ def parse_recipe_ingredients(raw, object_map):
             name = f"Id:{item_id}"
         ingredients[name] = qty
     return ingredients
+
+
+def add_location_entry(item_locations, name, location, season, kind):
+    if not name:
+        return
+    label = f"{location} ({season} {kind})"
+    item_locations.setdefault(name, set()).add(label)
 
 
 def create_schema(conn):
@@ -292,6 +374,27 @@ def main():
                 ),
             )
 
+        item_locations = {}
+        for row in locations:
+            location_name = row.get("Name") or ""
+            for season_key in ["Spring", "Summer", "Fall", "Winter"]:
+                forage_raw = row.get(f"{season_key} Foraging") or ""
+                for item_id in parse_id_list(forage_raw):
+                    item = object_map.get(item_id)
+                    if item:
+                        add_location_entry(item_locations, item["name"], location_name, season_key, "forage")
+
+                fish_raw = row.get(f"{season_key} Fishing") or ""
+                for item_id in parse_fishing_list(fish_raw):
+                    item = object_map.get(item_id)
+                    if item:
+                        add_location_entry(item_locations, item["name"], location_name, season_key, "fishing")
+
+        for season, items in FORAGE_FALLBACK.items():
+            season_title = season.capitalize()
+            for name in items:
+                item_locations.setdefault(name, set()).add(f"General ({season_title} forage)")
+
         for item in object_map.values():
             conn.execute(
                 """
@@ -303,6 +406,21 @@ def main():
                     item["category"],
                     item["description"],
                     item["price"],
+                    json.dumps(sorted(item_locations.get(item["name"], []))),
+                ),
+            )
+
+        for tool in TOOL_ITEMS:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO items (name, category, description, sell_price, locations)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    tool["name"],
+                    tool["category"],
+                    tool["description"],
+                    tool["price"],
                     json.dumps([]),
                 ),
             )
@@ -311,6 +429,15 @@ def main():
             name = row.get("Name", "").strip()
             if not name:
                 continue
+            location_type = LOCATION_TYPE_OVERRIDES.get(name, "Unknown")
+            features = []
+            for season_key in ["Spring", "Summer", "Fall", "Winter"]:
+                if (row.get(f"{season_key} Foraging") or "") not in ("", "-1") and "foraging" not in features:
+                    features.append("foraging")
+                if (row.get(f"{season_key} Fishing") or "") not in ("", "-1") and "fishing" not in features:
+                    features.append("fishing")
+            if (row.get("Artifact Data") or "") not in ("", "-1"):
+                features.append("artifacts")
             conn.execute(
                 """
                 INSERT INTO locations (name, type, unlocked_by, notable_features)
@@ -318,9 +445,9 @@ def main():
                 """,
                 (
                     name,
-                    "Unknown",
+                    location_type,
                     "",
-                    json.dumps([]),
+                    json.dumps(features),
                 ),
             )
 

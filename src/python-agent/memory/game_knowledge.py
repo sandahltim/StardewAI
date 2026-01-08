@@ -82,6 +82,28 @@ def get_item_locations(name: str) -> List[str]:
     return json.loads(row["locations"])
 
 
+def get_location_info(name: str) -> Optional[Dict[str, Any]]:
+    if not name:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM locations WHERE lower(name) = lower(?)",
+            (name,),
+        ).fetchone()
+    return _row_to_dict(row) if row else None
+
+
+def get_locations_by_type(location_type: str) -> List[Dict[str, Any]]:
+    if not location_type:
+        return []
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM locations WHERE lower(type) = lower(?) ORDER BY name",
+            (location_type,),
+        ).fetchall()
+    return [_row_to_dict(row) for row in rows]
+
+
 def get_crops_for_season(season: str) -> List[Dict[str, Any]]:
     """Get all crops that can be grown in a given season."""
     if not season:
