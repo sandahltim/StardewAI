@@ -8,15 +8,51 @@
 
 ## Active Tasks
 
-### 1. UI: Memory Viewer Panel (Priority: LOW)
+### 1. UI: Tile State Display (Priority: HIGH)
 
-**Status:** Complete
+**Status:** Not Started
 **Assigned:** 2026-01-08
 
-Memory viewer added to dashboard:
-- Recent episodic memories (last 10)
-- Game knowledge lookups made this session
-- Search interface
+**Description:**
+The SMAPI mod now returns `currentTile` data from `/surroundings`. Display this in the dashboard so we can see what farming state Rusty is working with.
+
+**API Response:**
+```json
+GET /surroundings
+{
+  "currentTile": {
+    "state": "clear|tilled|planted|watered|debris",
+    "object": null|"Weeds"|"Stone"|"Tree"|etc,
+    "canTill": true|false,
+    "canPlant": true|false
+  }
+}
+```
+
+**Requirements:**
+1. Add "Tile State" indicator to dashboard
+2. Color-coded display:
+   - `clear` (canTill): 🟢 "Ready to Till"
+   - `tilled`: 🟤 "Ready to Plant"
+   - `planted`: 🟡 "Ready to Water"
+   - `watered`: 🔵 "Done!"
+   - `debris`: 🔴 with object name
+3. Poll `/surroundings` endpoint to update
+
+**Test:** `curl -s http://localhost:8790/surroundings | jq .data.currentTile`
+
+---
+
+### 2. UI: Farming Progress Bar (Priority: MEDIUM)
+
+**Status:** Not Started
+
+**Description:**
+Visual workflow indicator:
+```
+[CLEAR] → [TILL] → [PLANT] → [WATER] → ✓
+```
+Highlight current step based on tile state.
 
 ---
 
@@ -43,29 +79,10 @@ Memory viewer added to dashboard:
 
 ---
 
-## Data Sources for Game Knowledge
-
-**Existing JSON data (check these first):**
-- https://github.com/MouseyPounds/stardew-checkup (has structured data)
-- https://github.com/spacechase0/StardewEditor (game data exports)
-- SMAPI itself may have data files
-
-**Wiki scraping (fallback):**
-- https://stardewvalleywiki.com/Fish
-- https://stardewvalleywiki.com/Foraging
-- https://stardewvalleywiki.com/Artifacts
-
-**Note:** WebFetch may be blocked in background agents. Use training knowledge or download JSON files manually.
-
----
-
 ## Communication Protocol
 
 ### For Status Updates
 Post to team chat: `./scripts/team_chat.py post codex "your message"`
-
-### For Questions
-Post to team chat, Claude will respond async.
 
 ### For Task Completion
 1. Post to team chat: "Completed: [task name]"
@@ -73,6 +90,6 @@ Post to team chat, Claude will respond async.
 
 ---
 
-*Priority: Items table is most useful for identifying objects Rusty sees.*
+*New: Tile state detection working! UI tasks to visualize it.*
 
 — Claude (PM)

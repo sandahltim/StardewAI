@@ -51,6 +51,7 @@ function renderMessage(msg) {
   if (msg.reasoning) {
     const details = document.createElement("details");
     details.className = "reasoning";
+    details.open = true;
     const summary = document.createElement("summary");
     summary.textContent = "Reasoning";
     const reasoningBody = document.createElement("div");

@@ -514,24 +514,72 @@ class ModBridgeController:
         return None
 
     def format_surroundings(self) -> str:
-        """Format surroundings as text for VLM prompt."""
+        """Format surroundings as text for VLM prompt with facing direction emphasis."""
         data = self.get_surroundings()
+        state = self.get_state()
         if not data:
             return ""
 
         dirs = data.get("directions", {})
+
+        # Get facing direction from game state
+        facing_dir = None
+        if state:
+            facing_map = {0: "up", 1: "right", 2: "down", 3: "left"}
+            facing_dir = facing_map.get(state.get("player", {}).get("facingDirection"))
+
+        # Format all directions
         parts = []
+        front_info = ""
         for direction in ["up", "down", "left", "right"]:
             info = dirs.get(direction, {})
             if info.get("clear"):
                 tiles = info.get("tilesUntilBlocked", "?")
-                parts.append(f"{direction}: clear ({tiles} tiles)")
+                desc = f"{direction}: clear ({tiles} tiles)"
+                if direction == facing_dir:
+                    front_info = "IN FRONT OF YOU: CLEAR GROUND - you can till here with hoe!"
             else:
                 blocker = info.get("blocker", "obstacle")
                 tiles = info.get("tilesUntilBlocked", 0)
-                parts.append(f"{direction}: BLOCKED ({blocker}, {tiles} tile{'s' if tiles != 1 else ''})")
+                desc = f"{direction}: BLOCKED ({blocker}, {tiles} tile{'s' if tiles != 1 else ''})"
+                if direction == facing_dir:
+                    if blocker in ["Weeds", "Grass"]:
+                        front_info = f"IN FRONT OF YOU: {blocker} - use SCYTHE to clear!"
+                    elif blocker == "Stone":
+                        front_info = f"IN FRONT OF YOU: {blocker} - use PICKAXE to break!"
+                    elif blocker in ["Tree", "Stump"]:
+                        front_info = f"IN FRONT OF YOU: {blocker} - use AXE to chop!"
+                    else:
+                        front_info = f"IN FRONT OF YOU: {blocker}"
+            parts.append(desc)
 
-        return "DIRECTIONS: " + " | ".join(parts)
+        result = "DIRECTIONS: " + " | ".join(parts)
+
+        # Add current tile state from game data (more reliable than vision)
+        current_tile = data.get("currentTile", {})
+        if current_tile:
+            tile_state = current_tile.get("state", "unknown")
+            tile_obj = current_tile.get("object")
+            can_till = current_tile.get("canTill", False)
+            can_plant = current_tile.get("canPlant", False)
+
+            if tile_state == "tilled":
+                front_info = ">>> TILE IN FRONT: TILLED SOIL - select SEEDS and PLANT! <<<"
+            elif tile_state == "planted":
+                front_info = ">>> TILE IN FRONT: PLANTED - select WATERING CAN and WATER! <<<"
+            elif tile_state == "watered":
+                front_info = ">>> TILE IN FRONT: WATERED - DONE! Move to next tile. <<<"
+            elif tile_state == "debris":
+                tool = "SCYTHE" if tile_obj in ["Weeds", "Grass"] else "PICKAXE" if tile_obj == "Stone" else "AXE"
+                front_info = f">>> TILE IN FRONT: {tile_obj} - use {tool} to clear! <<<"
+            elif tile_state == "clear" and can_till:
+                front_info = ">>> TILE IN FRONT: CLEAR DIRT - use HOE to TILL! <<<"
+            elif tile_state == "clear":
+                front_info = ">>> TILE IN FRONT: CLEAR (non-tillable) - move elsewhere <<<"
+
+        if front_info:
+            result = f"{front_info}\n{result}"
+        return result
 
     def execute(self, action: Action) -> bool:
         """Execute an action via SMAPI mod API."""

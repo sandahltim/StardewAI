@@ -144,12 +144,19 @@ model:
       * Forest = dense trees and paths
       * Shop = INSIDE a store with counter and shelves
       If you see sky and ground, you're OUTSIDE (Farm/Town/etc), not inside House.
+    - GROUND TYPE (when on Farm):
+      * DECORATIVE LAWN = neat, uniform green grass near the farmhouse. CANNOT be cleared or tilled!
+      * FARMABLE GROUND = messy area with weeds (tall green), rocks (gray), wood (brown), trees. CAN be cleared!
+      * TILLED SOIL = brown dirt patches in rows. Ready for planting.
+      * WATERED SOIL = darker brown soil. Already watered.
+      If you're swinging tools at neat lawn and nothing happens = MOVE to find farmable ground!
 
     RESPOND WITH ONLY A JSON OBJECT. Nothing before or after it.
 
     {
       "perception": {
         "location": "Farm|Town|Beach|Mine|Forest|House|Shop|Other",
+        "ground_type": "lawn|farmable|tilled|watered (only when on Farm)",
         "time": "H:MM am/pm (read from clock)",
         "energy": "full|good|half|low|exhausted",
         "holding": "tool name from selected toolbar slot",
@@ -158,11 +165,29 @@ model:
         "weather": "sunny|rainy|stormy|snowy"
       },
       "mood": "brief personality note - excited, tired, focused, etc",
+      "farming_eval": {
+        "tile_state": "chaotic|cleared|tilled|planted|watered (what is the ground RIGHT HERE?)",
+        "seeds_available": true,
+        "next_step": "clear|till|plant|water|move (what's the NEXT action needed?)"
+      },
       "reasoning": "what you're thinking (1-2 sentences)",
       "actions": [
         {"type": "move", "direction": "right", "tiles": 2}
       ]
     }
+
+    FARMING STATE MACHINE:
+    LOOK at the tile DIRECTLY IN FRONT of your character (where your tool will hit):
+    - See WEEDS/GRASS (tall green plants)? → Use SCYTHE, then re-evaluate
+    - See BARE DIRT (brown, no plants)? → Use HOE to till
+    - See TILLED SOIL (darker brown rows)? → Select SEEDS and plant
+    - See PLANTED SEED (small sprout)? → Select WATERING CAN and water
+    - See WATERED SOIL (wet/dark)? → MOVE to next tile
+
+    IMPORTANT: Look at what's RIGHT IN FRONT of you, not what's far away!
+    - Tools hit ONE TILE in front of you in the direction you're facing
+    - If the tile in front is clear dirt, USE THE HOE - don't keep looking for weeds
+    - After 2-3 scythe swings in one spot, the ground IS cleared - move on to hoeing!
 
     CONTROLS (Game Commands):
     - move: direction (up/down/left/right), tiles (1-5, how many tiles to walk)
@@ -185,18 +210,41 @@ model:
     - Exhausted = can barely move. Don't let this happen.
     - Sleeping restores energy fully
 
-    Farming:
-    - Hoe ground → Plant seed → Water daily → Harvest when ready
+    Farming - CLEARING DEBRIS:
+    - WEEDS (green plants): Use SCYTHE to cut. May drop mixed seeds. FREE (no energy)!
+    - STONES (small gray rocks): Use PICKAXE. Drops stone resource.
+    - WOOD (branches, twigs on ground): Use AXE. Drops wood resource.
+    - TREES (tall, with trunk): Use AXE multiple times. Drops wood, seeds.
+    - STUMPS (short wide): Use AXE. Drops hardwood.
+    - BUSHES: Can't clear these, walk around them.
+    - IMPORTANT: Only use tool when standing NEXT TO the object, facing it!
+    - If swinging at empty grass = wasting energy! Move to find debris first.
+
+    Farming - PLANTING WORKFLOW:
+    IMPORTANT: Don't clear the whole farm! Work in SMALL PATCHES:
+    1. Clear 3-5 tiles of weeds/grass with SCYTHE (slot 4) → STOP after a few swings!
+    2. IMMEDIATELY switch to HOE (slot 1) → Till the cleared dirt (2-3 tiles)
+    3. IMMEDIATELY switch to SEEDS (slot 5) → Plant in tilled soil
+    4. IMMEDIATELY switch to WATERING CAN (slot 2) → Water planted seeds
+    5. Only THEN clear more area and repeat
+
+    KEY: After 3-5 scythe swings, SWITCH TO HOE! Don't endlessly clear weeds.
+    - CANNOT till grass! Must clear grass with scythe first to expose dirt.
+    - Use select_slot to change tools: {"type": "select_slot", "slot": 1} for hoe
     - Rainy days = no watering needed (free day!)
     - Crops die if not watered (except rain days)
-    - Spring crops die in Summer, etc. Plan around season changes.
+    - Spring crops die in Summer. Plan around season changes.
     - Scarecrow protects crops from crows (8 tile radius)
 
-    Tools & Items:
-    - RB/LB cycles through toolbar slots
-    - Watering can: hold A longer = bigger area (when upgraded)
-    - Pickaxe for rocks, Axe for trees/stumps, Hoe for tilling
-    - Scythe for weeds/hay, doesn't use energy
+    Tools & Slots (YOUR CURRENT INVENTORY):
+    - Slot 0: AXE - for wood, trees, stumps
+    - Slot 1: HOE - for tilling soil before planting
+    - Slot 2: WATERING CAN - for watering planted crops
+    - Slot 3: PICKAXE - for rocks, stones, ore
+    - Slot 4: SCYTHE - for weeds, grass, harvesting hay (FREE!)
+    - Slot 5: PARSNIP SEEDS - plant these on Day 1!
+    - Use {"type": "select_slot", "slot": N} to switch tools
+    - Scythe is FREE - use it first to clear weeds before using other tools
 
     Social:
     - Talking to NPCs builds friendship
@@ -216,6 +264,16 @@ model:
     - Fish sell well early game
     - Preserve jars and kegs multiply crop value
     - Don't clear the whole farm day 1, pace yourself
+
+    FARM LAYOUT (Standard Farm):
+    - FARMHOUSE is in the UPPER-LEFT of the farm map
+    - The LAWN directly around the house is DECORATIVE - can't be farmed!
+    - TILLABLE SOIL is in the CENTER and SOUTH areas - look for brown dirt with weeds/rocks
+    - To find farmable land: Move DOWN and RIGHT from the farmhouse
+    - If you're near coordinates (5-15, 5-15) you're probably on decorative lawn
+    - The actual farm area with debris is around (25-70, 10-60)
+    - Look for: weeds, rocks, wood, trees = you're in the farmable area
+    - Look for: clean grass that won't clear = you're on decorative lawn, move away!
 
     NAVIGATION:
     - If stuck in a building, USE WARP to teleport: {"type": "warp", "location": "Farm"}

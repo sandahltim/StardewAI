@@ -50,9 +50,16 @@ public class GameStateReader
         int mapHeight = location.Map?.Layers[0]?.LayerHeight ?? 0;
         var start = player.TilePoint;
 
+        // Check current tile state for farming
+        var facingDir = player.FacingDirection;
+        int frontX = start.X + (facingDir == 1 ? 1 : facingDir == 3 ? -1 : 0);
+        int frontY = start.Y + (facingDir == 2 ? 1 : facingDir == 0 ? -1 : 0);
+        var currentTile = GetTileState(location, frontX, frontY);
+
         return new SurroundingsState
         {
             Position = new TilePosition { X = start.X, Y = start.Y },
+            CurrentTile = currentTile,
             Directions = new Dictionary<string, DirectionInfo>
             {
                 ["up"] = ScanDirection(location, start.X, start.Y, 0, -1, maxTiles, mapWidth, mapHeight),
@@ -61,6 +68,67 @@ public class GameStateReader
                 ["right"] = ScanDirection(location, start.X, start.Y, 1, 0, maxTiles, mapWidth, mapHeight)
             }
         };
+    }
+
+    private CurrentTileInfo GetTileState(GameLocation location, int x, int y)
+    {
+        var tileVec = new Microsoft.Xna.Framework.Vector2(x, y);
+        var result = new CurrentTileInfo
+        {
+            State = "clear",
+            Object = null,
+            CanTill = false,
+            CanPlant = false
+        };
+
+        // Check for objects on the tile
+        if (location.Objects.TryGetValue(tileVec, out var obj))
+        {
+            result.Object = obj.Name;
+            result.State = "debris";
+            return result;
+        }
+
+        // Check for terrain features (grass, trees, etc.)
+        if (location.terrainFeatures.TryGetValue(tileVec, out var feature))
+        {
+            if (feature is StardewValley.TerrainFeatures.HoeDirt hoeDirt)
+            {
+                if (hoeDirt.crop != null)
+                {
+                    result.State = hoeDirt.state.Value == 1 ? "watered" : "planted";
+                    result.Object = !string.IsNullOrEmpty(hoeDirt.crop.indexOfHarvest.Value) ? "crop" : "seed";
+                }
+                else
+                {
+                    result.State = hoeDirt.state.Value == 1 ? "watered" : "tilled";
+                    result.CanPlant = true;
+                }
+                return result;
+            }
+            else if (feature is StardewValley.TerrainFeatures.Grass)
+            {
+                result.State = "debris";
+                result.Object = "Grass";
+                return result;
+            }
+            else if (feature is StardewValley.TerrainFeatures.Tree)
+            {
+                result.State = "debris";
+                result.Object = "Tree";
+                return result;
+            }
+        }
+
+        // Check if tillable
+        result.CanTill = location.doesTileHaveProperty(x, y, "Diggable", "Back") != null
+                         || (location is StardewValley.Farm);
+        if (result.CanTill)
+        {
+            result.State = "clear";
+        }
+
+        return result;
     }
 
     private DirectionInfo ScanDirection(

@@ -102,7 +102,17 @@ public class InventoryItem
 public class SurroundingsState
 {
     public TilePosition Position { get; set; }
+    public CurrentTileInfo CurrentTile { get; set; }
     public Dictionary<string, DirectionInfo> Directions { get; set; } = new();
+}
+
+/// <summary>What's on the player's current tile</summary>
+public class CurrentTileInfo
+{
+    public string State { get; set; }  // "clear", "debris", "tilled", "planted", "watered"
+    public string Object { get; set; } // null, "Weeds", "Stone", "Twig", crop name, etc.
+    public bool CanTill { get; set; }  // true if hoe can be used here
+    public bool CanPlant { get; set; } // true if seeds can be planted here
 }
 
 /// <summary>Simple tile position</summary>
