@@ -400,15 +400,23 @@ function init() {
     movementTrail.textContent = trail.length ? trail.join(" ") : "-";
   };
 
+  const getCompassTiles = (info) => {
+    if (!info) return null;
+    if (Number.isFinite(info.tilesUntilBlocked)) return info.tilesUntilBlocked;
+    if (Number.isFinite(info.tiles_until_blocked)) return info.tiles_until_blocked;
+    return null;
+  };
+
   const updateCompassCell = (el, direction, info) => {
     if (!el || !info) return;
     el.classList.remove("compass-cell--clear", "compass-cell--blocked");
+    const tiles = getCompassTiles(info);
     if (info.clear) {
       el.classList.add("compass-cell--clear");
-      el.textContent = `${direction} ${info.tiles_until_blocked}`;
+      el.textContent = tiles === null ? `${direction}` : `${direction} ${tiles}`;
     } else {
       el.classList.add("compass-cell--blocked");
-      el.textContent = `✗ ${info.tiles_until_blocked}`;
+      el.textContent = tiles === null ? "✗" : `✗ ${tiles}`;
     }
   };
 
@@ -818,13 +826,19 @@ function init() {
       })
       .catch(() => {});
 
-    fetch("http://localhost:8790/surroundings")
+    const smapiBase = `${window.location.protocol}//${window.location.hostname}:8790`;
+    fetch(`${smapiBase}/surroundings`)
       .then((res) => res.json())
       .then((payload) => {
-        if (!payload || !payload.success) return;
+        if (!payload || !payload.success) {
+          if (compassNote) compassNote.textContent = "SMAPI unavailable";
+          return;
+        }
         updateCompass(payload.data);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (compassNote) compassNote.textContent = "SMAPI unavailable";
+      });
   }, pollIntervalMs);
 }
 

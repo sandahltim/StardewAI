@@ -132,7 +132,7 @@ Suggested implementation:
 
 ## Directional Compass
 
-- Compass widget polls `http://localhost:8790/surroundings` and shows clear/blocked tiles per direction.
+- Compass widget polls `http://<ui-host>:8790/surroundings` and shows clear/blocked tiles per direction.
 - Green = clear (tile count), red = blocked (tiles until blocked).
 
 ## Session Timeline
