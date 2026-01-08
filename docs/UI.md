@@ -60,6 +60,7 @@ If you wire the agent to the UI, these endpoints are the minimal surface:
 - `POST /api/session-memory`: Store session events (positions, actions, tool use).
 - `GET /api/session-memory`: Read session events (filter by `event_type`).
 - `GET /api/game-knowledge?type=npc&name=Shane`: Query game knowledge.
+- `GET /api/episodic-memories?limit=10`: Read recent episodic memories (optional `query`).
 
 ## Agent Helper Client
 `src/ui/client.py` provides a thin HTTP client for agents:
@@ -138,6 +139,11 @@ Suggested implementation:
 ## Session Timeline
 
 - Collapsible list of the most recent session events (positions/actions/tool use).
+
+## Memory Viewer
+
+- Shows recent episodic memories (ChromaDB) and game knowledge lookups.
+- Search uses `/api/episodic-memories?query=...`.
 
 ### Valid Senders
 - `claude` - Claude (Opus) - Agent/architecture

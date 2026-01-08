@@ -320,6 +320,41 @@ h2 {
   gap: 6px;
 }
 
+.memory-viewer {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fbf7f1;
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.memory-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.memory-search {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.memory-block {
+  display: grid;
+  gap: 6px;
+}
+
+.memory-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
 .help {
   margin: 0;
   color: var(--muted);

@@ -260,6 +260,10 @@ function updateStatus(status) {
   const compassRight = document.getElementById("compassRight");
   const compassNote = document.getElementById("compassNote");
   const sessionTimeline = document.getElementById("sessionTimeline");
+  const memorySearch = document.getElementById("memorySearch");
+  const memorySearchBtn = document.getElementById("memorySearchBtn");
+  const memoryList = document.getElementById("memoryList");
+  const knowledgeList = document.getElementById("knowledgeList");
 
   if (mode) mode.textContent = `Mode: ${status.mode || "helper"}`;
   if (running) running.textContent = `Running: ${status.running ? "yes" : "no"}`;
@@ -467,6 +471,53 @@ function init() {
       li.textContent = summary;
       sessionTimeline.append(li);
     });
+  };
+
+  const updateMemoryList = (items) => {
+    if (!memoryList) return;
+    memoryList.innerHTML = "";
+    if (!items.length) {
+      const li = document.createElement("li");
+      li.textContent = "None";
+      memoryList.append(li);
+      return;
+    }
+    items.forEach((item) => {
+      const li = document.createElement("li");
+      const meta = item.metadata || {};
+      const location = meta.location ? ` @ ${meta.location}` : "";
+      li.textContent = `${item.text}${location}`;
+      memoryList.append(li);
+    });
+  };
+
+  const updateKnowledgeList = (events) => {
+    if (!knowledgeList) return;
+    knowledgeList.innerHTML = "";
+    if (!events.length) {
+      const li = document.createElement("li");
+      li.textContent = "None";
+      knowledgeList.append(li);
+      return;
+    }
+    events.slice(-10).reverse().forEach((event) => {
+      const li = document.createElement("li");
+      const data = event.data || {};
+      li.textContent = `${data.type || "lookup"}: ${data.name || "unknown"}`;
+      knowledgeList.append(li);
+    });
+  };
+
+  const fetchMemories = (query) => {
+    const params = new URLSearchParams({ limit: "10" });
+    if (query) params.set("query", query);
+    fetch(`/api/episodic-memories?${params.toString()}`)
+      .then((res) => res.json())
+      .then((items) => {
+        if (!Array.isArray(items)) return;
+        updateMemoryList(items);
+      })
+      .catch(() => {});
   };
 
   const scrollTeamFeed = () => {
@@ -826,6 +877,14 @@ function init() {
       })
       .catch(() => {});
 
+    fetch("/api/session-memory?event_type=knowledge_lookup&limit=10")
+      .then((res) => res.json())
+      .then((events) => {
+        if (!Array.isArray(events)) return;
+        updateKnowledgeList(events);
+      })
+      .catch(() => {});
+
     const smapiBase = `${window.location.protocol}//${window.location.hostname}:8790`;
     fetch(`${smapiBase}/surroundings`)
       .then((res) => res.json())
@@ -840,6 +899,24 @@ function init() {
         if (compassNote) compassNote.textContent = "SMAPI unavailable";
       });
   }, pollIntervalMs);
+
+  if (memorySearchBtn) {
+    memorySearchBtn.addEventListener("click", () => {
+      const query = memorySearch ? memorySearch.value.trim() : "";
+      fetchMemories(query);
+    });
+  }
+
+  if (memorySearch) {
+    memorySearch.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        fetchMemories(memorySearch.value.trim());
+      }
+    });
+  }
+
+  fetchMemories("");
 }
 
 window.addEventListener("DOMContentLoaded", init);

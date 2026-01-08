@@ -8,71 +8,23 @@
 
 ## Active Tasks
 
-### 1. Calendar/Festival Table (Priority: HIGH)
+### 1. UI: Memory Viewer Panel (Priority: LOW)
 
-**Status:** NEW
+**Status:** Complete
 **Assigned:** 2026-01-08
 
-Add calendar table to `src/data/game_knowledge.db`:
-
-```sql
-CREATE TABLE calendar (
-    season TEXT,
-    day INTEGER,
-    event_name TEXT,
-    event_type TEXT,    -- "festival", "birthday", "shop"
-    description TEXT,
-    PRIMARY KEY (season, day, event_name)
-);
-```
-
-**Events to populate:**
-- Festivals: Egg Festival (Spring 13), Flower Dance (Spring 24), Luau (Summer 11), Dance of Moonlight Jellies (Summer 28), Stardew Valley Fair (Fall 16), Spirit's Eve (Fall 27), Festival of Ice (Winter 8), Night Market (Winter 15-17), Feast of Winter Star (Winter 25)
-- Shop events: Traveling Cart (Fri/Sun)
-- Birthday notes are already in NPCs table
-
-**Add query helper** to `game_knowledge.py`:
-```python
-def get_events_for_day(season: str, day: int) -> List[Dict[str, Any]]
-def get_upcoming_events(season: str, day: int, days_ahead: int = 7) -> List[Dict[str, Any]]
-```
-
-**Update** `src/data/create_game_knowledge_db.py` OR `scripts/build_game_knowledge_db.py` (whichever is canonical)
-
----
-
-### 2. NPC Schedule Data (Priority: MEDIUM)
-
-**Status:** NEW
-**Assigned:** 2026-01-08
-
-The `schedule_notes` column in NPCs table is empty for 35/35 NPCs. Add general schedule notes:
-
-**Examples:**
-- Shane: "Works at JojaMart 9am-5pm. Drinks at Saloon 6pm-11pm. Visits chicken coop at ranch mornings."
-- Pierre: "Runs Pierre's General Store 9am-5pm. Closed Wednesdays."
-- Penny: "Teaches Jas and Vincent at museum 10am-2pm Tue/Wed/Fri."
-
-**Focus on:** Marriage candidates + key shop NPCs first.
-
----
-
-### 3. UI: Memory Viewer Panel (Priority: LOW)
-
-**Status:** Blocked until memory system tested
-**Assigned:** 2026-01-08
-
-Add memory viewer to the dashboard:
-- Show recent episodic memories (last 10)
-- Show game knowledge lookups made this session
-- Simple search interface
-
-**Memory system now working** - can unblock this task.
+Memory viewer added to dashboard:
+- Recent episodic memories (last 10)
+- Game knowledge lookups made this session
+- Search interface
 
 ---
 
 ## Completed Tasks
 
+- [x] Game Knowledge DB - Calendar table + helpers (2026-01-08)
+- [x] Game Knowledge DB - NPC schedule notes (2026-01-08)
+- [x] UI: Memory Viewer Panel (2026-01-08)
 - [x] Game Knowledge DB - Items table (2026-01-08)
 - [x] Game Knowledge DB - Locations table + helpers (2026-01-08)
 - [x] Game Knowledge Database - NPCs and Crops (2026-01-08)
