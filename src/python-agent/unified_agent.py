@@ -602,12 +602,64 @@ class ModBridgeController:
                 else:
                     front_info = f">>> TILE: {tile_obj} - select_slot {needed_slot} for {needed_tool.upper()}, then use_tool! <<<"
             elif tile_state == "clear" and can_till:
-                if "Hoe" in current_tool:
+                # Check for unwatered crops first - prioritize watering over tilling
+                crops = state.get("location", {}).get("crops", []) if state else []
+                unwatered = [c for c in crops if not c.get("isWatered", False)]
+                if unwatered:
+                    # Guide to nearest unwatered crop
+                    player_x = state.get("player", {}).get("tileX", 0) if state else 0
+                    player_y = state.get("player", {}).get("tileY", 0) if state else 0
+                    nearest = min(unwatered, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+                    dx = nearest["x"] - player_x
+                    dy = nearest["y"] - player_y
+                    dirs = []
+                    if dy < 0:
+                        dirs.append(f"{abs(dy)} UP")
+                    elif dy > 0:
+                        dirs.append(f"{abs(dy)} DOWN")
+                    if dx < 0:
+                        dirs.append(f"{abs(dx)} LEFT")
+                    elif dx > 0:
+                        dirs.append(f"{abs(dx)} RIGHT")
+                    direction_str = " and ".join(dirs) if dirs else "here"
+                    front_info = f">>> {len(unwatered)} CROPS NEED WATERING! Nearest: {direction_str}. GO THERE FIRST! <<<"
+                elif "Hoe" in current_tool:
                     front_info = f">>> TILE: CLEAR DIRT - You have {current_tool}, use_tool to TILL! <<<"
                 else:
                     front_info = ">>> TILE: CLEAR DIRT - select_slot 1 for HOE, then use_tool to TILL! <<<"
             elif tile_state == "clear" or tile_state == "blocked":
-                front_info = ">>> TILE: NOT FARMABLE - move to find tillable ground <<<"
+                # Check if there are crops nearby that need watering
+                crops = state.get("location", {}).get("crops", []) if state else []
+                player_x = state.get("player", {}).get("tileX", 0) if state else 0
+                player_y = state.get("player", {}).get("tileY", 0) if state else 0
+
+                # Find nearest unwatered crop
+                unwatered = [c for c in crops if not c.get("isWatered", False)]
+                if unwatered:
+                    # Calculate distance and direction to nearest unwatered crop
+                    nearest = min(unwatered, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+                    dx = nearest["x"] - player_x
+                    dy = nearest["y"] - player_y
+
+                    # Build directional guidance
+                    dirs = []
+                    if dy < 0:
+                        dirs.append(f"{abs(dy)} tiles UP")
+                    elif dy > 0:
+                        dirs.append(f"{abs(dy)} tiles DOWN")
+                    if dx < 0:
+                        dirs.append(f"{abs(dx)} tiles LEFT")
+                    elif dx > 0:
+                        dirs.append(f"{abs(dx)} tiles RIGHT")
+
+                    direction_str = " and ".join(dirs) if dirs else "here"
+                    front_info = f">>> TILE: NOT FARMABLE - {len(unwatered)} UNWATERED CROPS! Nearest is {direction_str}. Move there to water! <<<"
+                else:
+                    # Check for any crops (all watered or none)
+                    if crops:
+                        front_info = ">>> TILE: NOT FARMABLE - All crops are watered! Move to find more tasks. <<<"
+                    else:
+                        front_info = ">>> TILE: NOT FARMABLE - move to find tillable ground <<<"
 
         if front_info:
             result = f"{front_info}\n{result}"

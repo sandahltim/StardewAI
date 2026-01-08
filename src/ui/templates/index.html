@@ -159,9 +159,27 @@
             <li>None</li>
           </ol>
         </div>
+        <div class="inventory-card">
+          <div class="vlm-subhead">Toolbar Inventory</div>
+          <div id="inventoryGrid" class="inventory-grid">
+            {% for slot in range(12) %}
+            <div class="inventory-slot">
+              <div class="inventory-slot__index">{{ slot }}</div>
+              <div class="inventory-slot__name">Empty</div>
+              <div class="inventory-slot__stack">-</div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
         <div class="instruction-card">
           <div class="vlm-subhead">Current Instruction</div>
           <div id="currentInstruction" class="instruction-text">No instruction yet.</div>
+        </div>
+        <div class="action-log-card">
+          <div class="vlm-subhead">Action Results</div>
+          <ol id="actionLog" class="action-log">
+            <li>None</li>
+          </ol>
         </div>
         <details class="session-timeline">
           <summary>Session Timeline</summary>

@@ -161,6 +161,16 @@ Suggested implementation:
 - Crop progress aggregates `location.crops[].daysUntilHarvest` from `/state`.
 - Shows counts by days remaining and ready crops.
 
+## Inventory Panel
+
+- Toolbar inventory grid reads `inventory[]` and `player.currentToolIndex` from `/state`.
+- Highlights selected slot and shows item name + stack size.
+
+## Action Result Log
+
+- Action results list reads `/api/session-memory?event_type=action`.
+- Displays recent action success/fail outcomes for debugging.
+
 ## Current Instruction
 
 - Instruction callout shows the latest spatial instruction from agent status.

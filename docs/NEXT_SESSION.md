@@ -1,7 +1,34 @@
 # Next Session - StardewAI
 
-**Last Updated:** 2026-01-08 by Claude
-**Status:** Major SMAPI improvements, seed planting fix pending test
+**Last Updated:** 2026-01-08 Session 11 by Claude
+**Status:** Core mechanics verified, agent decision-making needs improvement
+
+---
+
+## Session 11 Results
+
+### VERIFIED WORKING
+| Feature | Test Result |
+|---------|-------------|
+| **Seed Planting** | ✅ "Placed Parsnip Seeds" - fix confirmed |
+| **Water Refill** | ✅ Navigated 21 tiles to water, refilled 0→40 |
+| **Scythe Clearing** | ✅ Cleared weeds blocking path |
+| **Crop Navigation** | ✅ Agent watered 6/15 crops autonomously |
+| **Codex UI Features** | ✅ Inventory panel, action log, stuck indicator |
+
+### IMPROVEMENTS MADE
+1. **Crop location guidance** - When on non-farmable tiles, agent now sees:
+   `>>> 15 UNWATERED CROPS! Nearest is 2 DOWN and 1 RIGHT. Move there to water! <<<`
+
+2. **Crop priority on clear tiles** - Agent now checks for unwatered crops before suggesting tilling
+
+3. **Codex UI** - Inventory panel (12 slots), action result log added
+
+### ISSUES IDENTIFIED
+1. **VLM hallucination** - Occasionally says "inside house" when on Farm
+2. **Action repetition** - Agent lacks history tracking, repeats same moves
+3. **Tile-reactive only** - Needs broader state analysis, not just current tile
+4. **Efficiency** - Watered 6/15 crops in ~5 minutes, too slow
 
 ---
 
@@ -9,111 +36,64 @@
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| llama-server | Running | Port 8780, Qwen3VL-30B loaded |
-| SMAPI mod | **UPDATED** | Port 8790, major improvements |
-| UI Server | Running | Port 9001, all indicators added |
-| VLM Perception | Working | Location, time, energy detection |
-| Tool Awareness | Working | Uses game state, not VLM |
-| **Water Detection** | **NEW** | Nearest water with direction/distance |
-| **Shipping Bin** | **NEW** | Location available on Farm |
-| **Crop Growth** | **FIXED** | Actual days until harvest |
-| **Tillability** | **FIXED** | Porch/paths correctly blocked |
-| **Seed Planting** | **NEW** | use_tool now works for seeds |
-| Game Knowledge DB | Working | SQLite: 35 NPCs, 46 crops, 647 items |
-| Episodic Memory | Working | ChromaDB: semantic search |
-
-## Session 10 Accomplishments
-
-**SMAPI Improvements (6 features):**
-1. **Water source detection** - `nearestWater` in `/surroundings`
-   - Returns x, y, distance, direction (e.g., "24 tiles south")
-   - Agent can now navigate to refill watering can
-
-2. **Shipping bin location** - `shippingBin` in `/state`
-   - Fixed location (71, 14) on standard farm
-   - For selling harvested crops
-
-3. **Crop growth fix** - `daysUntilHarvest` now accurate
-   - Was showing `dayOfCurrentPhase` (wrong)
-   - Now calculates actual remaining days across all phases
-
-4. **Tillability fix** - Non-farmable tiles now `blocked`
-   - Removed blanket `location is Farm` check
-   - Porch, paths, decorative areas correctly identified
-
-5. **Forageable detection** - `isForageable` flag on objects
-   - Spring onions, flowers, etc. marked for pickup
-
-6. **Interactable objects** - `canInteract` + `interactionType`
-   - Chests, machines, craftables identified
-
-7. **Seed planting fix** - `use_tool` action handles objects
-   - Was checking `CurrentTool` (null for seeds)
-   - Now uses `ActiveObject` + `Utility.tryToPlaceItem()`
-
-**Codex UI Updates (3 features):**
-- Water source indicator
-- Shipping bin indicator
-- Crop growth progress display
-
-**Bug Fixes:**
-- CurrentTool now returns selected item name (seeds, not "None")
-- Tile state correctly identifies non-tillable areas
-
-## Files Changed (Session 10)
-
-### SMAPI Mod
-- `Models/GameState.cs` - Added WaterSourceInfo, ShippingBin, forageable/interactable fields
-- `GameStateReader.cs` - Water detection, shipping bin, crop growth fix, tillability fix
-- `ActionExecutor.cs` - Seed planting with Utility.tryToPlaceItem()
-
-### Python Agent
-- `unified_agent.py` - Water direction in empty can message, blocked tile handling
-
-### Docs
-- `SMAPI_IMPROVEMENTS_PLAN.md` - Created
-- `CODEX_TASKS.md` - Updated by Codex
-
-## Next Steps (Priority Order)
-
-### HIGH - Next Session
-1. **Test seed planting fix** - Restart game, verify seeds plant correctly
-2. **Full farming cycle test** - Till → Plant → Water → Refill → Repeat
-3. **Water refill navigation** - Agent finds and uses water source
-
-### MEDIUM
-4. **Crop harvesting** - When ready, agent harvests
-5. **Shipping bin usage** - Agent sells crops
-6. **Multi-day autonomy** - Run through multiple game days
-
-### Testing Required (Before Complete)
-- See TEAM_PLAN.md for comprehensive test matrix
+| llama-server | Running | Port 8780, Qwen3VL-30B |
+| SMAPI mod | Working | Port 8790, all features |
+| UI Server | Working | Port 9001, Codex features |
+| Seed Planting | **VERIFIED** | use_tool + ActiveObject |
+| Water Refill | **VERIFIED** | nearestWater navigation |
+| Crop Detection | Working | daysUntilHarvest, isWatered |
+| Tool Switching | Working | select_slot 0-11 |
 
 ---
 
-## Quick Start: Testing
+## Next Steps (Priority Order)
+
+### HIGH - Decision Making
+1. **Add action history** - Track last N actions to avoid repetition
+2. **Structured state summary** - Give VLM clear crop count/status, not just tiles
+3. **Location verification** - Explicit check: "You are on FARM at (x,y)"
+
+### MEDIUM - Completion Tasks
+4. **Complete watering** - All 15 crops, not just 6
+5. **Crop harvesting** - Test when crops mature (Day 8-9)
+6. **Shipping bin** - Navigate to (71,14) and sell
+
+### LOW - Polish
+7. **Energy management** - Track stamina, plan rest
+8. **Multi-day autonomy** - Full day cycle: wake → farm → sleep
+
+---
+
+## Files Changed (Session 11)
+
+### Python Agent
+- `unified_agent.py` - Crop location guidance, crop priority on clear tiles
+
+### UI (by Codex)
+- Inventory panel (12 toolbar slots)
+- Action result log (success/fail history)
+- Stuck indicator completed
+
+---
+
+## Quick Start
 
 ```bash
-# 1. RESTART GAME FIRST (new SMAPI build)
+# Services should be running already
 
-# 2. Verify services
-curl -s http://localhost:8790/health | jq .
-curl -s http://localhost:8790/surroundings | jq '{tile: .data.currentTile, water: .data.nearestWater}'
+# Check state
+curl -s http://localhost:8790/state | jq '{crops: .data.location.crops | length, water: .data.player.wateringCanWater}'
 
-# 3. Test planting manually
-curl -X POST http://localhost:8790/action -H "Content-Type: application/json" \
-  -d '{"action": "select_slot", "slot": 5}'  # Select seeds
-curl -X POST http://localhost:8790/action -H "Content-Type: application/json" \
-  -d '{"action": "use_tool"}'  # Should plant!
-
-# 4. Run agent
-cd /home/tim/StardewAI
+# Run agent
 source venv/bin/activate
-python src/python-agent/unified_agent.py --ui --goal "Water all crops, refill can at water when empty"
+python src/python-agent/unified_agent.py --ui --goal "Water all crops"
+
+# Monitor
+tail -f /tmp/claude/-home-tim-StardewAI/tasks/*.output | grep -E ">>> |💭"
 ```
 
 ---
 
-*Session 10: Major SMAPI improvements. Seed planting fix ready for test.*
+*Session 11: Core mechanics verified. Agent watered 6 crops but needs smarter decision-making.*
 
 — Claude (PM)

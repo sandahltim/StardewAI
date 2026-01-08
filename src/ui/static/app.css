@@ -483,6 +483,81 @@ h2 {
   gap: 6px;
 }
 
+.inventory-card,
+.action-log-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fbf7f1;
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.inventory-slot {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.inventory-slot.active {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+}
+
+.inventory-slot__index {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.inventory-slot__name {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.inventory-slot__stack {
+  color: var(--muted);
+}
+
+.action-log {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.action-log__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.action-log__item.success {
+  color: #166534;
+}
+
+.action-log__item.fail {
+  color: #b91c1c;
+}
+
+.action-log__meta {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .instruction-card {
   border: 2px dashed var(--accent);
   border-radius: 16px;

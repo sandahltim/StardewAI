@@ -277,6 +277,8 @@ function updateStatus(status) {
   const shippingNote = document.getElementById("shippingNote");
   const cropProgress = document.getElementById("cropProgress");
   const currentInstruction = document.getElementById("currentInstruction");
+  const inventoryGrid = document.getElementById("inventoryGrid");
+  const actionLog = document.getElementById("actionLog");
 
   if (mode) mode.textContent = `Mode: ${status.mode || "helper"}`;
   if (running) running.textContent = `Running: ${status.running ? "yes" : "no"}`;
@@ -378,7 +380,7 @@ function init() {
   let latestState = null;
   let latestPlayer = null;
 
-  const updateMovementHistory = (events) => {
+  const updateMovementHistory = (events, actionEvents) => {
     if (!movementList || !movementStuck || !movementTrail) return;
     const positions = events
       .map((event) => event.data || {})
@@ -402,10 +404,13 @@ function init() {
       movementList.append(li);
     });
 
-    const lastThree = positions.slice(-3);
-    const stuck = lastThree.length === 3 &&
-      lastThree.every((pos) => pos.x === lastThree[0].x && pos.y === lastThree[0].y);
-    movementStuck.textContent = stuck ? "Stuck" : "Moving";
+    const lastFive = positions.slice(-5);
+    const positionStuck = lastFive.length === 5 &&
+      lastFive.every((pos) => pos.x === lastFive[0].x && pos.y === lastFive[0].y);
+    const recentActions = Array.isArray(actionEvents) ? actionEvents.slice(-5) : [];
+    const hasRecentAction = recentActions.length > 0;
+    const stuck = positionStuck && hasRecentAction;
+    movementStuck.textContent = stuck ? "STUCK" : "Moving";
     movementStuck.classList.toggle("stuck", stuck);
 
     const trail = [];
@@ -638,6 +643,52 @@ function init() {
       const li = document.createElement("li");
       li.textContent = `${label}: ${count}`;
       cropProgress.append(li);
+    });
+  };
+
+  const updateInventoryGrid = (inventory, selectedIndex) => {
+    if (!inventoryGrid) return;
+    const slots = new Map();
+    if (Array.isArray(inventory)) {
+      inventory.forEach((item) => {
+        if (item && typeof item.slot === "number") {
+          slots.set(item.slot, item);
+        }
+      });
+    }
+    inventoryGrid.querySelectorAll(".inventory-slot").forEach((slotEl, idx) => {
+      const item = slots.get(idx);
+      slotEl.classList.toggle("active", idx === selectedIndex);
+      const nameEl = slotEl.querySelector(".inventory-slot__name");
+      const stackEl = slotEl.querySelector(".inventory-slot__stack");
+      if (!item) {
+        nameEl.textContent = "Empty";
+        stackEl.textContent = "-";
+        return;
+      }
+      nameEl.textContent = item.name || "Unknown";
+      stackEl.textContent = item.stack ? `x${item.stack}` : "-";
+    });
+  };
+
+  const updateActionLog = (events) => {
+    if (!actionLog) return;
+    actionLog.innerHTML = "";
+    if (!Array.isArray(events) || !events.length) {
+      const li = document.createElement("li");
+      li.textContent = "None";
+      actionLog.append(li);
+      return;
+    }
+    events.slice(-10).reverse().forEach((event) => {
+      const data = event.data || {};
+      const li = document.createElement("li");
+      const success = data.success !== false;
+      li.className = `action-log__item ${success ? "success" : "fail"}`;
+      const name = data.action_type || "unknown";
+      const status = success ? "ok" : "fail";
+      li.textContent = `${name} (${status})`;
+      actionLog.append(li);
     });
   };
 
@@ -1059,11 +1110,13 @@ function init() {
       })
       .catch(() => {});
 
-    fetch("/api/session-memory?event_type=position&limit=10")
-      .then((res) => res.json())
-      .then((events) => {
-        if (!Array.isArray(events)) return;
-        updateMovementHistory(events);
+    Promise.all([
+      fetch("/api/session-memory?event_type=position&limit=10").then((res) => res.json()),
+      fetch("/api/session-memory?event_type=action&limit=10").then((res) => res.json()),
+    ])
+      .then(([positions, actions]) => {
+        if (!Array.isArray(positions)) return;
+        updateMovementHistory(positions, actions);
       })
       .catch(() => {});
 
@@ -1072,6 +1125,14 @@ function init() {
       .then((events) => {
         if (!Array.isArray(events)) return;
         updateSessionTimeline(events);
+      })
+      .catch(() => {});
+
+    fetch("/api/session-memory?event_type=action&limit=10")
+      .then((res) => res.json())
+      .then((events) => {
+        if (!Array.isArray(events)) return;
+        updateActionLog(events);
       })
       .catch(() => {});
 
@@ -1116,6 +1177,7 @@ function init() {
         updateWateringCan(latestPlayer);
         updateShippingBin(latestState);
         updateCropProgress(latestState?.location?.crops);
+        updateInventoryGrid(latestState?.inventory, latestState?.player?.currentToolIndex);
       })
       .catch(() => {
         updateWateringCan(null);
