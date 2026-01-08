@@ -1,33 +1,37 @@
 # Next Session - StardewAI
 
-**Last Updated:** 2026-01-08 Session 13 by Claude
-**Status:** Visual navigation implemented, needs extended testing
+**Last Updated:** 2026-01-08 Session 14 by Claude
+**Status:** JSON truncation fixed, agent navigating to water
 
 ---
 
-## Session 13 Results
+## Session 14 Results
 
 ### COMPLETED
 | Feature | Status |
 |---------|--------|
-| Empty Can Priority Logic | ✅ Working |
-| Water Adjacent Detection | ✅ Implemented |
-| Visual Navigation Prompt | ✅ Added |
-| Stuck Detection Improvement | ✅ Updated |
-| Screenshot Rotation | ✅ Auto-cleanup |
-| JSON Repair Enhancement | ✅ Improved |
+| JSON Truncation Fix | ✅ Root cause: 4K context limit |
+| 8K Context | ✅ llama-server updated |
+| max_tokens 1500 | ✅ Response headroom |
+| Debug Logging | ✅ Failed JSON saved to file |
+| Codex UI Features | ✅ VLM errors, nav intent, chat |
 
-### KEY FIX: Visual Navigation
-The VLM was blindly following SMAPI text directions ("water is south") instead of using its vision to navigate around obstacles. Added explicit guidance:
-- **LOOK** at screenshot before moving
-- **Plan paths AROUND** obstacles visually
-- **Trust eyes** over text directions
-- **Move perpendicular** when stuck
+### KEY FIX: 8K Context Window
+The VLM was truncating JSON responses mid-field because:
+- Image: ~1000 tokens
+- System prompt: ~2500 tokens
+- User context: ~500 tokens
+- Total input: ~4000 tokens (hitting 4K limit!)
+- Response room: ~100 tokens (truncated!)
 
-### NEEDS TESTING
-- Full farming cycle with visual navigation
-- VLM response to obstacles
-- JSON parse success rate
+**Solution:** Increased `-c 4096` → `-c 8192` in llama-server startup script.
+
+### VERIFIED WORKING
+- ✅ JSON parsing succeeds (finish_reason: stop)
+- ✅ Agent exits farmhouse
+- ✅ Agent follows "water is south" guidance
+- ✅ Water distance decreasing (19 → 14 tiles during test)
+- ✅ Priority message: "WATERING CAN EMPTY! REFILL FIRST!"
 
 ---
 
@@ -35,68 +39,75 @@ The VLM was blindly following SMAPI text directions ("water is south") instead o
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| llama-server | Running | Port 8780, Qwen3VL-30B |
+| llama-server | Running | Port 8780, **8K context** |
 | SMAPI mod | Working | Port 8790, all features |
-| UI Server | Working | Port 9001, all Codex features |
-| Empty Can Priority | Working | Only shows refill when needed |
-| Visual Navigation | NEW | VLM uses eyes for pathfinding |
-| Screenshot Cleanup | NEW | Auto-keeps last 100 |
-| JSON Repair | Improved | Better VLM error handling |
+| UI Server | Working | Port 9001, Codex features |
+| JSON Parsing | **Fixed** | 8K context prevents truncation |
+| Navigation | Improved | Following directions to water |
+| Priority Logic | Working | Shows refill when can empty |
 
 ---
 
 ## Next Steps (Priority Order)
 
-### HIGH - Test Visual Navigation
-1. **Full agent test** - Can VLM navigate around obstacles?
-2. **Refill → water cycle** - Complete farming loop
-3. **Harvest test** - When crops mature
+### HIGH - Complete Farming Cycle
+1. **Refill test** - Does agent reach water and use_tool to refill?
+2. **Watering test** - Does agent water crops after refill?
+3. **Harvest test** - Day 8+ crops should be ready
 
-### MEDIUM - Agent Intelligence
-4. **Goal-based planning** - Multi-step planning
-5. **Energy management** - Track stamina
+### MEDIUM - Navigation Polish
+4. **Obstacle avoidance** - Agent still repeats blocked moves
+5. **Warp fallback** - If stuck 10+ times, use warp command
 
-### ROADMAP
-6. **Rusty UI responses** - Agent responds to user chat
-7. **Multi-day autonomy** - Full day cycle
+### LOW - Optimization
+6. **Reduce system prompt** - 9500 chars is large, could trim
+7. **Energy tracking** - Warn when low, suggest bed
 
 ---
 
-## Files Changed (Session 13)
+## Files Changed (Session 14)
+
+### `scripts/start-llama-server.sh`
+- **Line 147:** `-c 4096` → `-c 8192` (8K context)
 
 ### `config/settings.yaml`
-- Added VISUAL NAVIGATION section to system prompt
-- VLM now instructed to use eyes for navigation
+- **Line 113:** `max_tokens: 600` → `max_tokens: 1500`
 
 ### `src/python-agent/unified_agent.py`
-- **Lines 585-606:** Priority check for empty can + water detection
-- **Lines 1406-1413:** Updated stuck warning to use vision
-- **Lines 1377-1390:** Screenshot rotation (keeps last 100)
-- **Lines 328-358:** Improved JSON repair function
+- **Lines 424-431:** Debug logging for failed JSON (saves to /tmp/vlm_failed_json.txt)
+
+### Codex UI Changes
+- `src/ui/app.py` - VLM error tracking endpoints
+- `src/ui/static/app.js` - Error display, nav intent, chat integration
+- `src/ui/static/app.css` - Styling for new panels
+- `src/ui/templates/index.html` - New UI sections
 
 ---
 
 ## Quick Start
 
 ```bash
-# Run agent with visual navigation
+# Restart llama-server with 8K context (if not already)
+pkill -f "llama-server.*8780"
+./scripts/start-llama-server.sh
+
+# Run agent
 source venv/bin/activate
 python src/python-agent/unified_agent.py --ui --goal "Refill watering can and water crops"
 
-# Watch for visual navigation behavior:
-# - Should move around obstacles
-# - Should not repeat same blocked move 5+ times
-# - Should say "I see X blocking, going around"
+# Watch for:
+# - No JSON parse errors
+# - "Water is X tiles south" decreasing
+# - Agent reaching water and using tool
 ```
 
 ---
 
 ## Commits
-- `ddc8f6a` - Fix empty watering can priority logic
-- `8c3de00` - Session 13: Visual navigation + QoL fixes
+- `d7826f8` - Session 14: Fix JSON truncation with 8K context
 
 ---
 
-*Session 13: Added visual navigation to system prompt - VLM now uses eyes for pathfinding. Fixed priority logic, screenshot rotation, JSON repair.*
+*Session 14: Fixed JSON truncation by increasing llama-server context from 4K to 8K. Agent now parses responses correctly and navigates toward water.*
 
 — Claude (PM)
