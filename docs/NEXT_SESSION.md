@@ -1,7 +1,7 @@
 # Next Session - StardewAI
 
 **Last Updated:** 2026-01-08 Session 13 by Claude
-**Status:** Priority logic fix implemented, needs testing
+**Status:** Visual navigation implemented, needs extended testing
 
 ---
 
@@ -10,13 +10,24 @@
 ### COMPLETED
 | Feature | Status |
 |---------|--------|
-| Empty Can Priority Logic | ✅ Implemented |
+| Empty Can Priority Logic | ✅ Working |
+| Water Adjacent Detection | ✅ Implemented |
+| Visual Navigation Prompt | ✅ Added |
+| Stuck Detection Improvement | ✅ Updated |
+| Screenshot Rotation | ✅ Auto-cleanup |
+| JSON Repair Enhancement | ✅ Improved |
 
-**Fix Details:** Added priority check at line 580-593 in `unified_agent.py`. When watering can is empty AND unwatered crops exist, ONLY the refill message shows. No more conflicting "go to crop" guidance.
+### KEY FIX: Visual Navigation
+The VLM was blindly following SMAPI text directions ("water is south") instead of using its vision to navigate around obstacles. Added explicit guidance:
+- **LOOK** at screenshot before moving
+- **Plan paths AROUND** obstacles visually
+- **Trust eyes** over text directions
+- **Move perpendicular** when stuck
 
 ### NEEDS TESTING
-- Game wasn't fully loaded during development
-- Need to test: empty can + unwatered crops → only shows refill message
+- Full farming cycle with visual navigation
+- VLM response to obstacles
+- JSON parse success rate
 
 ---
 
@@ -27,58 +38,65 @@
 | llama-server | Running | Port 8780, Qwen3VL-30B |
 | SMAPI mod | Working | Port 8790, all features |
 | UI Server | Working | Port 9001, all Codex features |
-| Action History | Working | 10-action history with STOP warning |
-| Location Header | Working | "📍 LOCATION: Farm at (x, y)" |
-| Shipping Bin Info | Working | Distance + direction on Farm |
-| Harvest Detection | Working | "🌾 HARVEST TIME!" when on ready crop |
-| **Empty Can Priority** | **NEW** | Only shows refill message when needed |
+| Empty Can Priority | Working | Only shows refill when needed |
+| Visual Navigation | NEW | VLM uses eyes for pathfinding |
+| Screenshot Cleanup | NEW | Auto-keeps last 100 |
+| JSON Repair | Improved | Better VLM error handling |
 
 ---
 
 ## Next Steps (Priority Order)
 
-### HIGH - Test Priority Logic (Session 13)
-1. **Test empty can behavior** - Verify only refill message shows
-2. **Full farming cycle** - Water → refill → water more
-3. **Crop harvesting** - Test when parsnips mature
+### HIGH - Test Visual Navigation
+1. **Full agent test** - Can VLM navigate around obstacles?
+2. **Refill → water cycle** - Complete farming loop
+3. **Harvest test** - When crops mature
 
 ### MEDIUM - Agent Intelligence
-4. **Goal-based planning** - Multi-step planning (harvest → ship → sleep)
-5. **Energy management** - Track stamina, know when to rest
+4. **Goal-based planning** - Multi-step planning
+5. **Energy management** - Track stamina
 
-### ROADMAP - Future Features
-6. **Rusty UI responses** - Agent responds to user messages in team chat
-7. **Multi-day autonomy** - Full day cycle: wake → farm → ship → sleep
+### ROADMAP
+6. **Rusty UI responses** - Agent responds to user chat
+7. **Multi-day autonomy** - Full day cycle
 
 ---
 
 ## Files Changed (Session 13)
 
-### Python Agent (`unified_agent.py`)
-- **Lines 580-593:** Added priority check for empty watering can
-  - Checks `water_left <= 0 AND unwatered_crops` FIRST
-  - Sets refill message and skips all tile-state crop guidance
-  - Prevents VLM oscillation between refill and crop directions
+### `config/settings.yaml`
+- Added VISUAL NAVIGATION section to system prompt
+- VLM now instructed to use eyes for navigation
+
+### `src/python-agent/unified_agent.py`
+- **Lines 585-606:** Priority check for empty can + water detection
+- **Lines 1406-1413:** Updated stuck warning to use vision
+- **Lines 1377-1390:** Screenshot rotation (keeps last 100)
+- **Lines 328-358:** Improved JSON repair function
 
 ---
 
 ## Quick Start
 
 ```bash
-# Test priority logic
-curl -s http://localhost:8790/state | jq '{water: .data.player.wateringCanWater, unwatered: [.data.location.crops[] | select(.isWatered == false)] | length}'
-
-# Should return: water=0, unwatered>0 for test case
-
-# Run agent
+# Run agent with visual navigation
 source venv/bin/activate
-python src/python-agent/unified_agent.py --ui --goal "Water all crops"
+python src/python-agent/unified_agent.py --ui --goal "Refill watering can and water crops"
 
-# Agent should ONLY show "WATERING CAN EMPTY! REFILL FIRST!" when can empty + crops need water
+# Watch for visual navigation behavior:
+# - Should move around obstacles
+# - Should not repeat same blocked move 5+ times
+# - Should say "I see X blocking, going around"
 ```
 
 ---
 
-*Session 13: Fixed empty watering can priority logic. VLM now only sees refill message when can empty + crops need water.*
+## Commits
+- `ddc8f6a` - Fix empty watering can priority logic
+- `8c3de00` - Session 13: Visual navigation + QoL fixes
+
+---
+
+*Session 13: Added visual navigation to system prompt - VLM now uses eyes for pathfinding. Fixed priority logic, screenshot rotation, JSON repair.*
 
 — Claude (PM)
