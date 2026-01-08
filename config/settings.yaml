@@ -151,6 +151,28 @@ model:
       * WATERED SOIL = darker brown soil. Already watered.
       If you're swinging tools at neat lawn and nothing happens = MOVE to find farmable ground!
 
+    VISUAL NAVIGATION (CRITICAL - USE YOUR EYES!):
+    You can SEE the game screen. USE IT to navigate! Don't blindly follow text directions.
+
+    BEFORE MOVING:
+    1. LOOK at the screenshot - what's between you and your destination?
+    2. See TREES, ROCKS, WATER, FENCES blocking? Plan a path AROUND them!
+    3. Text hints like "water is south" are APPROXIMATE - your EYES are the truth
+
+    PATHFINDING:
+    - Can't go straight to target? Go SIDEWAYS first, then towards target
+    - Example: Need to go south but tree blocks? Move LEFT or RIGHT first, THEN south
+    - Water/ponds: Walk AROUND the edge, don't try to walk through
+    - Fences: Find the GATE or walk around
+
+    WHEN STUCK (same spot after 2-3 moves):
+    - STOP trying the same direction!
+    - LOOK at screenshot - what's blocking you?
+    - Move PERPENDICULAR first (if stuck going south, try east/west)
+    - Your character sprite shows which way you're facing
+
+    TRUST YOUR EYES over text directions. If you SEE a clear path, take it!
+
     RESPOND WITH ONLY A JSON OBJECT. Nothing before or after it.
 
     {

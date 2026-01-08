@@ -330,8 +330,7 @@ class UnifiedVLM:
         # Remove trailing commas before } or ]
         text = re.sub(r',(\s*[}\]])', r'\1', text)
 
-        # Add missing commas between "value" "key" patterns
-        # e.g., "sunny" "nearby" -> "sunny", "nearby"
+        # Add missing commas between "value" "key" patterns (newline)
         text = re.sub(r'(")\s*\n\s*(")', r'\1,\n\2', text)
 
         # Add missing commas between } "key" patterns
@@ -341,7 +340,20 @@ class UnifiedVLM:
         text = re.sub(r'(])\s*\n\s*(")', r'\1,\n\2', text)
 
         # Add missing commas between value and "key" on same line
-        text = re.sub(r'(["\d])\s+("(?:perception|mood|reasoning|actions)")', r'\1, \2', text)
+        text = re.sub(r'(["\d])\s+("(?:perception|mood|reasoning|actions|farming_eval)")', r'\1, \2', text)
+
+        # Fix missing comma after true/false/null followed by "key"
+        text = re.sub(r'(true|false|null)\s*\n\s*(")', r'\1,\n\2', text)
+
+        # Fix missing comma after number followed by "key"
+        text = re.sub(r'(\d)\s*\n\s*(")', r'\1,\n\2', text)
+
+        # Fix missing comma between closing bracket/brace and opening on next line
+        text = re.sub(r'([}\]])\s*\n\s*(\{)', r'\1,\n\2', text)
+
+        # Fix unquoted keys (common VLM mistake)
+        text = re.sub(r'{\s*(\w+):', r'{"\1":', text)
+        text = re.sub(r',\s*(\w+):', r', "\1":', text)
 
         return text
 
@@ -584,13 +596,27 @@ class ModBridgeController:
 
             if water_left <= 0 and unwatered_crops:
                 # CAN IS EMPTY AND CROPS NEED WATER - REFILL IS THE ONLY PRIORITY
-                nearest_water = data.get("nearestWater")
-                if nearest_water:
-                    water_dir = nearest_water.get("direction", "nearby")
-                    water_dist = nearest_water.get("distance", "?")
-                    front_info = f">>> ⚠️ WATERING CAN EMPTY! REFILL FIRST! Water is {water_dist} tiles {water_dir} - go there and use_tool! <<<"
+                # Check if we're already AT the water (water is immediate blocker, 0-1 tiles)
+                directions = data.get("directions", {})
+                water_adjacent = None
+                for dir_name, dir_info in directions.items():
+                    blocker = dir_info.get("blocker", "")
+                    tiles_until = dir_info.get("tilesUntilBlocked", 99)
+                    if blocker and "water" in blocker.lower() and tiles_until <= 1:
+                        water_adjacent = dir_name
+                        break
+
+                if water_adjacent:
+                    # AT THE WATER - just use_tool to refill!
+                    front_info = f">>> ⚠️ WATERING CAN EMPTY! You're AT the water ({water_adjacent})! Face {water_adjacent} and use_tool to REFILL NOW! <<<"
                 else:
-                    front_info = ">>> ⚠️ WATERING CAN EMPTY! REFILL FIRST! Find water (pond/river) and use_tool! <<<"
+                    nearest_water = data.get("nearestWater")
+                    if nearest_water:
+                        water_dir = nearest_water.get("direction", "nearby")
+                        water_dist = nearest_water.get("distance", "?")
+                        front_info = f">>> ⚠️ WATERING CAN EMPTY! REFILL FIRST! Water is {water_dist} tiles {water_dir} - go there and use_tool! <<<"
+                    else:
+                        front_info = ">>> ⚠️ WATERING CAN EMPTY! REFILL FIRST! Find water (pond/river) and use_tool! <<<"
             elif crop_here and crop_here.get("isReadyForHarvest"):
                 crop_name = crop_here.get("cropName", "crop")
                 front_info = f">>> 🌾 HARVEST TIME! {crop_name} is READY! use_tool to PICK IT! <<<"
@@ -1360,10 +1386,20 @@ class StardewAgent:
             crop = self.config.coop_region if self.config.mode == "coop" else None
             img = self.vlm.capture_screen(crop)
 
-            # Save screenshot
+            # Save screenshot (with rotation - keep last 100)
             if self.config.save_screenshots:
                 timestamp = datetime.now().strftime("%H%M%S")
                 img.save(self.config.screenshot_dir / f"screen_{timestamp}.png")
+                # Cleanup old screenshots every 50 saves
+                if not hasattr(self, '_screenshot_count'):
+                    self._screenshot_count = 0
+                self._screenshot_count += 1
+                if self._screenshot_count >= 50:
+                    self._screenshot_count = 0
+                    screenshots = sorted(self.config.screenshot_dir.glob("screen_*.png"))
+                    if len(screenshots) > 100:
+                        for old in screenshots[:-100]:
+                            old.unlink()
 
             # Get spatial context from mod if available
             spatial_context = ""
@@ -1390,12 +1426,13 @@ class StardewAgent:
                     repeat_count = sum(1 for a in recent_5 if a == last_action)
 
                 if repeat_count >= 3:
-                    # VERY PROMINENT warning at the start
-                    action_context = f"🚨 STOP! You're STUCK in a loop! 🚨\nYou've done '{last_action}' {repeat_count} TIMES! This isn't working!\n"
-                    action_context += "YOU MUST TRY SOMETHING COMPLETELY DIFFERENT:\n"
-                    action_context += "- Move a different direction\n"
-                    action_context += "- Use a different tool\n"
-                    action_context += "- Go to a different location\n\n"
+                    # VERY PROMINENT warning - tell VLM to USE VISION
+                    action_context = f"🚨 STOP! You're STUCK! 🚨\nYou've done '{last_action}' {repeat_count} TIMES and it's not working!\n\n"
+                    action_context += "👁️ LOOK AT THE SCREENSHOT! There's probably an obstacle blocking you.\n"
+                    action_context += "USE YOUR EYES to find a path around it:\n"
+                    action_context += "- See a TREE or ROCK blocking? Move sideways first to go AROUND it\n"
+                    action_context += "- Can't go south? Try going LEFT or RIGHT first, THEN south\n"
+                    action_context += "- Still stuck? Try a completely different route\n\n"
 
                 action_context += f"YOUR RECENT ACTIONS (oldest→newest):\n{action_history}"
                 logging.info(f"   📜 Action history: {len(self.recent_actions)} actions tracked")
