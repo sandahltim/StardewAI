@@ -259,7 +259,7 @@ class UnifiedVLM:
         img.save(buffer, format="PNG")
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
-    def think(self, img: Image.Image, goal: str = "", spatial_context: str = "", memory_context: str = "") -> ThinkResult:
+    def think(self, img: Image.Image, goal: str = "", spatial_context: str = "", memory_context: str = "", action_context: str = "") -> ThinkResult:
         """
         Unified perception + planning in a single inference call.
 
@@ -275,6 +275,8 @@ class UnifiedVLM:
 
         # Build user prompt with all context
         user_prompt = f"CURRENT GOAL: {goal or 'Explore and help with farming'}"
+        if action_context:
+            user_prompt += f"\n\n{action_context}"  # Action warnings appear first!
         if memory_context:
             user_prompt += f"\n\n{memory_context}"
         if spatial_context:
@@ -661,8 +663,16 @@ class ModBridgeController:
                     else:
                         front_info = ">>> TILE: NOT FARMABLE - move to find tillable ground <<<"
 
+        # Add explicit location verification at the very top to prevent hallucination
+        location_name = state.get("location", {}).get("name", "Unknown") if state else "Unknown"
+        player_x = state.get("player", {}).get("tileX", "?") if state else "?"
+        player_y = state.get("player", {}).get("tileY", "?") if state else "?"
+        location_header = f"📍 LOCATION: {location_name} at tile ({player_x}, {player_y})"
+
         if front_info:
-            result = f"{front_info}\n{result}"
+            result = f"{location_header}\n{front_info}\n{result}"
+        else:
+            result = f"{location_header}\n{result}"
         return result
 
     def execute(self, action: Action) -> bool:
@@ -946,7 +956,7 @@ class StardewAgent:
         self.goal = ""
         self.last_think_time = 0
         self.action_queue: List[Action] = []
-        self.recent_actions: List[str] = []
+        self.recent_actions: List[str] = []  # Track last 10 actions for VLM context
         self.vlm_status = "Idle"
         self.last_state_poll = 0.0
         self.last_state: Optional[Dict[str, Any]] = None
@@ -1260,13 +1270,17 @@ class StardewAgent:
                     dirs = surroundings.get("directions", {})
                     dir_info = dirs.get(direction, {})
                     if not dir_info.get("clear", True) and dir_info.get("tilesUntilBlocked", 1) == 0:
-                        logging.warning(f"⚠️ Skipping move {direction} - blocked by {dir_info.get('blocker', 'obstacle')}")
+                        blocker = dir_info.get('blocker', 'obstacle')
+                        logging.warning(f"⚠️ Skipping move {direction} - blocked by {blocker}")
+                        # Still record the ATTEMPTED action so VLM learns from failed attempts
+                        self.recent_actions.append(f"BLOCKED: move {direction} (hit {blocker})")
+                        self.recent_actions = self.recent_actions[-10:]
                         self._send_ui_status()
                         return
 
             self.vlm_status = "Executing"
             self.recent_actions.append(self._format_action(action))
-            self.recent_actions = self.recent_actions[-3:]
+            self.recent_actions = self.recent_actions[-10:]  # Keep last 10 for pattern detection
             logging.info(f"🎮 Executing: {action.action_type} {action.params}")
             success = self.controller.execute(action)
             self._record_action_event(action, success)
@@ -1302,6 +1316,31 @@ class StardewAgent:
                     )
                     logging.info(f"   🧭 {spatial_context}")
 
+            # Build action context with history and repetition warnings
+            action_context = ""
+            if self.recent_actions:
+                action_history = "\n".join(f"  {i+1}. {a}" for i, a in enumerate(self.recent_actions))
+                # Detect repetition - warn if same action 3+ times in last 5
+                recent_5 = self.recent_actions[-5:]
+                repeat_count = 0
+                last_action = ""
+                if recent_5:
+                    last_action = recent_5[-1]
+                    repeat_count = sum(1 for a in recent_5 if a == last_action)
+
+                if repeat_count >= 3:
+                    # VERY PROMINENT warning at the start
+                    action_context = f"🚨 STOP! You're STUCK in a loop! 🚨\nYou've done '{last_action}' {repeat_count} TIMES! This isn't working!\n"
+                    action_context += "YOU MUST TRY SOMETHING COMPLETELY DIFFERENT:\n"
+                    action_context += "- Move a different direction\n"
+                    action_context += "- Use a different tool\n"
+                    action_context += "- Go to a different location\n\n"
+
+                action_context += f"YOUR RECENT ACTIONS (oldest→newest):\n{action_history}"
+                logging.info(f"   📜 Action history: {len(self.recent_actions)} actions tracked")
+                if repeat_count >= 3:
+                    logging.warning(f"   ⚠️  REPETITION DETECTED: '{last_action}' done {repeat_count}x in last 5")
+
             # Get memory context (NPC knowledge + past experiences)
             memory_context = ""
             if HAS_MEMORY and get_context_for_vlm:
@@ -1328,7 +1367,7 @@ class StardewAgent:
 
             # Think! (unified perception + planning)
             logging.info("🧠 Thinking...")
-            result = self.vlm.think(img, self.goal, spatial_context=spatial_context, memory_context=memory_context)
+            result = self.vlm.think(img, self.goal, spatial_context=spatial_context, memory_context=memory_context, action_context=action_context)
 
             # Override VLM's tool perception with actual game state (VLM often hallucinates tools)
             if self.last_state:

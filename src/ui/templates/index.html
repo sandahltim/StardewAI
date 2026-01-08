@@ -159,6 +159,11 @@
             <li>None</li>
           </ol>
         </div>
+        <div class="crop-status-card">
+          <div class="vlm-subhead">Crop Status</div>
+          <div id="cropStatus" class="crop-status">Waiting for crop data...</div>
+          <p id="cropStatusNote" class="crop-status__note">-</p>
+        </div>
         <div class="inventory-card">
           <div class="vlm-subhead">Toolbar Inventory</div>
           <div id="inventoryGrid" class="inventory-grid">
@@ -175,11 +180,20 @@
           <div class="vlm-subhead">Current Instruction</div>
           <div id="currentInstruction" class="instruction-text">No instruction yet.</div>
         </div>
+        <div class="location-card">
+          <div class="vlm-subhead">Location</div>
+          <div id="locationDisplay" class="location-display">Unknown</div>
+          <div id="positionDisplay" class="position-display">(?, ?)</div>
+        </div>
         <div class="action-log-card">
           <div class="vlm-subhead">Action Results</div>
           <ol id="actionLog" class="action-log">
             <li>None</li>
           </ol>
+        </div>
+        <div class="action-repeat-card">
+          <div class="vlm-subhead">Action Repeat</div>
+          <div id="actionRepeat" class="action-repeat">No repeats detected</div>
         </div>
         <details class="session-timeline">
           <summary>Session Timeline</summary>

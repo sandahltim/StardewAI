@@ -2,54 +2,55 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-08 Session 11
+**Last Updated:** 2026-01-08 Session 12
 
 ---
 
 ## Active Tasks
 
-### 1. UI: Crop Status Summary (Priority: HIGH)
+### 1. UI: Harvest Ready Indicator (Priority: HIGH)
 
 **Status:** Pending
-**Assigned:** 2026-01-08 Session 11
+**Assigned:** 2026-01-08 Session 12
 
-Prominent display of crop watering status:
-- Large, clear display: "WATERED: 6/15" or similar
-- Color code: green when all watered, orange when some remain
-- Show count from `/state` → `.data.location.crops[]`
-- Calculate: watered vs unwatered (`.isWatered == true/false`)
-- Update on each poll
+Show crops ready for harvest:
+- Display: "HARVEST READY: 3" or "HARVEST: 0 (1-4 days)"
+- Color: green when crops ready, gray when not
+- Data from `/state` → `.data.location.crops[]`
+- Count crops where `.isReadyForHarvest == true`
+- If none ready, show days until soonest: `min(daysUntilHarvest)`
 
-Purpose: Help debug agent efficiency - see at a glance if crops are getting watered.
+Purpose: Know when to test harvesting - parsnips maturing Day 8-9.
 
 ---
 
-### 2. UI: Location + Position Display (Priority: HIGH)
+### 2. UI: Energy/Stamina Bar (Priority: MEDIUM)
 
 **Status:** Pending
-**Assigned:** 2026-01-08 Session 11
+**Assigned:** 2026-01-08 Session 12
 
-Clear display of current location and position:
-- Show location name prominently: "FARM" or "FARMHOUSE"
-- Show tile coordinates: "(64, 19)"
-- Data from `/state` → `.data.location.name` and `.data.player.tileX/Y`
+Visual stamina display:
+- Bar showing current vs max stamina
+- Color gradient: green → yellow → red as depleted
+- Data from `/state` → `.data.player.stamina` and `.data.player.maxStamina`
+- Show numeric value: "156/270"
 
-Purpose: Debug VLM hallucination - agent sometimes thinks it's in wrong location.
+Purpose: Agent needs to know when to rest.
 
 ---
 
-### 3. UI: Action Repeat Detection (Priority: MEDIUM)
+### 3. UI: Action History Panel (Priority: MEDIUM)
 
 **Status:** Pending
-**Assigned:** 2026-01-08 Session 11
+**Assigned:** 2026-01-08 Session 12
 
-Detect and highlight when agent repeats same action:
-- Track last 5-10 actions from session-memory
-- If same action appears 3+ times in a row, show "REPEATING" warning
-- Color code: red when stuck in loop
+Show the last 10 actions the VLM sees:
+- Display recent action list from session memory
+- Highlight repeated actions in red
+- Show "BLOCKED" prefix for failed moves
 - Data from `/api/session-memory?event_type=action&limit=10`
 
-Purpose: Debug agent decision-making - identify when it's stuck in a loop.
+Purpose: Debug what VLM sees about its past actions.
 
 ---
 
@@ -59,11 +60,15 @@ Purpose: Debug agent decision-making - identify when it's stuck in a loop.
 - NPC relationship tracker with gift suggestions
 - Seasonal calendar with upcoming events
 - Goal progress tracker with checkboxes
+- Daily earnings/shipping summary
 
 ---
 
 ## Completed Tasks
 
+- [x] UI: Crop Status Summary (2026-01-08 Session 11)
+- [x] UI: Location + Position Display (2026-01-08 Session 11)
+- [x] UI: Action Repeat Detection (2026-01-08 Session 11)
 - [x] UI: Inventory Panel (2026-01-08 Session 11)
 - [x] UI: Action Result Log (2026-01-08 Session 11)
 - [x] UI: Agent Stuck Indicator (2026-01-08)
@@ -106,6 +111,6 @@ Post to team chat: `./scripts/team_chat.py post codex "your message"`
 
 ---
 
-*Session 11: Assigned debugging UI tasks to help identify agent decision-making issues.*
+*Session 12: Assigned harvest-phase UI tasks - indicator for harvest-ready crops, stamina bar, action history panel.*
 
 — Claude (PM)

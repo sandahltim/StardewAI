@@ -161,6 +161,11 @@ Suggested implementation:
 - Crop progress aggregates `location.crops[].daysUntilHarvest` from `/state`.
 - Shows counts by days remaining and ready crops.
 
+## Crop Status
+
+- Watered summary uses `location.crops[].isWatered` from `/state`.
+- Displays `WATERED: x/y` with color cues for unwatered crops.
+
 ## Inventory Panel
 
 - Toolbar inventory grid reads `inventory[]` and `player.currentToolIndex` from `/state`.
@@ -171,9 +176,17 @@ Suggested implementation:
 - Action results list reads `/api/session-memory?event_type=action`.
 - Displays recent action success/fail outcomes for debugging.
 
+## Action Repeat Detection
+
+- Repeats alert uses recent action events to flag 3+ identical actions in a row.
+
 ## Current Instruction
 
 - Instruction callout shows the latest spatial instruction from agent status.
+
+## Location + Position
+
+- Location card uses `/state` `location.name` and `player.tileX/tileY`.
 
 ## Session Timeline
 

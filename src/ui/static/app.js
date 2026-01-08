@@ -279,6 +279,11 @@ function updateStatus(status) {
   const currentInstruction = document.getElementById("currentInstruction");
   const inventoryGrid = document.getElementById("inventoryGrid");
   const actionLog = document.getElementById("actionLog");
+  const cropStatus = document.getElementById("cropStatus");
+  const cropStatusNote = document.getElementById("cropStatusNote");
+  const locationDisplay = document.getElementById("locationDisplay");
+  const positionDisplay = document.getElementById("positionDisplay");
+  const actionRepeat = document.getElementById("actionRepeat");
 
   if (mode) mode.textContent = `Mode: ${status.mode || "helper"}`;
   if (running) running.textContent = `Running: ${status.running ? "yes" : "no"}`;
@@ -646,6 +651,27 @@ function init() {
     });
   };
 
+  const updateCropStatus = (crops) => {
+    if (!cropStatus || !cropStatusNote) return;
+    cropStatus.classList.remove("ok", "warn");
+    if (!Array.isArray(crops) || !crops.length) {
+      cropStatus.textContent = "No crops detected";
+      cropStatusNote.textContent = "-";
+      return;
+    }
+    const total = crops.length;
+    const watered = crops.filter((crop) => crop.isWatered).length;
+    const unwatered = total - watered;
+    cropStatus.textContent = `WATERED: ${watered}/${total}`;
+    if (unwatered === 0) {
+      cropStatus.classList.add("ok");
+      cropStatusNote.textContent = "All crops watered";
+    } else {
+      cropStatus.classList.add("warn");
+      cropStatusNote.textContent = `${unwatered} crop${unwatered === 1 ? "" : "s"} need water`;
+    }
+  };
+
   const updateInventoryGrid = (inventory, selectedIndex) => {
     if (!inventoryGrid) return;
     const slots = new Map();
@@ -690,6 +716,24 @@ function init() {
       li.textContent = `${name} (${status})`;
       actionLog.append(li);
     });
+  };
+
+  const updateActionRepeat = (events) => {
+    if (!actionRepeat) return;
+    actionRepeat.classList.remove("repeat");
+    if (!Array.isArray(events) || events.length < 3) {
+      actionRepeat.textContent = "No repeats detected";
+      return;
+    }
+    const recent = events.slice(-5).map((event) => event.data?.action_type || "unknown");
+    const last = recent[recent.length - 1];
+    const repeatCount = recent.filter((name) => name === last).length;
+    if (repeatCount >= 3) {
+      actionRepeat.classList.add("repeat");
+      actionRepeat.textContent = `REPEATING: ${last} (${repeatCount}x)`;
+    } else {
+      actionRepeat.textContent = "No repeats detected";
+    }
   };
 
   const updateSessionTimeline = (events) => {
@@ -1133,6 +1177,7 @@ function init() {
       .then((events) => {
         if (!Array.isArray(events)) return;
         updateActionLog(events);
+        updateActionRepeat(events);
       })
       .catch(() => {});
 
@@ -1177,7 +1222,16 @@ function init() {
         updateWateringCan(latestPlayer);
         updateShippingBin(latestState);
         updateCropProgress(latestState?.location?.crops);
+        updateCropStatus(latestState?.location?.crops);
         updateInventoryGrid(latestState?.inventory, latestState?.player?.currentToolIndex);
+        if (locationDisplay) {
+          locationDisplay.textContent = latestState?.location?.name || "Unknown";
+        }
+        if (positionDisplay) {
+          const x = latestPlayer?.tileX ?? "?";
+          const y = latestPlayer?.tileY ?? "?";
+          positionDisplay.textContent = `(${x}, ${y})`;
+        }
       })
       .catch(() => {
         updateWateringCan(null);

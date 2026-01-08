@@ -483,6 +483,59 @@ h2 {
   gap: 6px;
 }
 
+.crop-status-card,
+.location-card,
+.action-repeat-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf8;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.crop-status {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.crop-status.ok {
+  color: #166534;
+}
+
+.crop-status.warn {
+  color: #b45309;
+}
+
+.crop-status__note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.location-display {
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.position-display {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.action-repeat {
+  font-weight: 700;
+  font-size: 13px;
+  color: #166534;
+}
+
+.action-repeat.repeat {
+  color: #b91c1c;
+}
+
 .inventory-card,
 .action-log-card {
   border: 1px solid var(--border);
