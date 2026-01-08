@@ -19,9 +19,18 @@
 | **Game Knowledge DB** | **EXPANDED** | SQLite: 35 NPCs, 46 crops, 647 items, 23 locations, 210 recipes |
 | **Episodic Memory** | Working | ChromaDB: semantic search over experiences |
 | **Memory Integration** | Working | Context injected into VLM prompt per tick |
-| **Memory Triggers** | **NEW** | Auto-store on new location, NPC met, notable events |
+| **Memory Triggers** | Working | Auto-store on new location, NPC met, notable events |
+| **Calendar/Events** | **NEW** | 9 festivals + traveling cart schedule |
+| **NPC Schedules** | **NEW** | 18/35 NPCs have schedule notes |
+| **Memory Viewer UI** | **NEW** | Search + browse episodic memories in dashboard |
 
 ## Session Accomplishments (2026-01-08)
+
+**Session 6 (Codex Deliverables):**
+1. Calendar table: Egg Festival, Flower Dance, Luau, Spirit's Eve, etc.
+2. NPC schedule notes: 18 key villagers (Shane, Pierre, Penny, etc.)
+3. Memory Viewer panel in UI dashboard with search
+4. Query helpers: `get_events_for_day()`, `get_upcoming_events()`
 
 **Session 5 (Memory Triggers):**
 1. Added automatic memory storage triggers:
@@ -29,8 +38,6 @@
    - Meeting NPC for first time (includes gift preferences)
    - VLM reasoning with importance markers
 2. Memory state persistence - loads on startup to prevent duplicates
-3. Assigned Codex: Calendar/Festival table, NPC schedules
-4. All systems tested and working
 
 **Session 4 (DB Expansion):**
 1. Expanded game_knowledge.db: 35 NPCs, 46 crops, 647 items, 23 locations, 210 recipes
@@ -69,21 +76,17 @@
 - Any stability issues or crashes?
 
 ### Medium Priority
-2. **Calendar/Festival Data** (Codex assigned)
-   - Egg Festival, Flower Dance, etc.
-   - Upcoming events in VLM prompt
-
-3. **NPC Schedule Notes** (Codex assigned)
-   - Where to find NPCs at what times
-   - Currently 0/35 populated
-
-4. **UI Memory Viewer** (Codex - LOW)
-   - Show episodic memories in dashboard
+2. **Inject Calendar Context** - Use `get_upcoming_events()` in VLM prompt
+3. **Inject NPC Schedules** - When searching for NPC, include schedule_notes
+4. **Add remaining NPC schedules** - 17/35 still missing
 
 ### Completed ✅
 - ~~Memory Storage Triggers~~ (auto-store on location, NPC, notable events)
 - ~~Expand Game Knowledge DB~~ (35 NPCs, 647 items, 23 locations, 210 recipes)
 - ~~Test Memory in Action~~ (birthday detection, NPC gifts working)
+- ~~Calendar/Festival Data~~ (9 festivals + traveling cart)
+- ~~NPC Schedule Notes~~ (18/35 key NPCs)
+- ~~UI Memory Viewer~~ (search + browse in dashboard)
 
 ---
 
