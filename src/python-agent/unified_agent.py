@@ -41,11 +41,13 @@ except ImportError:
 
 try:
     from memory import get_memory, get_context_for_vlm, should_remember
+    from memory.game_knowledge import get_npc_info
     HAS_MEMORY = True
 except ImportError:
     get_memory = None
     get_context_for_vlm = None
     should_remember = None
+    get_npc_info = None
     HAS_MEMORY = False
 
 # =============================================================================
@@ -809,6 +811,13 @@ class StardewAgent:
         self.ui = None
         self.ui_enabled = False
 
+        # Memory trigger tracking
+        self.last_location: str = ""
+        self.last_nearby_npcs: List[str] = []
+        self.visited_locations: set = set()
+        self.met_npcs: set = set()
+        self._load_memory_state()
+
         # Setup logging
         config.screenshot_dir.mkdir(parents=True, exist_ok=True)
         config.history_dir.mkdir(parents=True, exist_ok=True)
@@ -824,6 +833,31 @@ class StardewAgent:
             force=True  # Override any existing configuration
         )
         self._init_ui()
+
+    def _load_memory_state(self) -> None:
+        """Load visited locations and met NPCs from existing memories."""
+        if not HAS_MEMORY or not get_memory:
+            return
+        try:
+            memory = get_memory()
+            # Get all memories and extract locations/NPCs
+            all_mems = memory.collection.get(include=["metadatas"])
+            for meta in (all_mems.get("metadatas") or []):
+                if not meta:
+                    continue
+                mem_type = meta.get("type", "")
+                location = meta.get("location", "")
+                npc = meta.get("npc", "")
+
+                if mem_type == "location_first" and location:
+                    self.visited_locations.add(location)
+                if mem_type == "npc_interaction" and npc:
+                    self.met_npcs.add(npc)
+
+            if self.visited_locations or self.met_npcs:
+                logging.info(f"Loaded memory state: {len(self.visited_locations)} locations, {len(self.met_npcs)} NPCs")
+        except Exception as e:
+            logging.debug(f"Could not load memory state: {e}")
 
     def _init_ui(self) -> None:
         if not self.config.ui_enabled:
@@ -903,6 +937,75 @@ class StardewAgent:
                 "action_type": action.action_type,
                 "params": action.params,
             })
+
+    def _check_memory_triggers(self, result: ThinkResult, game_day: str = "") -> None:
+        """Check for events that should trigger memory storage."""
+        if not HAS_MEMORY or not get_memory:
+            return
+
+        memory = get_memory()
+        current_location = result.location
+
+        # Trigger 1: New location visited (first time)
+        if current_location and current_location not in self.visited_locations:
+            self.visited_locations.add(current_location)
+            memory.store(
+                text=f"First visit to {current_location}. {result.reasoning[:100] if result.reasoning else ''}",
+                memory_type="location_first",
+                location=current_location,
+                game_day=game_day,
+                outcome="positive"
+            )
+            logging.info(f"   💾 Memory stored: First visit to {current_location}")
+
+        # Trigger 2: Location changed (general transition)
+        if current_location and current_location != self.last_location and self.last_location:
+            # Only store if visiting after first time and it's been a while
+            pass  # First visit handled above, transitions are less important
+
+        # Trigger 3: New NPC encountered
+        current_npcs = []
+        if self.last_state:
+            loc_data = self.last_state.get("location", {})
+            current_npcs = [npc.get("name", "") for npc in loc_data.get("npcs", []) if npc.get("name")]
+
+        for npc_name in current_npcs:
+            if npc_name and npc_name not in self.met_npcs:
+                self.met_npcs.add(npc_name)
+                # Get NPC info from game knowledge
+                npc_info = ""
+                if get_npc_info:
+                    info = get_npc_info(npc_name)
+                    if info:
+                        loved = info.get("loved_gifts", [])[:3]
+                        npc_info = f"They love: {', '.join(loved)}." if loved else ""
+
+                memory.store(
+                    text=f"Met {npc_name} at {current_location}. {npc_info}",
+                    memory_type="npc_interaction",
+                    location=current_location,
+                    npc=npc_name,
+                    game_day=game_day,
+                    outcome="positive"
+                )
+                logging.info(f"   💾 Memory stored: Met {npc_name}")
+
+        # Trigger 4: VLM reasoning suggests importance
+        if result.reasoning and should_remember:
+            if should_remember("notable", reasoning=result.reasoning):
+                # Avoid duplicate storage for location/NPC triggers
+                if "first visit" not in result.reasoning.lower() and "met " not in result.reasoning.lower():
+                    memory.store(
+                        text=f"{result.reasoning[:200]}",
+                        memory_type="notable",
+                        location=current_location,
+                        game_day=game_day,
+                    )
+                    logging.info(f"   💾 Memory stored: Notable event")
+
+        # Update tracking state
+        self.last_location = current_location
+        self.last_nearby_npcs = current_npcs
 
     def _format_action(self, action: Action) -> str:
         if action.description:
@@ -1072,6 +1175,9 @@ class StardewAgent:
                 logging.info(f"   🎭 {result.mood}")
             logging.info(f"   💭 {result.reasoning[:100]}{'...' if len(result.reasoning) > 100 else ''}")
             logging.info(f"   ⏱️  {result.latency_ms:.0f}ms")
+
+            # Check memory triggers (new location, NPC met, notable event)
+            self._check_memory_triggers(result, game_day=game_day)
 
             if self.config.mode == "coop" and result.actions:
                 self.vlm_status = "Executing"
