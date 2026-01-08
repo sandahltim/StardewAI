@@ -216,29 +216,46 @@ public class ActionExecutor
             return;
 
         var targetTile = _currentPath[_pathIndex];
-
-        // Calculate target position using same offset as current position
-        // player.Position is top-left of sprite, not tile center
         var currentTile = player.TilePoint;
-        var offset = player.Position - new Vector2(currentTile.X * 64, currentTile.Y * 64);
-        var targetPixel = new Vector2(targetTile.X * 64, targetTile.Y * 64) + offset;
 
-        // Move toward target at walking speed (about 5 pixels per tick)
-        float speed = 5f;
-        var currentPos = player.Position;
-        var diff = targetPixel - currentPos;
-        var distance = diff.Length();
-
-        if (distance <= speed)
+        // Check if we've reached the target tile
+        if (currentTile.X == targetTile.X && currentTile.Y == targetTile.Y)
         {
-            // Snap to target
-            player.Position = targetPixel;
+            return; // Already at target
+        }
+
+        // Use game's movement system - this respects collisions and triggers warps
+        // Set movement flags instead of directly setting position
+        player.setMoving((byte)(1 << direction)); // 1=up, 2=right, 4=down, 8=left
+        player.canMove = true;
+        player.running = false;
+
+        // Also try the built-in movement check
+        var location = Game1.currentLocation;
+        var nextPos = player.Position;
+        float speed = 4f;
+        switch (direction)
+        {
+            case 0: nextPos.Y -= speed; break; // Up
+            case 1: nextPos.X += speed; break; // Right
+            case 2: nextPos.Y += speed; break; // Down
+            case 3: nextPos.X -= speed; break; // Left
+        }
+
+        // Check collision before moving
+        var nextBounds = new Microsoft.Xna.Framework.Rectangle(
+            (int)nextPos.X, (int)nextPos.Y,
+            player.GetBoundingBox().Width, player.GetBoundingBox().Height);
+
+        if (!location.isCollidingPosition(nextBounds, Game1.viewport, true, 0, false, player))
+        {
+            player.Position = nextPos;
         }
         else
         {
-            // Move toward target
-            diff.Normalize();
-            player.Position = currentPos + diff * speed;
+            // Blocked - stop movement
+            player.Halt();
+            _state = ActionState.Complete;
         }
     }
 
