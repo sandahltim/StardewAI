@@ -166,6 +166,11 @@ Suggested implementation:
 - Watered summary uses `location.crops[].isWatered` from `/state`.
 - Displays `WATERED: x/y` with color cues for unwatered crops.
 
+## Harvest Ready
+
+- Harvest indicator uses `location.crops[].isReadyForHarvest`.
+- When none are ready, shows the soonest `daysUntilHarvest`.
+
 ## Inventory Panel
 
 - Toolbar inventory grid reads `inventory[]` and `player.currentToolIndex` from `/state`.
@@ -175,6 +180,11 @@ Suggested implementation:
 
 - Action results list reads `/api/session-memory?event_type=action`.
 - Displays recent action success/fail outcomes for debugging.
+
+## Action History
+
+- Action history panel shows the last 10 actions (from session memory).
+- Highlights repeats and prefixes failed actions with `BLOCKED`.
 
 ## Action Repeat Detection
 
@@ -187,6 +197,10 @@ Suggested implementation:
 ## Location + Position
 
 - Location card uses `/state` `location.name` and `player.tileX/tileY`.
+
+## Energy/Stamina
+
+- Energy bar reads `player.stamina` and `player.maxStamina` from `/state`.
 
 ## Session Timeline
 

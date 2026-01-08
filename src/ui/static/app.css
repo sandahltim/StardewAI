@@ -495,6 +495,18 @@ h2 {
   font-size: 12px;
 }
 
+.harvest-card,
+.stamina-card,
+.action-history-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fbf7f1;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
 .crop-status {
   font-weight: 700;
   font-size: 14px;
@@ -512,6 +524,47 @@ h2 {
   margin: 0;
   color: var(--muted);
   font-size: 11px;
+}
+
+.harvest-status {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.harvest-status.ready {
+  color: #166534;
+}
+
+.harvest-status.waiting {
+  color: #6b7280;
+}
+
+.stamina-status {
+  font-weight: 700;
+}
+
+.stamina-bar {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.stamina-bar__fill {
+  height: 100%;
+  width: 0%;
+  background: #22c55e;
+  transition: width 0.2s ease;
+}
+
+.stamina-bar__fill.medium {
+  background: #f59e0b;
+}
+
+.stamina-bar__fill.low {
+  background: #ef4444;
 }
 
 .location-display {

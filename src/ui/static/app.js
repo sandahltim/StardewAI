@@ -284,6 +284,11 @@ function updateStatus(status) {
   const locationDisplay = document.getElementById("locationDisplay");
   const positionDisplay = document.getElementById("positionDisplay");
   const actionRepeat = document.getElementById("actionRepeat");
+  const harvestStatus = document.getElementById("harvestStatus");
+  const harvestNote = document.getElementById("harvestNote");
+  const staminaStatus = document.getElementById("staminaStatus");
+  const staminaFill = document.getElementById("staminaFill");
+  const actionHistory = document.getElementById("actionHistory");
 
   if (mode) mode.textContent = `Mode: ${status.mode || "helper"}`;
   if (running) running.textContent = `Running: ${status.running ? "yes" : "no"}`;
@@ -672,6 +677,30 @@ function init() {
     }
   };
 
+  const updateHarvestStatus = (crops) => {
+    if (!harvestStatus || !harvestNote) return;
+    harvestStatus.classList.remove("ready", "waiting");
+    if (!Array.isArray(crops) || !crops.length) {
+      harvestStatus.textContent = "No crops detected";
+      harvestNote.textContent = "-";
+      return;
+    }
+    const ready = crops.filter((crop) => crop.isReadyForHarvest).length;
+    if (ready > 0) {
+      harvestStatus.classList.add("ready");
+      harvestStatus.textContent = `HARVEST READY: ${ready}`;
+      harvestNote.textContent = "Crops ready to pick";
+      return;
+    }
+    const days = crops
+      .map((crop) => Number(crop.daysUntilHarvest ?? 0))
+      .filter((value) => value > 0);
+    const soonest = days.length ? Math.min(...days) : null;
+    harvestStatus.classList.add("waiting");
+    harvestStatus.textContent = `HARVEST: 0`;
+    harvestNote.textContent = soonest ? `Soonest in ${soonest} day${soonest === 1 ? "" : "s"}` : "No harvest data";
+  };
+
   const updateInventoryGrid = (inventory, selectedIndex) => {
     if (!inventoryGrid) return;
     const slots = new Map();
@@ -734,6 +763,54 @@ function init() {
     } else {
       actionRepeat.textContent = "No repeats detected";
     }
+  };
+
+  const updateStamina = (player) => {
+    if (!staminaStatus || !staminaFill) return;
+    if (!player) {
+      staminaStatus.textContent = "Waiting for state...";
+      staminaFill.style.width = "0%";
+      staminaFill.classList.remove("medium", "low");
+      return;
+    }
+    const stamina = Number(player.stamina ?? player.energy ?? 0);
+    const max = Number(player.maxStamina ?? 0);
+    if (!max) {
+      staminaStatus.textContent = "Energy: unknown";
+      staminaFill.style.width = "0%";
+      staminaFill.classList.remove("medium", "low");
+      return;
+    }
+    const pct = Math.max(0, Math.min(100, Math.round((stamina / max) * 100)));
+    staminaStatus.textContent = `Energy: ${stamina}/${max}`;
+    staminaFill.style.width = `${pct}%`;
+    staminaFill.classList.remove("medium", "low");
+    if (pct <= 25) staminaFill.classList.add("low");
+    else if (pct <= 60) staminaFill.classList.add("medium");
+  };
+
+  const updateActionHistory = (events) => {
+    if (!actionHistory) return;
+    actionHistory.innerHTML = "";
+    if (!Array.isArray(events) || !events.length) {
+      const li = document.createElement("li");
+      li.textContent = "None";
+      actionHistory.append(li);
+      return;
+    }
+    const recent = events.slice(-10).reverse();
+    recent.forEach((event, idx) => {
+      const data = event.data || {};
+      const action = data.action_type || "unknown";
+      const success = data.success !== false;
+      const prev = idx > 0 ? recent[idx - 1]?.data?.action_type : null;
+      const repeated = prev && prev === action;
+      const li = document.createElement("li");
+      li.className = `action-log__item ${success ? "success" : "fail"}`;
+      const status = success ? "ok" : "fail";
+      li.textContent = `${success ? "" : "BLOCKED "} ${action} (${status})${repeated ? " repeat" : ""}`;
+      actionHistory.append(li);
+    });
   };
 
   const updateSessionTimeline = (events) => {
@@ -1178,6 +1255,7 @@ function init() {
         if (!Array.isArray(events)) return;
         updateActionLog(events);
         updateActionRepeat(events);
+        updateActionHistory(events);
       })
       .catch(() => {});
 
@@ -1223,7 +1301,9 @@ function init() {
         updateShippingBin(latestState);
         updateCropProgress(latestState?.location?.crops);
         updateCropStatus(latestState?.location?.crops);
+        updateHarvestStatus(latestState?.location?.crops);
         updateInventoryGrid(latestState?.inventory, latestState?.player?.currentToolIndex);
+        updateStamina(latestPlayer);
         if (locationDisplay) {
           locationDisplay.textContent = latestState?.location?.name || "Unknown";
         }

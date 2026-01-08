@@ -7,52 +7,7 @@
 ---
 
 ## Active Tasks
-
-### 1. UI: Harvest Ready Indicator (Priority: HIGH)
-
-**Status:** Pending
-**Assigned:** 2026-01-08 Session 12
-
-Show crops ready for harvest:
-- Display: "HARVEST READY: 3" or "HARVEST: 0 (1-4 days)"
-- Color: green when crops ready, gray when not
-- Data from `/state` → `.data.location.crops[]`
-- Count crops where `.isReadyForHarvest == true`
-- If none ready, show days until soonest: `min(daysUntilHarvest)`
-
-Purpose: Know when to test harvesting - parsnips maturing Day 8-9.
-
----
-
-### 2. UI: Energy/Stamina Bar (Priority: MEDIUM)
-
-**Status:** Pending
-**Assigned:** 2026-01-08 Session 12
-
-Visual stamina display:
-- Bar showing current vs max stamina
-- Color gradient: green → yellow → red as depleted
-- Data from `/state` → `.data.player.stamina` and `.data.player.maxStamina`
-- Show numeric value: "156/270"
-
-Purpose: Agent needs to know when to rest.
-
----
-
-### 3. UI: Action History Panel (Priority: MEDIUM)
-
-**Status:** Pending
-**Assigned:** 2026-01-08 Session 12
-
-Show the last 10 actions the VLM sees:
-- Display recent action list from session memory
-- Highlight repeated actions in red
-- Show "BLOCKED" prefix for failed moves
-- Data from `/api/session-memory?event_type=action&limit=10`
-
-Purpose: Debug what VLM sees about its past actions.
-
----
+None
 
 ## Future Task Ideas (Not Assigned)
 
@@ -66,6 +21,9 @@ Purpose: Debug what VLM sees about its past actions.
 
 ## Completed Tasks
 
+- [x] UI: Harvest Ready Indicator (2026-01-08 Session 12)
+- [x] UI: Energy/Stamina Bar (2026-01-08 Session 12)
+- [x] UI: Action History Panel (2026-01-08 Session 12)
 - [x] UI: Crop Status Summary (2026-01-08 Session 11)
 - [x] UI: Location + Position Display (2026-01-08 Session 11)
 - [x] UI: Action Repeat Detection (2026-01-08 Session 11)

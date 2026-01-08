@@ -571,7 +571,16 @@ class ModBridgeController:
             can_till = current_tile.get("canTill", False)
             can_plant = current_tile.get("canPlant", False)
 
-            if tile_state == "tilled":
+            # Check if standing on a harvestable crop
+            player_x = state.get("player", {}).get("tileX", 0) if state else 0
+            player_y = state.get("player", {}).get("tileY", 0) if state else 0
+            crops = state.get("location", {}).get("crops", []) if state else []
+            crop_here = next((c for c in crops if c.get("x") == player_x and c.get("y") == player_y), None)
+
+            if crop_here and crop_here.get("isReadyForHarvest"):
+                crop_name = crop_here.get("cropName", "crop")
+                front_info = f">>> 🌾 HARVEST TIME! {crop_name} is READY! use_tool to PICK IT! <<<"
+            elif tile_state == "tilled":
                 if "Seed" in current_tool:
                     front_info = f">>> TILE: TILLED - You have {current_tool}, use_tool to PLANT! <<<"
                 else:
@@ -657,22 +666,60 @@ class ModBridgeController:
                     direction_str = " and ".join(dirs) if dirs else "here"
                     front_info = f">>> TILE: NOT FARMABLE - {len(unwatered)} UNWATERED CROPS! Nearest is {direction_str}. Move there to water! <<<"
                 else:
-                    # Check for any crops (all watered or none)
-                    if crops:
-                        front_info = ">>> TILE: NOT FARMABLE - All crops are watered! Move to find more tasks. <<<"
+                    # Check for harvestable crops first
+                    harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
+                    if harvestable:
+                        nearest_h = min(harvestable, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+                        dx = nearest_h["x"] - player_x
+                        dy = nearest_h["y"] - player_y
+                        dirs = []
+                        if dy < 0:
+                            dirs.append(f"{abs(dy)} UP")
+                        elif dy > 0:
+                            dirs.append(f"{abs(dy)} DOWN")
+                        if dx < 0:
+                            dirs.append(f"{abs(dx)} LEFT")
+                        elif dx > 0:
+                            dirs.append(f"{abs(dx)} RIGHT")
+                        direction_str = " and ".join(dirs) if dirs else "here"
+                        front_info = f">>> 🌾 {len(harvestable)} CROPS READY TO HARVEST! Nearest: {direction_str}. GO PICK THEM! <<<"
+                    elif crops:
+                        front_info = ">>> TILE: NOT FARMABLE - All crops watered, none ready to harvest. <<<"
                     else:
                         front_info = ">>> TILE: NOT FARMABLE - move to find tillable ground <<<"
 
         # Add explicit location verification at the very top to prevent hallucination
         location_name = state.get("location", {}).get("name", "Unknown") if state else "Unknown"
-        player_x = state.get("player", {}).get("tileX", "?") if state else "?"
-        player_y = state.get("player", {}).get("tileY", "?") if state else "?"
+        player_x = state.get("player", {}).get("tileX", 0) if state else 0
+        player_y = state.get("player", {}).get("tileY", 0) if state else 0
         location_header = f"📍 LOCATION: {location_name} at tile ({player_x}, {player_y})"
 
+        # Add shipping bin info when on Farm
+        shipping_info = ""
+        if location_name == "Farm" and state:
+            shipping_bin = state.get("location", {}).get("shippingBin")
+            if shipping_bin:
+                bin_x = shipping_bin.get("x", 71)
+                bin_y = shipping_bin.get("y", 14)
+                dx = bin_x - player_x
+                dy = bin_y - player_y
+                distance = abs(dx) + abs(dy)
+                bin_dirs = []
+                if dy < 0:
+                    bin_dirs.append(f"{abs(dy)} UP")
+                elif dy > 0:
+                    bin_dirs.append(f"{abs(dy)} DOWN")
+                if dx < 0:
+                    bin_dirs.append(f"{abs(dx)} LEFT")
+                elif dx > 0:
+                    bin_dirs.append(f"{abs(dx)} RIGHT")
+                bin_dir_str = " and ".join(bin_dirs) if bin_dirs else "here"
+                shipping_info = f"📦 SHIPPING BIN: {distance} tiles away ({bin_dir_str})"
+
         if front_info:
-            result = f"{location_header}\n{front_info}\n{result}"
+            result = f"{location_header}\n{shipping_info}\n{front_info}\n{result}" if shipping_info else f"{location_header}\n{front_info}\n{result}"
         else:
-            result = f"{location_header}\n{result}"
+            result = f"{location_header}\n{shipping_info}\n{result}" if shipping_info else f"{location_header}\n{result}"
         return result
 
     def execute(self, action: Action) -> bool:

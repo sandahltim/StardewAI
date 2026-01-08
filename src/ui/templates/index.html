@@ -164,6 +164,18 @@
           <div id="cropStatus" class="crop-status">Waiting for crop data...</div>
           <p id="cropStatusNote" class="crop-status__note">-</p>
         </div>
+        <div class="harvest-card">
+          <div class="vlm-subhead">Harvest Ready</div>
+          <div id="harvestStatus" class="harvest-status">Waiting for crop data...</div>
+          <p id="harvestNote" class="crop-status__note">-</p>
+        </div>
+        <div class="stamina-card">
+          <div class="vlm-subhead">Energy</div>
+          <div id="staminaStatus" class="stamina-status">Waiting for state...</div>
+          <div class="stamina-bar">
+            <div id="staminaFill" class="stamina-bar__fill"></div>
+          </div>
+        </div>
         <div class="inventory-card">
           <div class="vlm-subhead">Toolbar Inventory</div>
           <div id="inventoryGrid" class="inventory-grid">
@@ -188,6 +200,12 @@
         <div class="action-log-card">
           <div class="vlm-subhead">Action Results</div>
           <ol id="actionLog" class="action-log">
+            <li>None</li>
+          </ol>
+        </div>
+        <div class="action-history-card">
+          <div class="vlm-subhead">Action History</div>
+          <ol id="actionHistory" class="action-log">
             <li>None</li>
           </ol>
         </div>
