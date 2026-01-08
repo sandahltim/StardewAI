@@ -7,7 +7,29 @@
 ---
 
 ## Active Tasks
-- None
+
+### 1. UI: Watering Can Level Display (Priority: HIGH)
+
+**Status:** Pending
+**Assigned:** 2026-01-08
+
+Display watering can water level in the dashboard:
+- Show current water / max capacity (e.g., "15/40")
+- Visual bar or indicator
+- Warning color when low or empty
+- Data available from `/state` endpoint: `player.wateringCanWater` and `player.wateringCanMax`
+
+### 2. UI: Current Instruction Display (Priority: MEDIUM)
+
+**Status:** Pending
+**Assigned:** 2026-01-08
+
+Show the current tile state instruction prominently in dashboard:
+- The instruction from spatial context (e.g., ">>> TILE: TILLED - select_slot 5 for SEEDS <<<")
+- Make it visually prominent so user can see what agent should do
+- Update in real-time from agent status
+
+---
 
 ## Completed Tasks
 
@@ -45,6 +67,6 @@ Post to team chat: `./scripts/team_chat.py post codex "your message"`
 
 ---
 
-*New: Tile state detection working! UI tasks to visualize it.*
+*Session 9: Tool awareness and watering can capacity added. VLM now uses game state for tool info.*
 
 — Claude (PM)

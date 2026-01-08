@@ -1,7 +1,7 @@
 # Next Session - StardewAI
 
 **Last Updated:** 2026-01-08 by Claude
-**Status:** ✅ READY - Tile state detection implemented
+**Status:** Tool awareness implemented, watering can detection added
 
 ---
 
@@ -10,105 +10,98 @@
 | Component | Status | Notes |
 |-----------|--------|-------|
 | llama-server | Running | Port 8780, Qwen3VL-30B loaded |
-| SMAPI mod | **UPDATED** | Port 8790, now with tile state detection! |
-| UI Server | Running | Port 9001, team chat + VLM dashboard |
-| VLM Perception | Working | Location, time, energy, tool detection |
-| **Tile State API** | **NEW** | Returns tilled/planted/watered/clear state |
+| SMAPI mod | **UPDATED** | Port 8790, tile state + watering can level |
+| UI Server | Running | Port 9001, tile state display added |
+| VLM Perception | Working | Location, time, energy detection |
+| **Tile State API** | Working | Returns tilled/planted/watered/clear state |
+| **Tool Awareness** | **NEW** | Agent uses game state for tool info |
+| **Watering Can Level** | **NEW** | Shows water remaining (0/40 = empty) |
 | Game Knowledge DB | Working | SQLite: 35 NPCs, 46 crops, 647 items |
 | Episodic Memory | Working | ChromaDB: semantic search |
 
 ## Session Accomplishments (2026-01-08)
 
-**Session 8 (Tile State Detection):**
-1. **Tile state detection in SMAPI** - `currentTile` now returns:
-   - `state`: "clear" | "tilled" | "planted" | "watered" | "debris"
-   - `object`: null | "Weeds" | "Stone" | "Tree" | etc.
-   - `canTill`: true/false
-   - `canPlant`: true/false
+**Session 9 (Tool Awareness):**
+1. **Tool perception fix** - Agent now uses game state for tool info:
+   - VLM was hallucinating wrong tools (thought hoe, had scythe)
+   - Now overrides VLM perception with actual `player.currentTool`
 
-2. **Agent uses game data** - VLM now receives explicit instructions:
-   - `>>> TILE IN FRONT: CLEAR DIRT - use HOE to TILL! <<<`
-   - `>>> TILE IN FRONT: TILLED SOIL - select SEEDS and PLANT! <<<`
-   - `>>> TILE IN FRONT: PLANTED - select WATERING CAN and WATER! <<<`
+2. **Tool-aware spatial instructions** - Explicit slot numbers:
+   - `>>> TILE: CLEAR DIRT - select_slot 1 for HOE, then use_tool to TILL! <<<`
+   - `>>> TILE: TILLED - select_slot 5 for SEEDS, then use_tool to PLANT! <<<`
+   - Shows current tool: "You have Hoe, use_tool to TILL!"
 
-3. **Farming state machine** - System prompt updated with clear transitions
+3. **Watering can capacity** - SMAPI mod returns water level:
+   - `player.wateringCanWater` / `player.wateringCanMax`
+   - Agent sees: `>>> WATERING CAN EMPTY! Go to water (pond/river) to REFILL! <<<`
 
-4. **Multiple perception improvements**:
-   - Ground type detection (lawn vs farmable)
-   - Farm layout knowledge (decorative area near house)
-   - Explicit facing-direction context
+4. **Codex UI updates** - Tile state display and farming progress bar
 
-**Test Results:**
-- Tile state detection confirmed working
-- Agent successfully detected "WATERED" state (crops planted!)
-- Rainy weather detection working
+**Commits:**
+- `f9d1b56` - Tool awareness and watering can capacity
+- `6422959` - Codex UI (tile state display)
 
-## Files Changed (Session 8)
+## Files Changed (Session 9)
 
 ### SMAPI Mod
-- `Models/GameState.cs` - Added `CurrentTileInfo` class
-- `GameStateReader.cs` - Added `GetTileState()` method for tile state detection
+- `Models/GameState.cs` - Added `WateringCanWater`, `WateringCanMax` to PlayerState
+- `GameStateReader.cs` - Reads watering can level from inventory
 
 ### Python Agent
-- `unified_agent.py` - `format_surroundings()` now uses tile state for explicit guidance
+- `unified_agent.py` - Tool-aware instructions, watering can detection
 
-### Config
-- `config/settings.yaml` - Updated with:
-  - Ground type perception
-  - Farm layout knowledge
-  - Farming state machine
+### UI (Codex)
+- `src/ui/templates/index.html` - Tile state card
+- `src/ui/static/app.js` - Tile state polling, compass fix
 
 ## Next Steps (Priority Order)
 
 ### High Priority - NEXT SESSION
-1. **Extended Planting Test** 🌱
+1. **Extended Planting Test**
    - Fresh Day 1 start
    - Watch Rusty plant all 15 parsnip seeds
-   - Verify: till → plant → water sequence works
-   - Monitor energy consumption
+   - Verify tool switching works consistently
+   - Test watering can refill behavior
 
-2. **Test Edge Cases**:
-   - What happens when facing non-tillable ground?
-   - Obstacle navigation (rocks, trees in the way)
-   - Tool switching reliability
+2. **VLM Instruction Following**
+   - Agent sometimes ignores "select_slot first" instruction
+   - May need stronger prompt wording
+   - Consider: make instruction the FIRST thing in spatial context
 
 ### Medium Priority
-3. **Add crop growth tracking** - Show crop growth stage in state
-4. **Inject Calendar Context** - Use `get_upcoming_events()` in VLM prompt
-5. **Add remaining NPC schedules** - 17/35 still missing
+3. **Water source detection** - Tell agent where pond/river is on farm
+4. **Visual feedback** - Green/red cell indicator (user noted this)
+5. **Crop growth tracking** - Show growth stage in tile state
 
 ### Codex Tasks (See CODEX_TASKS.md)
-- UI: Display tile state in dashboard
-- UI: Show current farming step (clear/till/plant/water)
+- HIGH: Watering can level display in UI
+- MEDIUM: Current instruction display (prominent)
 
 ---
 
-## Quick Start: Planting Test
+## Quick Start: Testing
 
 ```bash
 # 1. Verify services
 curl -s http://localhost:8790/health | jq .  # SMAPI mod
-curl -s http://localhost:8790/surroundings | jq .currentTile  # Tile state
+curl -s http://localhost:8790/state | jq '.data.player | {currentTool, wateringCanWater, wateringCanMax}'
 
-# 2. Start Stardew Valley and load Day 1 save
+# 2. Start Stardew Valley with SMAPI and load save
 
 # 3. Run agent
 cd /home/tim/StardewAI
 source venv/bin/activate
-python src/python-agent/unified_agent.py --ui --goal "Plant parsnips! Follow tile state instructions."
+python src/python-agent/unified_agent.py --ui --goal "Plant parsnips! Follow tile instructions."
 ```
 
 **Expected behavior:**
-- Agent sees `>>> TILE IN FRONT: CLEAR DIRT - use HOE to TILL! <<<`
-- Agent selects hoe (slot 1) and uses tool
-- Agent sees `>>> TILE IN FRONT: TILLED SOIL - select SEEDS and PLANT! <<<`
-- Agent selects seeds (slot 5) and uses tool
-- Agent sees `>>> TILE IN FRONT: PLANTED - select WATERING CAN and WATER! <<<`
-- Agent selects watering can (slot 2) and uses tool
-- Agent sees `>>> TILE IN FRONT: WATERED - DONE! Move to next tile. <<<`
+- Agent sees tile state with tool instructions
+- Agent selects correct tool before using
+- If watering can empty: ">>> WATERING CAN EMPTY! Go to water..."
+- Agent navigates to water source to refill
 
 ---
 
-*Tile state detection implemented. Next session: full planting test.*
+*Tool awareness implemented. Next: test full planting + watering cycle.*
 
 — Claude (PM)
