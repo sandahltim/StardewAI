@@ -29,7 +29,9 @@ The UI uses `status_updated` to populate the Rusty Snapshot panel with:
 - `action_plan` (list of short action strings)
 - `last_tick` (shown as the snapshot timestamp)
 - `vlm_status` (Idle/Thinking/Executing), `last_reasoning`, `last_actions`
+- `vlm_parse_success`, `vlm_parse_fail`, `vlm_errors` (JSON parse debug)
 - `player_tile_x`, `player_tile_y`
+- `current_instruction`, `navigation_target`, `navigation_blocked`, `navigation_attempts`
 
 ## Text-to-Speech (Piper)
 TTS runs on the UI machine. The UI can auto-speak agent replies when enabled, or you can click the “Speak” button on any agent message.
@@ -54,6 +56,7 @@ If you wire the agent to the UI, these endpoints are the minimal surface:
 - `GET /api/goals`: Read the active goal.
 - `GET /api/tasks`: Read the task queue.
 - `POST /api/status`: Update agent runtime state.
+- `GET /api/messages`: Read user + agent chat history (used for prompt context).
 - `POST /api/confirm`: Grant one-time execution permission when confirm-before-execute is enabled.
 - `POST /api/action/pending`: Set the next action for approval (`pending_action` fields in status).
 - `POST /api/action/clear`: Clear pending action + reset confirmation.
@@ -125,6 +128,7 @@ Suggested implementation:
 - Agent conversation feed shows the most recent 10 messages.
 - Newest messages appear at the top.
 - Send box sits above the feed (under the quick selectors).
+- User messages are injected into the VLM prompt; agent replies are posted back to the same chat.
 
 ## Movement History
 
@@ -193,6 +197,14 @@ Suggested implementation:
 ## Current Instruction
 
 - Instruction callout shows the latest spatial instruction from agent status.
+
+## Navigation Intent
+
+- Navigation intent card shows the active instruction target, last blocked direction, and movement attempts.
+
+## VLM Error Display
+
+- Error panel reports VLM JSON parse failures with last raw response (truncated) and success/fail counters.
 
 ## Location + Position
 

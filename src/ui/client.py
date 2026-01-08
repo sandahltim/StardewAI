@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -13,6 +13,16 @@ class UIClient:
     def send_message(self, role: str, content: str, reasoning: Optional[str] = None) -> Dict[str, Any]:
         payload = {"role": role, "content": content, "reasoning": reasoning}
         return self._post("/api/messages", payload)
+
+    def list_messages(self, limit: int = 50, since_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        params = {}
+        if limit:
+            params["limit"] = limit
+        if since_id:
+            params["since_id"] = since_id
+        response = self.client.get(f"{self.base_url}/api/messages", params=params)
+        response.raise_for_status()
+        return response.json()
 
     def stream_message(
         self,

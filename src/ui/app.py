@@ -101,9 +101,15 @@ class StatusUpdate(BaseModel):
     last_reasoning: Optional[str] = None
     last_actions: Optional[List[str]] = None
     vlm_status: Optional[str] = None
+    vlm_parse_success: Optional[int] = None
+    vlm_parse_fail: Optional[int] = None
+    vlm_errors: Optional[List[Dict[str, Any]]] = None
     player_tile_x: Optional[int] = None
     player_tile_y: Optional[int] = None
     current_instruction: Optional[str] = None
+    navigation_target: Optional[str] = None
+    navigation_blocked: Optional[str] = None
+    navigation_attempts: Optional[int] = None
 
 
 class MessageStream(BaseModel):
@@ -182,9 +188,15 @@ def _default_status() -> Dict[str, Any]:
         "last_reasoning": None,
         "last_actions": [],
         "vlm_status": "Idle",
+        "vlm_parse_success": 0,
+        "vlm_parse_fail": 0,
+        "vlm_errors": [],
         "player_tile_x": None,
         "player_tile_y": None,
         "current_instruction": None,
+        "navigation_target": None,
+        "navigation_blocked": None,
+        "navigation_attempts": 0,
     }
 
 

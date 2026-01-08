@@ -8,36 +8,7 @@
 
 ## Active Tasks
 
-### 1. HIGH: VLM Error Display Panel
-**Why:** VLM often returns malformed JSON. Currently fails silently - hard to debug.
-
-**What:** Show VLM errors in UI:
-- Display "JSON Parse Error" when VLM returns bad JSON
-- Show last raw VLM response (truncated) for debugging
-- Count of successful vs failed parses this session
-
-**Data source:** Add to `/api/status` - track `vlm_errors: [{time, error, raw_response}]`
-
----
-
-### 2. MEDIUM: Navigation Intent Display
-**Why:** Agent now uses visual navigation. Useful to see what it's trying to do.
-
-**What:** Show navigation info:
-- Current target (e.g., "Going to: Water (21 tiles south)")
-- Last blocked direction (e.g., "Blocked: down by Tree")
-- Movement attempts counter
-
-**Data source:** Extract from `/api/status` surroundings and action history
-
----
-
-### 3. LOW: Rusty Chat Integration (Roadmap)
-**Why:** Tim wants Rusty to respond to messages in team chat.
-
-**What:** When user posts to team chat, include message in VLM context. VLM can respond in its `reasoning` field, which gets posted back to chat.
-
-**Note:** This is prep work - actual VLM integration is Claude's task.
+None.
 
 ---
 
@@ -53,6 +24,9 @@
 
 ## Completed Tasks
 
+- [x] UI: VLM Error Display Panel (2026-01-08 Session 13)
+- [x] UI: Navigation Intent Display (2026-01-08 Session 13)
+- [x] Agent: User Chat Context + Reply Hook (2026-01-08 Session 13)
 - [x] UI: Harvest Ready Indicator (2026-01-08 Session 12)
 - [x] UI: Energy/Stamina Bar (2026-01-08 Session 12)
 - [x] UI: Action History Panel (2026-01-08 Session 12)

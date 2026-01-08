@@ -110,7 +110,7 @@ ui:
 # =============================================================================
 model:
   temperature: 0.5
-  max_tokens: 600
+  max_tokens: 1500  # Increased from 600 - VLM was truncating JSON responses
 
   # System prompt for unified perception + planning
   system_prompt: |

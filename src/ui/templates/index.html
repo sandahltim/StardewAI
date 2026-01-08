@@ -83,6 +83,21 @@
           <div class="vlm-subhead">Last Reasoning</div>
           <p id="vlmReasoning">{{ status.last_reasoning or "None" }}</p>
         </div>
+        <div class="vlm-error-card">
+          <div class="vlm-subhead">VLM Errors</div>
+          <div class="vlm-error__meta">
+            <span id="vlmParseStats">{{ status.vlm_parse_success or 0 }} ok / {{ status.vlm_parse_fail or 0 }} fail</span>
+            <span id="vlmParseLastTime">
+              {% if status.vlm_errors %}{{ status.vlm_errors[-1].time }}{% else %}No errors{% endif %}
+            </span>
+          </div>
+          <div id="vlmParseError" class="vlm-error__type">
+            {% if status.vlm_errors %}{{ status.vlm_errors[-1].error }}{% else %}None{% endif %}
+          </div>
+          <div id="vlmParseRaw" class="vlm-error__raw">
+            {% if status.vlm_errors %}{{ status.vlm_errors[-1].raw_response }}{% else %}-{% endif %}
+          </div>
+        </div>
         <div class="vlm-actions">
           <div class="vlm-subhead">Last Actions</div>
           <ol id="vlmActions" class="vlm-actions__list">
@@ -122,6 +137,14 @@
             <div class="compass-cell compass-empty"></div>
           </div>
           <p id="compassNote" class="compass-note">Waiting for surroundings...</p>
+        </div>
+        <div class="nav-intent-card">
+          <div class="vlm-subhead">Navigation Intent</div>
+          <div id="navTarget" class="nav-target">No target</div>
+          <div class="nav-meta">
+            <span id="navBlocked">Blocked: none</span>
+            <span id="navAttempts">Move attempts: 0</span>
+          </div>
         </div>
         <div class="tile-card">
           <div class="vlm-subhead">Tile State</div>

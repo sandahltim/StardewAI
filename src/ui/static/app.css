@@ -194,6 +194,46 @@ h2 {
   gap: 6px;
 }
 
+.vlm-error-card,
+.nav-intent-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fbf7f1;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.vlm-error__meta,
+.nav-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.vlm-error__type {
+  font-weight: 600;
+  color: #b45309;
+}
+
+.vlm-error__raw {
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  color: #374151;
+  background: #fff7ed;
+  border-radius: 12px;
+  padding: 8px;
+  white-space: pre-wrap;
+}
+
+.nav-target {
+  font-weight: 600;
+  color: #1f2937;
+}
+
 .movement-card {
   border: 1px solid var(--border);
   border-radius: 16px;

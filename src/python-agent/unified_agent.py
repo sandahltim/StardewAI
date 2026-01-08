@@ -215,6 +215,8 @@ class ThinkResult:
     timestamp: float = 0.0
     raw_response: str = ""
     latency_ms: float = 0.0
+    parse_success: bool = True
+    parse_error: str = ""
 
 
 # =============================================================================
@@ -366,6 +368,7 @@ class UnifiedVLM:
         )
 
         data = None
+        parse_error = ""
 
         # Strategy 1: Try to extract JSON from markdown code block
         json_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
@@ -376,8 +379,8 @@ class UnifiedVLM:
                 # Try with repair
                 try:
                     data = json.loads(self._repair_json(json_block.group(1)))
-                except json.JSONDecodeError:
-                    pass
+                except json.JSONDecodeError as e:
+                    parse_error = f"JSON parse failed (code block): {e}"
 
         # Strategy 2: Find balanced braces for first complete JSON object
         if data is None:
@@ -401,8 +404,8 @@ class UnifiedVLM:
                         # Try with repair
                         try:
                             data = json.loads(self._repair_json(json_str))
-                        except json.JSONDecodeError:
-                            pass
+                        except json.JSONDecodeError as e:
+                            parse_error = f"JSON parse failed (balanced braces): {e}"
 
         # Strategy 3: Fallback - try first { to last }
         if data is None:
@@ -419,10 +422,18 @@ class UnifiedVLM:
                         logging.info("JSON repaired successfully")
                     except json.JSONDecodeError as e:
                         logging.warning(f"JSON parse failed: {e}")
-                        logging.debug(f"Raw response: {content[:500]}...")
+                        logging.warning(f"Raw VLM response (first 800 chars): {content[:800]}")
+                        # Save failed JSON to file for debugging
+                        try:
+                            with open("/tmp/vlm_failed_json.txt", "w") as f:
+                                f.write(content)
+                        except:
+                            pass
+                        parse_error = f"JSON parse failed (fallback): {e}"
 
         # Extract data if we got valid JSON
         if data:
+            result.parse_success = True
             try:
                 # Perception
                 perception = data.get("perception", {})
@@ -475,6 +486,8 @@ class UnifiedVLM:
                 result.reasoning = f"Data extraction error: {e}"
         else:
             result.reasoning = "Could not parse JSON from response"
+            result.parse_success = False
+            result.parse_error = parse_error or "Could not parse JSON from response"
 
         # Ensure at least one action
         if not result.actions:
@@ -1051,6 +1064,14 @@ class StardewAgent:
         self.last_position_logged: Optional[Tuple[int, int]] = None
         self.last_tool: Optional[str] = None
         self.current_instruction: Optional[str] = None
+        self.navigation_target: Optional[str] = None
+        self.last_blocked_direction: Optional[str] = None
+        self.movement_attempts = 0
+        self.vlm_parse_success = 0
+        self.vlm_parse_fail = 0
+        self.vlm_errors: List[Dict[str, Any]] = []
+        self.last_user_message_id = 0
+        self.awaiting_user_reply = False
         self.ui = None
         self.ui_enabled = False
 
@@ -1127,6 +1148,48 @@ class StardewAgent:
             self.ui_enabled = False
             self.ui = None
             return None
+
+    def _track_vlm_parse(self, result: ThinkResult) -> None:
+        if result.parse_success:
+            self.vlm_parse_success += 1
+            return
+        self.vlm_parse_fail += 1
+        raw = (result.raw_response or "").strip()
+        if len(raw) > 400:
+            raw = raw[:400].rstrip() + "..."
+        self.vlm_errors.append({
+            "time": datetime.now().isoformat(timespec="seconds"),
+            "error": result.parse_error or "JSON parse failed",
+            "raw_response": raw,
+        })
+        self.vlm_errors = self.vlm_errors[-10:]
+
+    def _extract_navigation_target(self, instruction: Optional[str]) -> Optional[str]:
+        if not instruction:
+            return None
+        cleaned = instruction.replace(">>>", "").replace("<<<", "").strip()
+        return cleaned or None
+
+    def _get_recent_user_messages(self) -> str:
+        if not self.ui_enabled or not self.ui:
+            return ""
+        try:
+            messages = self.ui.list_messages(limit=50, since_id=self.last_user_message_id or None)
+        except Exception as exc:
+            logging.debug(f"Failed to read UI messages: {exc}")
+            return ""
+        if not messages:
+            return ""
+        ids = [msg.get("id") for msg in messages if msg.get("id")]
+        if ids:
+            self.last_user_message_id = max(ids)
+        user_messages = [msg for msg in messages if msg.get("role") == "user" and msg.get("content")]
+        if not user_messages:
+            return ""
+        self.awaiting_user_reply = True
+        recent = user_messages[-3:]
+        lines = [f"- {msg['content'].strip()}" for msg in recent if msg.get("content")]
+        return "\n".join(lines)
 
     def _record_session_event(self, event_type: str, data: Dict[str, Any]) -> None:
         if not self.ui_enabled or not self.ui:
@@ -1277,6 +1340,12 @@ class StardewAgent:
             "player_tile_x": self.last_position[0] if self.last_position else None,
             "player_tile_y": self.last_position[1] if self.last_position else None,
             "current_instruction": self.current_instruction,
+            "navigation_target": self.navigation_target,
+            "navigation_blocked": self.last_blocked_direction,
+            "navigation_attempts": self.movement_attempts,
+            "vlm_parse_success": self.vlm_parse_success,
+            "vlm_parse_fail": self.vlm_parse_fail,
+            "vlm_errors": list(self.vlm_errors),
         }
         if result:
             payload.update({
@@ -1362,10 +1431,14 @@ class StardewAgent:
                         # Still record the ATTEMPTED action so VLM learns from failed attempts
                         self.recent_actions.append(f"BLOCKED: move {direction} (hit {blocker})")
                         self.recent_actions = self.recent_actions[-10:]
+                        self.movement_attempts += 1
+                        self.last_blocked_direction = f"{direction} ({blocker})"
                         self._send_ui_status()
                         return
 
             self.vlm_status = "Executing"
+            if action.action_type == "move":
+                self.movement_attempts += 1
             self.recent_actions.append(self._format_action(action))
             self.recent_actions = self.recent_actions[-10:]  # Keep last 10 for pattern detection
             logging.info(f"🎮 Executing: {action.action_type} {action.params}")
@@ -1411,10 +1484,19 @@ class StardewAgent:
                         (line.strip() for line in lines if line.strip().startswith(">>>")),
                         None
                     )
+                    self.navigation_target = self._extract_navigation_target(self.current_instruction)
                     logging.info(f"   🧭 {spatial_context}")
+                else:
+                    self.current_instruction = None
+                    self.navigation_target = None
 
             # Build action context with history and repetition warnings
-            action_context = ""
+            action_context_parts = []
+            user_context = self._get_recent_user_messages()
+            if user_context:
+                action_context_parts.append(
+                    f"USER MESSAGES (respond in reasoning):\n{user_context}"
+                )
             if self.recent_actions:
                 action_history = "\n".join(f"  {i+1}. {a}" for i, a in enumerate(self.recent_actions))
                 # Detect repetition - warn if same action 3+ times in last 5
@@ -1427,17 +1509,20 @@ class StardewAgent:
 
                 if repeat_count >= 3:
                     # VERY PROMINENT warning - tell VLM to USE VISION
-                    action_context = f"🚨 STOP! You're STUCK! 🚨\nYou've done '{last_action}' {repeat_count} TIMES and it's not working!\n\n"
-                    action_context += "👁️ LOOK AT THE SCREENSHOT! There's probably an obstacle blocking you.\n"
-                    action_context += "USE YOUR EYES to find a path around it:\n"
-                    action_context += "- See a TREE or ROCK blocking? Move sideways first to go AROUND it\n"
-                    action_context += "- Can't go south? Try going LEFT or RIGHT first, THEN south\n"
-                    action_context += "- Still stuck? Try a completely different route\n\n"
+                    warning = f"🚨 STOP! You're STUCK! 🚨\nYou've done '{last_action}' {repeat_count} TIMES and it's not working!\n\n"
+                    warning += "👁️ LOOK AT THE SCREENSHOT! There's probably an obstacle blocking you.\n"
+                    warning += "USE YOUR EYES to find a path around it:\n"
+                    warning += "- See a TREE or ROCK blocking? Move sideways first to go AROUND it\n"
+                    warning += "- Can't go south? Try going LEFT or RIGHT first, THEN south\n"
+                    warning += "- Still stuck? Try a completely different route\n\n"
+                    action_context_parts.append(warning)
 
-                action_context += f"YOUR RECENT ACTIONS (oldest→newest):\n{action_history}"
+                action_context_parts.append(f"YOUR RECENT ACTIONS (oldest→newest):\n{action_history}")
                 logging.info(f"   📜 Action history: {len(self.recent_actions)} actions tracked")
                 if repeat_count >= 3:
                     logging.warning(f"   ⚠️  REPETITION DETECTED: '{last_action}' done {repeat_count}x in last 5")
+
+            action_context = "\n\n".join(action_context_parts)
 
             # Get memory context (NPC knowledge + past experiences)
             memory_context = ""
@@ -1466,6 +1551,7 @@ class StardewAgent:
             # Think! (unified perception + planning)
             logging.info("🧠 Thinking...")
             result = self.vlm.think(img, self.goal, spatial_context=spatial_context, memory_context=memory_context, action_context=action_context)
+            self._track_vlm_parse(result)
 
             # Override VLM's tool perception with actual game state (VLM often hallucinates tools)
             if self.last_state:
@@ -1494,6 +1580,12 @@ class StardewAgent:
 
             self._send_ui_status(result)
             self._send_ui_message(result)
+
+            if self.awaiting_user_reply and result.parse_success:
+                reply_text = (result.reasoning or "").strip()
+                if reply_text and not reply_text.lower().startswith("could not parse json"):
+                    self._ui_safe(self.ui.send_message, "agent", reply_text)
+                self.awaiting_user_reply = False
 
             # Queue actions
             if self.config.mode in ("coop", "single"):

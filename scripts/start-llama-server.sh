@@ -144,7 +144,7 @@ main() {
     # Learned from Gary: <2GB headroom = OOM crashes and XID 158 lockups
     CMD="$CMD --port $PORT"
     CMD="$CMD --host 127.0.0.1"
-    CMD="$CMD -c 4096"           # 4K context (plenty for game state, saves ~1GB)
+    CMD="$CMD -c 8192"           # 8K context (needed for system prompt + image + response)
     CMD="$CMD -ngl 99"           # All layers on GPU
     CMD="$CMD --tensor-split 20,4"  # 83% on 3090 Ti, 17% on 4070 (like Gary)
     CMD="$CMD --flash-attn on"   # Enable flash attention

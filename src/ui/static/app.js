@@ -252,6 +252,13 @@ function updateStatus(status) {
   const vlmPerception = document.getElementById("vlmPerception");
   const vlmReasoning = document.getElementById("vlmReasoning");
   const vlmActions = document.getElementById("vlmActions");
+  const vlmParseStats = document.getElementById("vlmParseStats");
+  const vlmParseLastTime = document.getElementById("vlmParseLastTime");
+  const vlmParseError = document.getElementById("vlmParseError");
+  const vlmParseRaw = document.getElementById("vlmParseRaw");
+  const navTarget = document.getElementById("navTarget");
+  const navBlocked = document.getElementById("navBlocked");
+  const navAttempts = document.getElementById("navAttempts");
   const movementList = document.getElementById("movementList");
   const movementStuck = document.getElementById("movementStuck");
   const movementTrail = document.getElementById("movementTrail");
@@ -338,6 +345,24 @@ function updateStatus(status) {
     vlmPerception.textContent = `${location} | ${time} | Energy ${energy} | Holding ${holding}`;
   }
   if (vlmReasoning) vlmReasoning.textContent = status.last_reasoning || "None";
+  if (vlmParseStats) {
+    const ok = Number(status.vlm_parse_success || 0);
+    const fail = Number(status.vlm_parse_fail || 0);
+    vlmParseStats.textContent = `${ok} ok / ${fail} fail`;
+  }
+  if (vlmParseLastTime || vlmParseError || vlmParseRaw) {
+    const errors = Array.isArray(status.vlm_errors) ? status.vlm_errors : [];
+    const last = errors.length ? errors[errors.length - 1] : null;
+    if (vlmParseLastTime) {
+      vlmParseLastTime.textContent = last ? last.time : "No errors";
+    }
+    if (vlmParseError) {
+      vlmParseError.textContent = last ? last.error : "None";
+    }
+    if (vlmParseRaw) {
+      vlmParseRaw.textContent = last ? last.raw_response : "-";
+    }
+  }
   if (vlmActions) {
     vlmActions.innerHTML = "";
     const actions = status.last_actions && status.last_actions.length ? status.last_actions : ["None"];
@@ -346,6 +371,16 @@ function updateStatus(status) {
       li.textContent = item;
       vlmActions.append(li);
     });
+  }
+  if (navTarget) {
+    navTarget.textContent = status.navigation_target || "No target";
+  }
+  if (navBlocked) {
+    navBlocked.textContent = status.navigation_blocked ? `Blocked: ${status.navigation_blocked}` : "Blocked: none";
+  }
+  if (navAttempts) {
+    const attempts = Number(status.navigation_attempts || 0);
+    navAttempts.textContent = `Move attempts: ${attempts}`;
   }
   if (currentInstruction) {
     currentInstruction.textContent = status.current_instruction || "No instruction yet.";
