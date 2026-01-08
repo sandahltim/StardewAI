@@ -265,6 +265,9 @@ function updateStatus(status) {
   const memorySearchBtn = document.getElementById("memorySearchBtn");
   const memoryList = document.getElementById("memoryList");
   const knowledgeList = document.getElementById("knowledgeList");
+  const tileStatus = document.getElementById("tileStatus");
+  const tileNote = document.getElementById("tileNote");
+  const tileProgress = document.getElementById("tileProgress");
 
   if (mode) mode.textContent = `Mode: ${status.mode || "helper"}`;
   if (running) running.textContent = `Running: ${status.running ? "yes" : "no"}`;
@@ -442,6 +445,54 @@ function init() {
         .filter(Boolean);
       compassNote.textContent = blockers.length ? `Blocked by ${blockers.join(", ")}` : "All clear";
     }
+  };
+
+  const updateTileState = (tile) => {
+    if (!tileStatus || !tileProgress || !tileNote) return;
+    if (!tile) {
+      tileStatus.textContent = "Waiting for tile data...";
+      tileNote.textContent = "-";
+      tileStatus.className = "tile-status";
+      tileProgress.querySelectorAll("span").forEach((span) => {
+        span.classList.remove("active", "complete");
+      });
+      return;
+    }
+
+    const state = tile.state || "clear";
+    const objectName = tile.object || "";
+    const canTill = Boolean(tile.canTill);
+    const canPlant = Boolean(tile.canPlant);
+
+    tileStatus.className = "tile-status";
+    if (state === "debris") {
+      tileStatus.classList.add("debris");
+      tileStatus.textContent = `Debris: ${objectName || "Blocked"}`;
+      tileNote.textContent = "Clear the tile";
+    } else if (state === "watered") {
+      tileStatus.classList.add("done");
+      tileStatus.textContent = "Watered - Done!";
+      tileNote.textContent = "Tile is ready";
+    } else if (state === "planted") {
+      tileStatus.classList.add("ready-water");
+      tileStatus.textContent = "Planted - Ready to Water";
+      tileNote.textContent = "Next: water the crop";
+    } else if (state === "tilled") {
+      tileStatus.classList.add("ready-plant");
+      tileStatus.textContent = canPlant ? "Tilled - Ready to Plant" : "Tilled";
+      tileNote.textContent = canPlant ? "Plant seeds next" : "Tile tilled";
+    } else {
+      tileStatus.classList.add("ready-till");
+      tileStatus.textContent = canTill ? "Clear - Ready to Till" : "Clear";
+      tileNote.textContent = canTill ? "Till soil to plant seeds" : "Tile is clear";
+    }
+
+    const stepOrder = ["clear", "tilled", "planted", "watered", "done"];
+    const currentIndex = state === "watered" ? 4 : stepOrder.indexOf(state);
+    tileProgress.querySelectorAll("span").forEach((span, idx) => {
+      span.classList.toggle("active", idx === currentIndex);
+      span.classList.toggle("complete", idx < currentIndex);
+    });
   };
 
   const updateSessionTimeline = (events) => {
@@ -892,12 +943,15 @@ function init() {
       .then((payload) => {
         if (!payload || !payload.success) {
           if (compassNote) compassNote.textContent = "SMAPI unavailable";
+          updateTileState(null);
           return;
         }
         updateCompass(payload.data);
+        updateTileState(payload.data.currentTile);
       })
       .catch(() => {
         if (compassNote) compassNote.textContent = "SMAPI unavailable";
+        updateTileState(null);
       });
   }, pollIntervalMs);
 

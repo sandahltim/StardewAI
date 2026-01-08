@@ -136,6 +136,11 @@ Suggested implementation:
 - Compass widget polls `http://<ui-host>:8790/surroundings` and shows clear/blocked tiles per direction.
 - Green = clear (tile count), red = blocked (tiles until blocked).
 
+## Tile State
+
+- Tile State card reads `currentTile` from `/surroundings` and shows clear/tilled/planted/watered/debris.
+- Progress bar highlights farming workflow: CLEAR → TILL → PLANT → WATER → DONE.
+
 ## Session Timeline
 
 - Collapsible list of the most recent session events (positions/actions/tool use).

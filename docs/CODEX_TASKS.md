@@ -7,57 +7,12 @@
 ---
 
 ## Active Tasks
-
-### 1. UI: Tile State Display (Priority: HIGH)
-
-**Status:** Not Started
-**Assigned:** 2026-01-08
-
-**Description:**
-The SMAPI mod now returns `currentTile` data from `/surroundings`. Display this in the dashboard so we can see what farming state Rusty is working with.
-
-**API Response:**
-```json
-GET /surroundings
-{
-  "currentTile": {
-    "state": "clear|tilled|planted|watered|debris",
-    "object": null|"Weeds"|"Stone"|"Tree"|etc,
-    "canTill": true|false,
-    "canPlant": true|false
-  }
-}
-```
-
-**Requirements:**
-1. Add "Tile State" indicator to dashboard
-2. Color-coded display:
-   - `clear` (canTill): 🟢 "Ready to Till"
-   - `tilled`: 🟤 "Ready to Plant"
-   - `planted`: 🟡 "Ready to Water"
-   - `watered`: 🔵 "Done!"
-   - `debris`: 🔴 with object name
-3. Poll `/surroundings` endpoint to update
-
-**Test:** `curl -s http://localhost:8790/surroundings | jq .data.currentTile`
-
----
-
-### 2. UI: Farming Progress Bar (Priority: MEDIUM)
-
-**Status:** Not Started
-
-**Description:**
-Visual workflow indicator:
-```
-[CLEAR] → [TILL] → [PLANT] → [WATER] → ✓
-```
-Highlight current step based on tile state.
-
----
+- None
 
 ## Completed Tasks
 
+- [x] UI: Tile State Display (2026-01-08)
+- [x] UI: Farming Progress Bar (2026-01-08)
 - [x] Game Knowledge DB - Calendar table + helpers (2026-01-08)
 - [x] Game Knowledge DB - NPC schedule notes (2026-01-08)
 - [x] UI: Memory Viewer Panel (2026-01-08)
