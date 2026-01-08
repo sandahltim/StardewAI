@@ -1,7 +1,7 @@
 # Next Session - StardewAI
 
 **Last Updated:** 2026-01-08 by Claude
-**Status:** ✅ READY FOR EXTENDED AGENT TEST
+**Status:** 🔧 NAVIGATION FIXES APPLIED - NEEDS GAME RESTART TO TEST
 
 ---
 
@@ -25,6 +25,17 @@
 | **Memory Viewer UI** | **NEW** | Search + browse episodic memories in dashboard |
 
 ## Session Accomplishments (2026-01-08)
+
+**Session 7 (Navigation Fixes):**
+1. **Warp command working** - Rusty can now `{"type": "warp", "location": "Farm"}` to teleport
+2. **Location perception fixed** - VLM now correctly identifies INSIDE vs OUTSIDE
+3. **Collision checking added** - Agent skips moves into walls (tilesUntilBlocked=0)
+4. **⚠️ SMAPI mod collision fix** - May need debugging, game crashed after rebuild
+5. **REQUIRES GAME RESTART** - SMAPI mod was rebuilt
+
+**Known Issues to Fix Next Session:**
+- SMAPI mod `MoveInDirection` changes may have caused crash - check SMAPI logs
+- If crash persists, revert to direct position setting and just rely on Python collision check
 
 **Session 6 (Codex Deliverables):**
 1. Calendar table: Egg Festival, Flower Dance, Luau, Spirit's Eve, etc.
