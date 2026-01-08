@@ -141,6 +141,30 @@ Suggested implementation:
 - Tile State card reads `currentTile` from `/surroundings` and shows clear/tilled/planted/watered/debris.
 - Progress bar highlights farming workflow: CLEAR → TILL → PLANT → WATER → DONE.
 
+## Watering Can
+
+- Watering can panel reads `player.wateringCanWater` and `player.wateringCanMax` from `/state`.
+- Shows remaining water with a warning when low or empty.
+
+## Water Source
+
+- Water source indicator reads `nearestWater.direction` and `nearestWater.distance` from `/surroundings`.
+- Highlights when watering can is low or empty.
+
+## Shipping Bin
+
+- Shipping bin indicator reads `location.shippingBin.x/y` from `/state`.
+- Shows direction/distance when on Farm and inventory has sellable items.
+
+## Crop Growth
+
+- Crop progress aggregates `location.crops[].daysUntilHarvest` from `/state`.
+- Shows counts by days remaining and ready crops.
+
+## Current Instruction
+
+- Instruction callout shows the latest spatial instruction from agent status.
+
 ## Session Timeline
 
 - Collapsible list of the most recent session events (positions/actions/tool use).

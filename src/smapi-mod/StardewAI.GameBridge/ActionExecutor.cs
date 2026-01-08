@@ -275,9 +275,7 @@ public class ActionExecutor
     {
         var player = Game1.player;
         var tool = player.CurrentTool;
-
-        if (tool == null)
-            return new ActionResult { Success = false, Error = "No tool equipped", State = ActionState.Failed };
+        var activeObject = player.ActiveObject;
 
         // Set facing direction if specified
         if (!string.IsNullOrEmpty(direction))
@@ -286,18 +284,63 @@ public class ActionExecutor
             if (facing >= 0) player.FacingDirection = facing;
         }
 
-        // Use the tool
-        player.BeginUsingTool();
-
-        _state = ActionState.WaitingForAnimation;
-        _waitTicksRemaining = 30; // Wait for animation
-
-        return new ActionResult
+        // Check if holding a tool
+        if (tool != null)
         {
-            Success = true,
-            Message = $"Using {tool.DisplayName}",
-            State = ActionState.PerformingAction
-        };
+            // Use the tool
+            player.BeginUsingTool();
+
+            _state = ActionState.WaitingForAnimation;
+            _waitTicksRemaining = 30; // Wait for animation
+
+            return new ActionResult
+            {
+                Success = true,
+                Message = $"Using {tool.DisplayName}",
+                State = ActionState.PerformingAction
+            };
+        }
+        // Check if holding an object (seeds, items to place)
+        else if (activeObject != null)
+        {
+            // Get tile in front of player
+            var facingDir = player.FacingDirection;
+            int targetX = player.TilePoint.X + (facingDir == 1 ? 1 : facingDir == 3 ? -1 : 0);
+            int targetY = player.TilePoint.Y + (facingDir == 2 ? 1 : facingDir == 0 ? -1 : 0);
+            var targetTile = new Microsoft.Xna.Framework.Vector2(targetX, targetY);
+
+            // Try to place/use the object
+            bool success = Utility.tryToPlaceItem(player.currentLocation, activeObject, targetX * 64, targetY * 64);
+
+            if (success)
+            {
+                // Remove from inventory if placed
+                if (activeObject.Stack <= 1)
+                    player.removeItemFromInventory(activeObject);
+                else
+                    activeObject.Stack--;
+
+                return new ActionResult
+                {
+                    Success = true,
+                    Message = $"Placed {activeObject.DisplayName}",
+                    State = ActionState.PerformingAction
+                };
+            }
+            else
+            {
+                return new ActionResult
+                {
+                    Success = false,
+                    Error = $"Cannot place {activeObject.DisplayName} here",
+                    State = ActionState.Failed
+                };
+            }
+        }
+        else
+        {
+            return new ActionResult { Success = false, Error = "No tool or item equipped", State = ActionState.Failed };
+        }
     }
 
     private ActionResult EquipTool(string toolName)

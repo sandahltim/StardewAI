@@ -404,6 +404,101 @@ h2 {
   font-size: 11px;
 }
 
+.water-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fbf7f1;
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.water-status {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.water-bar {
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.water-bar__fill {
+  height: 100%;
+  width: 0%;
+  background: #60a5fa;
+  transition: width 0.2s ease;
+}
+
+.water-bar__fill.low {
+  background: #f59e0b;
+}
+
+.water-bar__fill.empty {
+  background: #ef4444;
+}
+
+.water-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.water-source-card,
+.shipping-card,
+.crop-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf8;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.water-source-status,
+.shipping-status {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.water-source-status.low,
+.shipping-status.attention {
+  color: #b45309;
+}
+
+.water-source-status.empty {
+  color: #b91c1c;
+}
+
+.crop-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.instruction-card {
+  border: 2px dashed var(--accent);
+  border-radius: 16px;
+  padding: 12px;
+  background: #f0f8f6;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.instruction-text {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
 .memory-viewer {
   border: 1px solid var(--border);
   border-radius: 16px;

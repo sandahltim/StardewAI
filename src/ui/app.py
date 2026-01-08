@@ -103,6 +103,7 @@ class StatusUpdate(BaseModel):
     vlm_status: Optional[str] = None
     player_tile_x: Optional[int] = None
     player_tile_y: Optional[int] = None
+    current_instruction: Optional[str] = None
 
 
 class MessageStream(BaseModel):
@@ -183,6 +184,7 @@ def _default_status() -> Dict[str, Any]:
         "vlm_status": "Idle",
         "player_tile_x": None,
         "player_tile_y": None,
+        "current_instruction": None,
     }
 
 

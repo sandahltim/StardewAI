@@ -55,6 +55,7 @@ public class LocationState
     public bool IsFarm { get; set; }
     public int MapWidth { get; set; }
     public int MapHeight { get; set; }
+    public TilePosition ShippingBin { get; set; }  // Location of shipping bin (Farm only)
     public List<TileObject> Objects { get; set; } = new();
     public List<NpcInfo> Npcs { get; set; } = new();
     public List<CropInfo> Crops { get; set; } = new();
@@ -68,6 +69,9 @@ public class TileObject
     public string Name { get; set; }
     public string Type { get; set; }
     public bool IsPassable { get; set; }
+    public bool IsForageable { get; set; }    // Can be picked up (spring onion, leek, etc.)
+    public bool CanInteract { get; set; }     // Can interact with (chest, machine, etc.)
+    public string InteractionType { get; set; } // "chest", "machine", "sell", null
 }
 
 /// <summary>NPC information</summary>
@@ -107,6 +111,16 @@ public class SurroundingsState
     public TilePosition Position { get; set; }
     public CurrentTileInfo CurrentTile { get; set; }
     public Dictionary<string, DirectionInfo> Directions { get; set; } = new();
+    public WaterSourceInfo NearestWater { get; set; }  // Closest water for refilling watering can
+}
+
+/// <summary>Nearest water source for refilling watering can</summary>
+public class WaterSourceInfo
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Distance { get; set; }      // Manhattan distance from player
+    public string Direction { get; set; }  // General direction: "north", "south", "east", "west", "here"
 }
 
 /// <summary>What's on the player's current tile</summary>

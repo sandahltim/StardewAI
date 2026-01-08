@@ -580,7 +580,14 @@ class ModBridgeController:
                 water_max = state.get("player", {}).get("wateringCanMax", 40) if state else 40
 
                 if water_left <= 0:
-                    front_info = ">>> WATERING CAN EMPTY! Go to water (pond/river) and use_tool to REFILL! <<<"
+                    # Get nearest water location
+                    nearest_water = data.get("nearestWater")
+                    if nearest_water:
+                        water_dir = nearest_water.get("direction", "nearby")
+                        water_dist = nearest_water.get("distance", "?")
+                        front_info = f">>> WATERING CAN EMPTY! Water is {water_dist} tiles {water_dir} - go there and use_tool to REFILL! <<<"
+                    else:
+                        front_info = ">>> WATERING CAN EMPTY! Find water (pond/river) and use_tool to REFILL! <<<"
                 elif "Watering" in current_tool:
                     front_info = f">>> TILE: PLANTED - You have {current_tool} ({water_left}/{water_max}), use_tool to WATER! <<<"
                 else:
@@ -599,8 +606,8 @@ class ModBridgeController:
                     front_info = f">>> TILE: CLEAR DIRT - You have {current_tool}, use_tool to TILL! <<<"
                 else:
                     front_info = ">>> TILE: CLEAR DIRT - select_slot 1 for HOE, then use_tool to TILL! <<<"
-            elif tile_state == "clear":
-                front_info = ">>> TILE: CLEAR (non-tillable) - move to find farmable ground <<<"
+            elif tile_state == "clear" or tile_state == "blocked":
+                front_info = ">>> TILE: NOT FARMABLE - move to find tillable ground <<<"
 
         if front_info:
             result = f"{front_info}\n{result}"
@@ -894,6 +901,7 @@ class StardewAgent:
         self.last_position: Optional[Tuple[int, int]] = None
         self.last_position_logged: Optional[Tuple[int, int]] = None
         self.last_tool: Optional[str] = None
+        self.current_instruction: Optional[str] = None
         self.ui = None
         self.ui_enabled = False
 
@@ -1119,6 +1127,7 @@ class StardewAgent:
             "last_actions": list(self.recent_actions),
             "player_tile_x": self.last_position[0] if self.last_position else None,
             "player_tile_y": self.last_position[1] if self.last_position else None,
+            "current_instruction": self.current_instruction,
         }
         if result:
             payload.update({
@@ -1234,6 +1243,11 @@ class StardewAgent:
             if hasattr(self.controller, 'format_surroundings'):
                 spatial_context = self.controller.format_surroundings()
                 if spatial_context:
+                    lines = spatial_context.splitlines()
+                    self.current_instruction = next(
+                        (line.strip() for line in lines if line.strip().startswith(">>>")),
+                        None
+                    )
                     logging.info(f"   🧭 {spatial_context}")
 
             # Get memory context (NPC knowledge + past experiences)

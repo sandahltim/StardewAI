@@ -1,7 +1,7 @@
 # Next Session - StardewAI
 
 **Last Updated:** 2026-01-08 by Claude
-**Status:** Tool awareness implemented, watering can detection added
+**Status:** Major SMAPI improvements, seed planting fix pending test
 
 ---
 
@@ -10,98 +10,110 @@
 | Component | Status | Notes |
 |-----------|--------|-------|
 | llama-server | Running | Port 8780, Qwen3VL-30B loaded |
-| SMAPI mod | **UPDATED** | Port 8790, tile state + watering can level |
-| UI Server | Running | Port 9001, tile state display added |
+| SMAPI mod | **UPDATED** | Port 8790, major improvements |
+| UI Server | Running | Port 9001, all indicators added |
 | VLM Perception | Working | Location, time, energy detection |
-| **Tile State API** | Working | Returns tilled/planted/watered/clear state |
-| **Tool Awareness** | **NEW** | Agent uses game state for tool info |
-| **Watering Can Level** | **NEW** | Shows water remaining (0/40 = empty) |
+| Tool Awareness | Working | Uses game state, not VLM |
+| **Water Detection** | **NEW** | Nearest water with direction/distance |
+| **Shipping Bin** | **NEW** | Location available on Farm |
+| **Crop Growth** | **FIXED** | Actual days until harvest |
+| **Tillability** | **FIXED** | Porch/paths correctly blocked |
+| **Seed Planting** | **NEW** | use_tool now works for seeds |
 | Game Knowledge DB | Working | SQLite: 35 NPCs, 46 crops, 647 items |
 | Episodic Memory | Working | ChromaDB: semantic search |
 
-## Session Accomplishments (2026-01-08)
+## Session 10 Accomplishments
 
-**Session 9 (Tool Awareness):**
-1. **Tool perception fix** - Agent now uses game state for tool info:
-   - VLM was hallucinating wrong tools (thought hoe, had scythe)
-   - Now overrides VLM perception with actual `player.currentTool`
+**SMAPI Improvements (6 features):**
+1. **Water source detection** - `nearestWater` in `/surroundings`
+   - Returns x, y, distance, direction (e.g., "24 tiles south")
+   - Agent can now navigate to refill watering can
 
-2. **Tool-aware spatial instructions** - Explicit slot numbers:
-   - `>>> TILE: CLEAR DIRT - select_slot 1 for HOE, then use_tool to TILL! <<<`
-   - `>>> TILE: TILLED - select_slot 5 for SEEDS, then use_tool to PLANT! <<<`
-   - Shows current tool: "You have Hoe, use_tool to TILL!"
+2. **Shipping bin location** - `shippingBin` in `/state`
+   - Fixed location (71, 14) on standard farm
+   - For selling harvested crops
 
-3. **Watering can capacity** - SMAPI mod returns water level:
-   - `player.wateringCanWater` / `player.wateringCanMax`
-   - Agent sees: `>>> WATERING CAN EMPTY! Go to water (pond/river) to REFILL! <<<`
+3. **Crop growth fix** - `daysUntilHarvest` now accurate
+   - Was showing `dayOfCurrentPhase` (wrong)
+   - Now calculates actual remaining days across all phases
 
-4. **Codex UI updates** - Tile state display and farming progress bar
+4. **Tillability fix** - Non-farmable tiles now `blocked`
+   - Removed blanket `location is Farm` check
+   - Porch, paths, decorative areas correctly identified
 
-**Commits:**
-- `f9d1b56` - Tool awareness and watering can capacity
-- `6422959` - Codex UI (tile state display)
+5. **Forageable detection** - `isForageable` flag on objects
+   - Spring onions, flowers, etc. marked for pickup
 
-## Files Changed (Session 9)
+6. **Interactable objects** - `canInteract` + `interactionType`
+   - Chests, machines, craftables identified
+
+7. **Seed planting fix** - `use_tool` action handles objects
+   - Was checking `CurrentTool` (null for seeds)
+   - Now uses `ActiveObject` + `Utility.tryToPlaceItem()`
+
+**Codex UI Updates (3 features):**
+- Water source indicator
+- Shipping bin indicator
+- Crop growth progress display
+
+**Bug Fixes:**
+- CurrentTool now returns selected item name (seeds, not "None")
+- Tile state correctly identifies non-tillable areas
+
+## Files Changed (Session 10)
 
 ### SMAPI Mod
-- `Models/GameState.cs` - Added `WateringCanWater`, `WateringCanMax` to PlayerState
-- `GameStateReader.cs` - Reads watering can level from inventory
+- `Models/GameState.cs` - Added WaterSourceInfo, ShippingBin, forageable/interactable fields
+- `GameStateReader.cs` - Water detection, shipping bin, crop growth fix, tillability fix
+- `ActionExecutor.cs` - Seed planting with Utility.tryToPlaceItem()
 
 ### Python Agent
-- `unified_agent.py` - Tool-aware instructions, watering can detection
+- `unified_agent.py` - Water direction in empty can message, blocked tile handling
 
-### UI (Codex)
-- `src/ui/templates/index.html` - Tile state card
-- `src/ui/static/app.js` - Tile state polling, compass fix
+### Docs
+- `SMAPI_IMPROVEMENTS_PLAN.md` - Created
+- `CODEX_TASKS.md` - Updated by Codex
 
 ## Next Steps (Priority Order)
 
-### High Priority - NEXT SESSION
-1. **Extended Planting Test**
-   - Fresh Day 1 start
-   - Watch Rusty plant all 15 parsnip seeds
-   - Verify tool switching works consistently
-   - Test watering can refill behavior
+### HIGH - Next Session
+1. **Test seed planting fix** - Restart game, verify seeds plant correctly
+2. **Full farming cycle test** - Till → Plant → Water → Refill → Repeat
+3. **Water refill navigation** - Agent finds and uses water source
 
-2. **VLM Instruction Following**
-   - Agent sometimes ignores "select_slot first" instruction
-   - May need stronger prompt wording
-   - Consider: make instruction the FIRST thing in spatial context
+### MEDIUM
+4. **Crop harvesting** - When ready, agent harvests
+5. **Shipping bin usage** - Agent sells crops
+6. **Multi-day autonomy** - Run through multiple game days
 
-### Medium Priority
-3. **Water source detection** - Tell agent where pond/river is on farm
-4. **Visual feedback** - Green/red cell indicator (user noted this)
-5. **Crop growth tracking** - Show growth stage in tile state
-
-### Codex Tasks (See CODEX_TASKS.md)
-- HIGH: Watering can level display in UI
-- MEDIUM: Current instruction display (prominent)
+### Testing Required (Before Complete)
+- See TEAM_PLAN.md for comprehensive test matrix
 
 ---
 
 ## Quick Start: Testing
 
 ```bash
-# 1. Verify services
-curl -s http://localhost:8790/health | jq .  # SMAPI mod
-curl -s http://localhost:8790/state | jq '.data.player | {currentTool, wateringCanWater, wateringCanMax}'
+# 1. RESTART GAME FIRST (new SMAPI build)
 
-# 2. Start Stardew Valley with SMAPI and load save
+# 2. Verify services
+curl -s http://localhost:8790/health | jq .
+curl -s http://localhost:8790/surroundings | jq '{tile: .data.currentTile, water: .data.nearestWater}'
 
-# 3. Run agent
+# 3. Test planting manually
+curl -X POST http://localhost:8790/action -H "Content-Type: application/json" \
+  -d '{"action": "select_slot", "slot": 5}'  # Select seeds
+curl -X POST http://localhost:8790/action -H "Content-Type: application/json" \
+  -d '{"action": "use_tool"}'  # Should plant!
+
+# 4. Run agent
 cd /home/tim/StardewAI
 source venv/bin/activate
-python src/python-agent/unified_agent.py --ui --goal "Plant parsnips! Follow tile instructions."
+python src/python-agent/unified_agent.py --ui --goal "Water all crops, refill can at water when empty"
 ```
-
-**Expected behavior:**
-- Agent sees tile state with tool instructions
-- Agent selects correct tool before using
-- If watering can empty: ">>> WATERING CAN EMPTY! Go to water..."
-- Agent navigates to water source to refill
 
 ---
 
-*Tool awareness implemented. Next: test full planting + watering cycle.*
+*Session 10: Major SMAPI improvements. Seed planting fix ready for test.*
 
 — Claude (PM)

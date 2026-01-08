@@ -66,8 +66,52 @@ public class GameStateReader
                 ["down"] = ScanDirection(location, start.X, start.Y, 0, 1, maxTiles, mapWidth, mapHeight),
                 ["left"] = ScanDirection(location, start.X, start.Y, -1, 0, maxTiles, mapWidth, mapHeight),
                 ["right"] = ScanDirection(location, start.X, start.Y, 1, 0, maxTiles, mapWidth, mapHeight)
-            }
+            },
+            NearestWater = FindNearestWater(location, start.X, start.Y, 25)
         };
+    }
+
+    /// <summary>Find nearest water tile for refilling watering can</summary>
+    private WaterSourceInfo FindNearestWater(GameLocation location, int playerX, int playerY, int maxDistance)
+    {
+        // Spiral outward from player to find nearest water
+        for (int dist = 1; dist <= maxDistance; dist++)
+        {
+            // Check tiles at this distance (square perimeter)
+            for (int dx = -dist; dx <= dist; dx++)
+            {
+                for (int dy = -dist; dy <= dist; dy++)
+                {
+                    // Only check perimeter tiles (not interior)
+                    if (Math.Abs(dx) != dist && Math.Abs(dy) != dist) continue;
+
+                    int x = playerX + dx;
+                    int y = playerY + dy;
+
+                    if (location.isWaterTile(x, y))
+                    {
+                        // Determine general direction
+                        string direction = "here";
+                        if (Math.Abs(dy) > Math.Abs(dx))
+                            direction = dy < 0 ? "north" : "south";
+                        else if (Math.Abs(dx) > Math.Abs(dy))
+                            direction = dx < 0 ? "west" : "east";
+                        else if (dx != 0 || dy != 0)
+                            direction = (dy < 0 ? "north" : "south") + (dx < 0 ? "west" : "east");
+
+                        return new WaterSourceInfo
+                        {
+                            X = x,
+                            Y = y,
+                            Distance = Math.Abs(dx) + Math.Abs(dy),
+                            Direction = direction
+                        };
+                    }
+                }
+            }
+        }
+
+        return null; // No water found within range
     }
 
     private CurrentTileInfo GetTileState(GameLocation location, int x, int y)
@@ -120,13 +164,13 @@ public class GameStateReader
             }
         }
 
-        // Check if tillable
-        result.CanTill = location.doesTileHaveProperty(x, y, "Diggable", "Back") != null
-                         || (location is StardewValley.Farm);
-        if (result.CanTill)
-        {
-            result.State = "clear";
-        }
+        // Check if tillable - use actual game property, not blanket Farm check
+        // Tiles need "Diggable" property AND be passable (not porch, paths, etc.)
+        bool hasDiggable = location.doesTileHaveProperty(x, y, "Diggable", "Back") != null;
+        bool isPassable = location.isTilePassable(new xTile.Dimensions.Location(x, y), Game1.viewport);
+
+        result.CanTill = hasDiggable && isPassable;
+        result.State = result.CanTill ? "clear" : "blocked";
 
         return result;
     }
@@ -218,7 +262,13 @@ public class GameStateReader
     private PlayerState ReadPlayerState()
     {
         var player = Game1.player;
-        var tool = player.CurrentTool;
+
+        // Get currently selected item (works for both tools AND objects like seeds)
+        var selectedIndex = player.CurrentToolIndex;
+        var selectedItem = (selectedIndex >= 0 && selectedIndex < player.Items.Count)
+            ? player.Items[selectedIndex]
+            : null;
+        string selectedItemName = selectedItem?.DisplayName ?? "None";
 
         // Find watering can water level
         int waterLeft = 0;
@@ -246,8 +296,8 @@ public class GameStateReader
             Health = player.health,
             MaxHealth = player.maxHealth,
             Money = player.Money,
-            CurrentTool = tool?.DisplayName ?? "None",
-            CurrentToolIndex = player.CurrentToolIndex,
+            CurrentTool = selectedItemName,
+            CurrentToolIndex = selectedIndex,
             IsMoving = player.isMoving(),
             CanMove = player.CanMove,
             WateringCanWater = waterLeft,
@@ -302,6 +352,13 @@ public class GameStateReader
             MapHeight = location.Map?.Layers[0]?.LayerHeight ?? 0
         };
 
+        // Find shipping bin on Farm (standard farm location is around 71,14)
+        if (location is StardewValley.Farm farm)
+        {
+            // Standard farm shipping bin location
+            state.ShippingBin = new TilePosition { X = 71, Y = 14 };
+        }
+
         // Read objects (within 15 tiles of player for performance)
         var playerTile = player.TilePoint;
         foreach (var pair in location.objects.Pairs)
@@ -310,13 +367,41 @@ public class GameStateReader
             if (Math.Abs(pos.X - playerTile.X) <= 15 && Math.Abs(pos.Y - playerTile.Y) <= 15)
             {
                 var obj = pair.Value;
+
+                // Determine if forageable (can be picked up)
+                bool isForageable = obj.isForage() ||
+                    obj.Category == StardewValley.Object.GreensCategory ||
+                    obj.Category == StardewValley.Object.flowersCategory;
+
+                // Determine interaction type
+                string interactionType = null;
+                bool canInteract = false;
+                if (obj is StardewValley.Objects.Chest)
+                {
+                    canInteract = true;
+                    interactionType = "chest";
+                }
+                else if (obj.bigCraftable.Value && obj.MinutesUntilReady > 0)
+                {
+                    canInteract = true;
+                    interactionType = "machine";
+                }
+                else if (obj.bigCraftable.Value)
+                {
+                    canInteract = true;
+                    interactionType = "craftable";
+                }
+
                 state.Objects.Add(new TileObject
                 {
                     X = (int)pos.X,
                     Y = (int)pos.Y,
                     Name = obj.DisplayName ?? obj.Name,
                     Type = obj.Type,
-                    IsPassable = obj.isPassable()
+                    IsPassable = obj.isPassable(),
+                    IsForageable = isForageable,
+                    CanInteract = canInteract,
+                    InteractionType = interactionType
                 });
             }
         }
@@ -343,12 +428,34 @@ public class GameStateReader
                 if (Math.Abs(pos.X - playerTile.X) <= 15 && Math.Abs(pos.Y - playerTile.Y) <= 15)
                 {
                     var crop = dirt.crop;
+
+                    // Calculate actual days until harvest
+                    int daysRemaining = 0;
+                    if (!crop.fullyGrown.Value)
+                    {
+                        var phases = crop.phaseDays;
+                        int currentPhase = crop.currentPhase.Value;
+                        int dayInPhase = crop.dayOfCurrentPhase.Value;
+
+                        // Days remaining in current phase
+                        if (currentPhase < phases.Count)
+                        {
+                            daysRemaining = Math.Max(0, phases[currentPhase] - dayInPhase);
+                        }
+
+                        // Add days for all remaining phases (except the last 99999 "done" phase)
+                        for (int i = currentPhase + 1; i < phases.Count - 1; i++)
+                        {
+                            daysRemaining += phases[i];
+                        }
+                    }
+
                     state.Crops.Add(new CropInfo
                     {
                         X = (int)pos.X,
                         Y = (int)pos.Y,
                         CropName = GetCropName(crop),
-                        DaysUntilHarvest = crop.dayOfCurrentPhase.Value,
+                        DaysUntilHarvest = daysRemaining,
                         IsWatered = dirt.state.Value == HoeDirt.watered,
                         IsReadyForHarvest = crop.fullyGrown.Value
                     });

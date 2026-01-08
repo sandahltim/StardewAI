@@ -268,6 +268,15 @@ function updateStatus(status) {
   const tileStatus = document.getElementById("tileStatus");
   const tileNote = document.getElementById("tileNote");
   const tileProgress = document.getElementById("tileProgress");
+  const waterStatus = document.getElementById("waterStatus");
+  const waterFill = document.getElementById("waterFill");
+  const waterNote = document.getElementById("waterNote");
+  const waterSourceStatus = document.getElementById("waterSourceStatus");
+  const waterSourceNote = document.getElementById("waterSourceNote");
+  const shippingStatus = document.getElementById("shippingStatus");
+  const shippingNote = document.getElementById("shippingNote");
+  const cropProgress = document.getElementById("cropProgress");
+  const currentInstruction = document.getElementById("currentInstruction");
 
   if (mode) mode.textContent = `Mode: ${status.mode || "helper"}`;
   if (running) running.textContent = `Running: ${status.running ? "yes" : "no"}`;
@@ -326,6 +335,9 @@ function updateStatus(status) {
       vlmActions.append(li);
     });
   }
+  if (currentInstruction) {
+    currentInstruction.textContent = status.current_instruction || "No instruction yet.";
+  }
 }
 
 function init() {
@@ -363,6 +375,8 @@ function init() {
   const seenTeamMessages = new Set();
   const seenChatMessages = new Set();
   let currentStatus = {};
+  let latestState = null;
+  let latestPlayer = null;
 
   const updateMovementHistory = (events) => {
     if (!movementList || !movementStuck || !movementTrail) return;
@@ -492,6 +506,138 @@ function init() {
     tileProgress.querySelectorAll("span").forEach((span, idx) => {
       span.classList.toggle("active", idx === currentIndex);
       span.classList.toggle("complete", idx < currentIndex);
+    });
+  };
+
+  const updateWateringCan = (player) => {
+    if (!waterStatus || !waterFill || !waterNote) return;
+    if (!player) {
+      waterStatus.textContent = "Waiting for state...";
+      waterNote.textContent = "-";
+      waterFill.style.width = "0%";
+      waterFill.classList.remove("low", "empty");
+      return;
+    }
+    const water = Number(player.wateringCanWater ?? 0);
+    const max = Number(player.wateringCanMax ?? 0);
+    if (!max) {
+      waterStatus.textContent = "Watering can: unknown";
+      waterNote.textContent = "-";
+      waterFill.style.width = "0%";
+      waterFill.classList.remove("low", "empty");
+      return;
+    }
+    const pct = Math.max(0, Math.min(100, Math.round((water / max) * 100)));
+    waterStatus.textContent = `Watering can: ${water}/${max}`;
+    waterFill.style.width = `${pct}%`;
+    waterFill.classList.remove("low", "empty");
+    if (water === 0) {
+      waterFill.classList.add("empty");
+      waterNote.textContent = "Empty - refill at water source.";
+    } else if (pct <= 25) {
+      waterFill.classList.add("low");
+      waterNote.textContent = "Low - consider refilling soon.";
+    } else {
+      waterNote.textContent = "OK";
+    }
+  };
+
+  const formatDirection = (dx, dy) => {
+    if (dx === 0 && dy === 0) return "here";
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return dx > 0 ? "east" : "west";
+    }
+    return dy > 0 ? "south" : "north";
+  };
+
+  const updateWaterSource = (nearestWater, player) => {
+    if (!waterSourceStatus || !waterSourceNote) return;
+    waterSourceStatus.classList.remove("low", "empty");
+    if (!nearestWater) {
+      waterSourceStatus.textContent = "No water data";
+      waterSourceNote.textContent = "-";
+      return;
+    }
+    const distance = nearestWater.distance ?? "?";
+    const direction = nearestWater.direction || "?";
+    waterSourceStatus.textContent = `Water: ${distance} tiles ${direction}`;
+
+    const water = Number(player?.wateringCanWater ?? 0);
+    if (water <= 0) {
+      waterSourceStatus.classList.add("empty");
+      waterSourceNote.textContent = "Empty - refill now.";
+    } else if (water <= 10) {
+      waterSourceStatus.classList.add("low");
+      waterSourceNote.textContent = "Low - plan refill soon.";
+    } else {
+      waterSourceNote.textContent = "OK";
+    }
+  };
+
+  const hasSellableItems = (items) => {
+    if (!Array.isArray(items)) return false;
+    return items.some((item) => item && item.type && item.type !== "tool" && item.stack > 0);
+  };
+
+  const updateShippingBin = (state) => {
+    if (!shippingStatus || !shippingNote) return;
+    shippingStatus.classList.remove("attention");
+    if (!state) {
+      shippingStatus.textContent = "No state data";
+      shippingNote.textContent = "-";
+      return;
+    }
+    const locationName = state.location?.name;
+    const bin = state.location?.shippingBin;
+    const player = state.player;
+    const inventory = state.inventory;
+    if (locationName !== "Farm") {
+      shippingStatus.textContent = "Shipping bin: off-farm";
+      shippingNote.textContent = "Only on Farm";
+      return;
+    }
+    if (!bin || player?.tileX === undefined || player?.tileY === undefined) {
+      shippingStatus.textContent = "Shipping bin: unknown";
+      shippingNote.textContent = "-";
+      return;
+    }
+    if (!hasSellableItems(inventory)) {
+      shippingStatus.textContent = "Shipping bin: no sellables";
+      shippingNote.textContent = "Hold onto items";
+      return;
+    }
+    const dx = bin.x - player.tileX;
+    const dy = bin.y - player.tileY;
+    const distance = Math.abs(dx) + Math.abs(dy);
+    const direction = formatDirection(dx, dy);
+    shippingStatus.classList.add("attention");
+    shippingStatus.textContent = `Bin: ${distance} tiles ${direction}`;
+    shippingNote.textContent = "Ready to sell";
+  };
+
+  const updateCropProgress = (crops) => {
+    if (!cropProgress) return;
+    cropProgress.innerHTML = "";
+    if (!Array.isArray(crops) || !crops.length) {
+      const li = document.createElement("li");
+      li.textContent = "None";
+      cropProgress.append(li);
+      return;
+    }
+    const buckets = {};
+    crops.forEach((crop) => {
+      const days = Number(crop.daysUntilHarvest ?? 0);
+      const key = days <= 0 ? "Ready" : `${days} day${days === 1 ? "" : "s"}`;
+      buckets[key] = (buckets[key] || 0) + 1;
+    });
+    Object.entries(buckets).sort((a, b) => {
+      if (a[0] === "Ready") return -1;
+      if (b[0] === "Ready") return 1;
+      return parseInt(a[0], 10) - parseInt(b[0], 10);
+    }).forEach(([label, count]) => {
+      const li = document.createElement("li");
+      li.textContent = `${label}: ${count}`;
+      cropProgress.append(li);
     });
   };
 
@@ -948,10 +1094,33 @@ function init() {
         }
         updateCompass(payload.data);
         updateTileState(payload.data.currentTile);
+        updateWaterSource(payload.data.nearestWater, latestPlayer);
       })
       .catch(() => {
         if (compassNote) compassNote.textContent = "SMAPI unavailable";
         updateTileState(null);
+        updateWaterSource(null, null);
+      });
+
+    fetch(`${smapiBase}/state`)
+      .then((res) => res.json())
+      .then((payload) => {
+        if (!payload || !payload.success) {
+          updateWateringCan(null);
+          updateShippingBin(null);
+          updateCropProgress(null);
+          return;
+        }
+        latestState = payload.data || null;
+        latestPlayer = payload.data?.player || null;
+        updateWateringCan(latestPlayer);
+        updateShippingBin(latestState);
+        updateCropProgress(latestState?.location?.crops);
+      })
+      .catch(() => {
+        updateWateringCan(null);
+        updateShippingBin(null);
+        updateCropProgress(null);
       });
   }, pollIntervalMs);
 

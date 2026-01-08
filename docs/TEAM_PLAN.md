@@ -1,180 +1,199 @@
 # StardewAI Team Plan
 
 **Created:** 2026-01-08
+**Last Updated:** 2026-01-08 Session 10
 **Project Lead:** Claude (Opus) - Agent logic, architecture, coordination
 **UI/Memory:** Codex - User interface, memory systems, state persistence
 **Human Lead:** Tim - Direction, testing, hardware, final decisions
 
 ---
 
-## Current Sprint: Movement Integration
+## Project Vision
 
-### Goal
-Get Rusty walking around the farm autonomously using VLM perception + SMAPI mod control.
+**Rusty** is an AI farmer who plays Stardew Valley autonomously as a co-op partner. The goal is a fully autonomous agent that can:
 
-### Success Criteria
-- [ ] Rusty can walk out of farmhouse on command
-- [ ] VLM perceives game state and decides next action
-- [ ] Mod executes movement without clipping/collision issues
-- [ ] Full loop runs for 5+ minutes without crashes
+- Start from Day 1 and progress through the game
+- Make intelligent decisions about farming, foraging, socializing
+- Adapt to seasons, weather, and events
+- Run for extended periods without human intervention
+- Be entertaining and competent - a true AI companion
 
----
-
-## Phase 1: Infrastructure Verification (Today)
-
-| Task | Owner | Status | Notes |
-|------|-------|--------|-------|
-| Start llama-server | Claude | Pending | Port 8780, Qwen3VL-30B-A3B |
-| Start Stardew + SMAPI | Tim | Pending | Verify mod loads |
-| Test mod health endpoint | Claude | Pending | `curl :8790/health` |
-| Test movement fix | Claude | Pending | Pixel offset was just patched |
-| Test door transitions | Claude | Pending | Walk through farmhouse door |
-
-### Startup Sequence
-```bash
-# 1. Start llama-server (Terminal 1)
-cd /home/tim/StardewAI
-./scripts/start-llama-server.sh
-
-# 2. Start Stardew Valley via Steam (Tim)
-# - Must have SMAPI installed
-# - Load save with Rusty
-
-# 3. Verify mod is running
-curl http://localhost:8790/health
-```
+**End State:** Rusty runs start-to-finish without Claude's help. Amazing.
 
 ---
 
-## Phase 2: Python Agent Integration
+## Current Status (Session 10)
 
-| Task | Owner | Status | Notes |
-|------|-------|--------|-------|
-| Create ModBridgeController class | Claude | Pending | HTTP client for mod API |
-| Update unified_agent.py | Claude | Pending | Use mod instead of vgamepad |
-| Add action translation | Claude | Pending | VLM output → mod commands |
-| Test observe mode | Claude | Pending | VLM perception only |
-| Test control mode | Claude | Pending | Full loop |
+### What's Working
+| Component | Status |
+|-----------|--------|
+| VLM Perception (Qwen3VL-30B) | Working |
+| SMAPI GameBridge API | Working |
+| Tool Detection | Working |
+| Tile State Detection | Working |
+| Water Source Detection | Working |
+| Farming Progress UI | Working |
+| Memory Systems | Working |
 
-### Architecture After Integration
+### What's Being Fixed
+| Issue | Status |
+|-------|--------|
+| Seed planting action | Fix ready, needs test |
+| Agent decision making | Needs improvement |
+
+---
+
+## Completion Checklist
+
+### Actions - Must All Work
+| Action | Tested | Notes |
+|--------|--------|-------|
+| move (all 4 directions) | Yes | Working |
+| use_tool (hoe) | Yes | Working |
+| use_tool (watering can) | Yes | Working |
+| use_tool (axe) | Partial | Needs test |
+| use_tool (pickaxe) | Partial | Needs test |
+| use_tool (scythe) | Partial | Needs test |
+| use_tool (seeds/planting) | No | **Fix ready, test next** |
+| use_tool (fishing rod) | No | Future |
+| select_slot (0-11) | Yes | Working |
+| interact (NPCs) | No | Future |
+| interact (chests) | No | Future |
+| interact (shipping bin) | No | Future |
+| warp (locations) | Partial | Debug command |
+
+### Locations - Must Navigate All
+| Location | Can Enter | Can Navigate | Can Exit |
+|----------|-----------|--------------|----------|
+| FarmHouse | Yes | Yes | Yes |
+| Farm | Yes | Yes | Yes |
+| Town | Partial | Needs test | Needs test |
+| Pierre's Shop | No | No | No |
+| Beach | No | No | No |
+| Forest | No | No | No |
+| Mountain | No | No | No |
+| Mine | No | No | No |
+| Bus Stop | No | No | No |
+
+### Game Cycles - Must Complete
+| Cycle | Status | Notes |
+|-------|--------|-------|
+| Till → Plant → Water | Partial | Planting fix pending |
+| Water daily | Partial | Needs multi-day test |
+| Refill watering can | Ready | Water detection added |
+| Harvest crops | No | Not implemented |
+| Sell at shipping bin | No | Shipping bin location ready |
+| Forage items | No | Forageable detection added |
+| Talk to NPCs | No | Future |
+| Give gifts | No | Future |
+| Fishing | No | Future |
+| Mining | No | Future |
+| Full day cycle | No | 6am → 2am routine |
+| Full season | No | 28 days autonomous |
+
+---
+
+## Phase Plan
+
+### Phase 1: Farming Loop (Current)
+- [x] Till ground
+- [x] Tool detection
+- [x] Tile state awareness
+- [ ] Plant seeds
+- [ ] Water crops
+- [ ] Refill watering can
+- [ ] Harvest when ready
+- [ ] Sell at shipping bin
+
+### Phase 2: Multi-Day Autonomy
+- [ ] Wake up routine
+- [ ] Daily task planning
+- [ ] Energy management
+- [ ] Sleep when tired
+- [ ] 3+ day continuous run
+
+### Phase 3: Exploration
+- [ ] Navigate to Town
+- [ ] Enter/exit buildings
+- [ ] Map awareness
+- [ ] Pathfinding improvements
+
+### Phase 4: Social
+- [ ] NPC interaction
+- [ ] Gift giving
+- [ ] Calendar awareness
+- [ ] Event handling
+
+### Phase 5: Advanced
+- [ ] Fishing
+- [ ] Mining
+- [ ] Combat
+- [ ] Season transitions
+- [ ] Year planning
+
+---
+
+## Architecture
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      Python Agent                           │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
-│  │   Screen     │───▶│   Qwen3 VL   │───▶│  Action      │  │
-│  │   Capture    │    │  (8780)      │    │  Translator  │  │
-│  └──────────────┘    └──────────────┘    └──────┬───────┘  │
-└──────────────────────────────────────────────────│──────────┘
-                                                   │
-                                                   ▼
+│                    Python Agent (unified_agent.py)          │
+│  ┌────────────┐  ┌────────────┐  ┌────────────────────────┐│
+│  │  Screen    │─▶│  Qwen3 VL  │─▶│  Action Planning       ││
+│  │  Capture   │  │  (8780)    │  │  + Game State Override ││
+│  └────────────┘  └────────────┘  └───────────┬────────────┘│
+└──────────────────────────────────────────────│─────────────┘
+                                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    SMAPI GameBridge (8790)                  │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
-│  │   State      │    │   Action     │    │   Movement   │  │
-│  │   Reader     │    │   Executor   │    │   Queue      │  │
-│  └──────────────┘    └──────────────┘    └──────────────┘  │
+│                 SMAPI GameBridge (8790)                     │
+│  ┌────────────┐  ┌────────────┐  ┌────────────────────────┐│
+│  │  State     │  │  Action    │  │  Spatial Awareness     ││
+│  │  Reader    │  │  Executor  │  │  (surroundings, water) ││
+│  └────────────┘  └────────────┘  └────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-                        Game1.player.Position
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    UI Server (9001)                         │
+│  Dashboard │ Team Chat │ Memory Viewer │ Status Indicators  │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Phase 3: Full Loop Testing
+## Team Assignments
 
-| Task | Owner | Status | Notes |
-|------|-------|--------|-------|
-| 5-minute autonomous run | Claude | Pending | Watch for failures |
-| Log analysis | Claude | Pending | Identify patterns |
-| Prompt tuning | Claude | Pending | Fix perception errors |
-| Edge case handling | Claude | Pending | Energy=0, nighttime, etc |
+### Claude (PM/Agent)
+- Agent logic and decision making
+- SMAPI mod features
+- Bug fixes
+- Architecture decisions
+- Task assignment
 
----
+### Codex (UI/Memory)
+- Dashboard components
+- Memory systems
+- Status indicators
+- Data visualization
 
-## For Codex: UI/Memory Integration Points
-
-### Data Available from Mod API
-
-```json
-// GET /state response
-{
-  "data": {
-    "player": {
-      "name": "Rusty",
-      "tileX": 10,
-      "tileY": 15,
-      "facingDirection": 2,
-      "currentTool": "Hoe",
-      "energy": 270,
-      "maxEnergy": 270,
-      "money": 500
-    },
-    "time": {
-      "timeOfDay": 630,
-      "dayOfMonth": 1,
-      "season": "spring",
-      "year": 1
-    },
-    "location": {
-      "name": "FarmHouse",
-      "objects": [...],
-      "npcs": [...]
-    }
-  }
-}
-```
-
-### Memory System Hooks Needed
-
-1. **Session Memory** - Track what Rusty did this session
-   - Actions taken
-   - Locations visited
-   - Items gathered/used
-
-2. **Farm Knowledge** - Persistent across sessions
-   - Crop locations and stages
-   - Chest contents
-   - Upgrade status
-
-3. **Social Memory** - NPC relationships
-   - Gift preferences learned
-   - Friendship levels
-   - Conversation history
-
-### UI Ideas (Codex's Domain)
-
-- **Live Dashboard**: Show Rusty's current state (energy, location, goal)
-- **Action Log**: Stream of VLM perceptions and actions
-- **Chat Interface**: Human ↔ Rusty communication
-- **Memory Viewer**: What Rusty "remembers"
+### Tim (Lead)
+- Direction and priorities
+- Testing and feedback
+- Hardware management
+- Final approvals
 
 ---
 
-## Team Communication
+## Codex Task Queue
 
-### Current: Async via Docs
-- SESSION_LOG.md - Progress notes
-- TEAM_PLAN.md - This document
-- NEXT_SESSION.md - Handoff notes
+See `docs/CODEX_TASKS.md` for current assignments.
 
-### Proposed: Local Real-time Chat
-
-Options to evaluate:
-1. **Simple HTTP polling** - Agent writes to file, UI polls
-2. **WebSocket server** - Real-time bidirectional
-3. **SQLite queue** - Persistent message storage
-
-**Recommendation:** Start with file-based (simple), upgrade to WebSocket when UI is ready.
-
-```
-/home/tim/StardewAI/
-├── comms/
-│   ├── claude_outbox.jsonl    # Claude → Team
-│   ├── codex_outbox.jsonl     # Codex → Team
-│   ├── tim_outbox.jsonl       # Tim → Team
-│   └── broadcast.jsonl        # All messages merged
-```
+**Potential Future Tasks:**
+- Location minimap showing player position
+- NPC relationship tracker
+- Seasonal calendar with events
+- Inventory management panel
+- Action history replay
 
 ---
 
@@ -182,31 +201,59 @@ Options to evaluate:
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| VLM hallucinates actions | Medium | Validate actions against game state |
-| Movement causes collision | High | Already added collision detection |
-| Mod API race conditions | Medium | Add retry logic, state verification |
-| GPU OOM with long sessions | High | Monitor VRAM, restart if needed |
-| Game crash loses progress | Medium | Frequent autosaves |
+| VLM hallucinates | Medium | Override with game state |
+| Agent gets stuck | High | Stuck detection, recovery |
+| Energy runs out | Medium | Energy monitoring, rest |
+| Wrong tool used | Medium | Tool-aware instructions |
+| Can't find crops | Medium | Crop location from state |
+| Night falls | Medium | Time awareness, bed finding |
+| GPU OOM | High | Monitor, restart if needed |
+
+---
+
+## Success Metrics
+
+**Phase 1 Complete When:**
+- Agent plants 15 seeds without help
+- Agent waters all crops daily
+- Agent refills can when empty
+- Agent harvests mature crops
+- Agent sells crops at bin
+
+**Project Complete When:**
+- Rusty runs Day 1 → Day 28 autonomously
+- Completes farming, foraging, basic social
+- No Claude intervention needed
+- Entertaining to watch
 
 ---
 
 ## Quick Reference
 
 ### Ports
-| Service | Port | Purpose |
-|---------|------|---------|
-| llama-server | 8780 | VLM inference |
-| SMAPI mod | 8790 | Game control |
-| (Future) UI | 8791 | Web dashboard |
+| Service | Port |
+|---------|------|
+| llama-server | 8780 |
+| SMAPI mod | 8790 |
+| UI server | 9001 |
 
-### Key Files
-| File | Owner | Purpose |
-|------|-------|---------|
-| `unified_agent.py` | Claude | Main agent loop |
-| `ActionExecutor.cs` | Claude | SMAPI movement |
-| `src/ui/app.py` | Codex | Web UI |
-| `src/ui/storage.py` | Codex | Memory persistence |
+### Key Commands
+```bash
+# Start agent
+python src/python-agent/unified_agent.py --ui --goal "Your goal"
+
+# Check state
+curl -s localhost:8790/state | jq .
+
+# Check surroundings
+curl -s localhost:8790/surroundings | jq .
+
+# Team chat
+./scripts/team_chat.py post claude "message"
+```
 
 ---
 
-*Updated by Claude - 2026-01-08*
+*Make Rusty amazing. — Tim*
+
+*Updated Session 10 — Claude (PM)*

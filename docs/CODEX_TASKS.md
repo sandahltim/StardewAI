@@ -8,31 +8,39 @@
 
 ## Active Tasks
 
-### 1. UI: Watering Can Level Display (Priority: HIGH)
+### 1. UI: Agent Stuck Indicator (Priority: LOW)
 
 **Status:** Pending
-**Assigned:** 2026-01-08
+**Assigned:** 2026-01-08 Session 10
 
-Display watering can water level in the dashboard:
-- Show current water / max capacity (e.g., "15/40")
-- Visual bar or indicator
-- Warning color when low or empty
-- Data available from `/state` endpoint: `player.wateringCanWater` and `player.wateringCanMax`
+Visual indicator when agent appears stuck:
+- Track position over last 10 ticks
+- If position unchanged for 5+ ticks while actions sent, show "STUCK" warning
+- Could use movement history data already being collected
+- Help identify when agent needs intervention
 
-### 2. UI: Current Instruction Display (Priority: MEDIUM)
+*Note: Low priority - only assign if Codex has bandwidth*
 
-**Status:** Pending
-**Assigned:** 2026-01-08
+---
 
-Show the current tile state instruction prominently in dashboard:
-- The instruction from spatial context (e.g., ">>> TILE: TILLED - select_slot 5 for SEEDS <<<")
-- Make it visually prominent so user can see what agent should do
-- Update in real-time from agent status
+## Future Task Ideas (Not Assigned)
+
+- Location minimap showing player position on farm
+- NPC relationship tracker with gift suggestions
+- Seasonal calendar with upcoming events
+- Inventory management panel
+- Action history replay/visualization
+- Goal progress tracker with checkboxes
 
 ---
 
 ## Completed Tasks
 
+- [x] UI: Water Source Indicator (2026-01-08)
+- [x] UI: Shipping Bin Indicator (2026-01-08)
+- [x] UI: Crop Growth Progress (2026-01-08)
+- [x] UI: Watering Can Level Display (2026-01-08)
+- [x] UI: Current Instruction Display (2026-01-08)
 - [x] UI: Tile State Display (2026-01-08)
 - [x] UI: Farming Progress Bar (2026-01-08)
 - [x] Game Knowledge DB - Calendar table + helpers (2026-01-08)
