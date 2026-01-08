@@ -1,30 +1,36 @@
 # Next Session - StardewAI
 
 **Last Updated:** 2026-01-08 Session 12 by Claude
-**Status:** Decision-making improvements implemented, ready for extended test
+**Status:** Core improvements done, priority logic needs work
 
 ---
 
 ## Session 12 Results
 
-### IMPROVEMENTS MADE
-| Fix | Description |
-|-----|-------------|
-| **Action History** | VLM now sees last 10 actions with prominent STOP warning on 3+ repeats |
-| **Blocked Action Tracking** | Failed moves recorded as "BLOCKED: move right (hit wall)" |
-| **Location Verification** | Explicit "📍 LOCATION: Farm at (69, 18)" prevents hallucination |
-| **Repetition Detection** | Loop warning triggers after 3 repeated actions in last 5 |
+### COMPLETED
+| Feature | Status |
+|---------|--------|
+| Action History (10 actions) | ✅ Working |
+| Blocked Action Tracking | ✅ Working |
+| Repetition Warning (3+ repeats) | ✅ Working |
+| Location Verification Header | ✅ Working |
+| Harvest Detection | ✅ Working |
+| Shipping Bin Distance/Direction | ✅ Working |
+| Codex UI: Harvest Indicator | ✅ Completed |
+| Codex UI: Energy Bar | ✅ Completed |
+| Codex UI: Action History Panel | ✅ Completed |
 
-### VERIFIED WORKING
-- Codex UI features: Crop Status Summary, Location Display, Action Repeat Detection
-- All 15 crops watered (from Session 11)
-- Action history tracking and logging
-- Repetition detection with VLM acknowledgment ("I'm stuck in a loop")
+### ISSUE IDENTIFIED
+**Empty watering can priority** - When can is empty, agent gets conflicting messages:
+- "WATERING CAN EMPTY! Water is 16 tiles south"
+- "14 CROPS NEED WATERING! Nearest: 1 UP"
 
-### TESTING OBSERVATIONS
-- VLM recognizes when stuck ("I need to break this pattern")
-- Takes 2-3 cycles for VLM to change behavior after warning
-- Blocked moves now recorded so VLM learns from failed attempts
+VLM oscillates between trying to water (can't, empty) and going to crops. Needs clear priority logic: **IF can empty → GO TO WATER FIRST, ignore crop directions.**
+
+### NEXT SESSION PRIORITY
+Fix the priority logic cleanly:
+1. Empty can + crops to water → ONLY show water refill message
+2. Add a simple task priority system the VLM can follow
 
 ---
 
@@ -35,28 +41,31 @@
 | llama-server | Running | Port 8780, Qwen3VL-30B |
 | SMAPI mod | Working | Port 8790, all features |
 | UI Server | Working | Port 9001, all Codex features |
-| Action History | **NEW** | 10-action history sent to VLM |
-| Location Header | **NEW** | Explicit location prevents hallucination |
-| Repetition Detection | **NEW** | Warns on 3+ repeated actions |
-| Crop Watering | Verified | 15/15 crops watered |
+| Action History | Working | 10-action history with STOP warning |
+| Location Header | Working | "📍 LOCATION: Farm at (x, y)" |
+| Shipping Bin Info | Working | Distance + direction on Farm |
+| Harvest Detection | Working | "🌾 HARVEST TIME!" when on ready crop |
 
 ---
 
 ## Next Steps (Priority Order)
 
+### HIGH - Fix Priority Logic
+1. **Empty can priority** - MUST refill before any crop guidance
+2. **Task priority list** - Give VLM clear priority order to follow
+
 ### HIGH - Extended Testing
-1. **Full farming cycle** - Run agent for 10+ minutes, verify loop-breaking works
-2. **Crop harvesting** - Test when parsnips mature (Day 8-9, 1-4 days left)
-3. **Shipping bin** - Navigate to (71,14) and sell harvested crops
+3. **Full farming cycle** - Water → refill → water more
+4. **Crop harvesting** - Test when parsnips mature (Day 8)
+5. **Shipping bin** - Navigate and sell
 
 ### MEDIUM - Agent Intelligence
-4. **Goal-based planning** - Add multi-step goal planning (harvest → ship → sleep)
-5. **Energy management** - Track stamina, know when to rest
-6. **Time awareness** - React to time of day (morning = farm, evening = ship/sleep)
+6. **Goal-based planning** - Multi-step planning (harvest → ship → sleep)
+7. **Energy management** - Track stamina, know when to rest
 
-### LOW - Polish
-7. **NPC interaction** - Use knowledge DB for gifts/schedules
-8. **Weather adaptation** - Skip watering on rainy days (already in reasoning!)
+### ROADMAP - Future Features
+8. **Rusty UI responses** - Agent responds to user messages in team chat
+9. **Multi-day autonomy** - Full day cycle: wake → farm → ship → sleep
 
 ---
 
@@ -67,41 +76,31 @@
 - Added action history building with repetition warning
 - Blocked actions now recorded to history
 - Added location header to `format_surroundings()`
+- Added shipping bin distance/direction
+- Added harvest detection for ready crops
 - Increased action history from 3 to 10 actions
 
-Key code sections:
+### Key Code Locations
 - Lines 1307-1330: Action context building with STOP warning
 - Lines 1264-1271: Blocked action recording
-- Lines 666-676: Location verification header
+- Lines 691-723: Location header + shipping bin info
+- Lines 580-582: Harvest detection
 
 ---
 
 ## Quick Start
 
 ```bash
-# Services should be running already
-
-# Check state
-curl -s http://localhost:8790/state | jq '{location: .data.location.name, pos: {x: .data.player.tileX, y: .data.player.tileY}}'
-
-# Test format_surroundings (shows location + action context)
-python -c "
-import sys; sys.path.insert(0, 'src/python-agent')
-from unified_agent import ModBridgeController
-ctrl = ModBridgeController('http://localhost:8790')
-print(ctrl.format_surroundings())
-"
+# Services should be running
+curl -s http://localhost:8790/state | jq '{water: .data.player.wateringCanWater, unwatered: [.data.location.crops[] | select(.isWatered == false)] | length}'
 
 # Run agent
 source venv/bin/activate
-python src/python-agent/unified_agent.py --ui --goal "Water crops and explore"
-
-# Monitor for repetition warnings
-tail -f /tmp/*.log | grep -E "REPETITION|STOP|📜"
+python src/python-agent/unified_agent.py --ui --goal "Water all crops"
 ```
 
 ---
 
-*Session 12: Implemented action history, blocked action tracking, and location verification. VLM now recognizes when stuck and attempts to change behavior.*
+*Session 12: Added action history, location verification, harvest detection, shipping bin guidance. Identified priority logic issue with empty watering can.*
 
 — Claude (PM)
