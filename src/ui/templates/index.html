@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>StardewAI Console</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div class="page">
+    <aside class="panel">
+      <header class="panel__header">
+        <div>
+          <p class="kicker">StardewAI</p>
+          <h1>Agent Console</h1>
+        </div>
+        <div class="status-pill">
+          <span class="dot"></span>
+          <span id="statusMode">Mode: {{ status.mode or "helper" }}</span>
+        </div>
+      </header>
+
+      <section class="panel__section">
+        <h2>Rusty Snapshot</h2>
+        <p class="help">Latest perception and plan from the agent.</p>
+        <div class="snapshot">
+          <div class="snapshot__grid">
+            <div class="snapshot__label">Location</div>
+            <div id="stateLocation" class="snapshot__value">{{ status.location or "-" }}</div>
+            <div class="snapshot__label">Time</div>
+            <div id="stateTime" class="snapshot__value">{{ status.time_of_day or "-" }}</div>
+            <div class="snapshot__label">Energy</div>
+            <div id="stateEnergy" class="snapshot__value">{{ status.energy or "-" }}</div>
+            <div class="snapshot__label">Holding</div>
+            <div id="stateHolding" class="snapshot__value">{{ status.holding or "-" }}</div>
+            <div class="snapshot__label">Weather</div>
+            <div id="stateWeather" class="snapshot__value">{{ status.weather or "-" }}</div>
+            <div class="snapshot__label">Menu</div>
+            <div id="stateMenu" class="snapshot__value">{{ "yes" if status.menu_open else "no" }}</div>
+          </div>
+          <div class="snapshot__row">
+            <span class="snapshot__label">Mood</span>
+            <span id="stateMood" class="snapshot__value">{{ status.mood or "-" }}</span>
+          </div>
+          <div class="snapshot__row">
+            <span class="snapshot__label">Nearby</span>
+            <span id="stateNearby" class="snapshot__value">{{ ", ".join(status.nearby) if status.nearby else "-" }}</span>
+          </div>
+        </div>
+        <div class="plan">
+          <div class="plan__header">
+            <strong>Action Plan</strong>
+            <span id="planUpdated" class="meta">{{ status.last_tick or "" }}</span>
+          </div>
+          <ol id="planList" class="plan__list">
+            {% if status.action_plan %}
+            {% for action in status.action_plan %}
+            <li>{{ action }}</li>
+            {% endfor %}
+            {% else %}
+            <li>None</li>
+            {% endif %}
+          </ol>
+        </div>
+      </section>
+
+      <section class="panel__section">
+        <h2>VLM Dashboard</h2>
+        <p class="help">Live VLM state and recent actions.</p>
+        <div class="vlm-card">
+          <div class="vlm-row">
+            <span class="vlm-label">Status</span>
+            <span id="vlmStatus" class="vlm-value">{{ status.vlm_status or "Idle" }}</span>
+          </div>
+          <div class="vlm-row">
+            <span class="vlm-label">Perception</span>
+            <span id="vlmPerception" class="vlm-value">
+              {{ status.location or "-" }} | {{ status.time_of_day or "-" }} | Energy {{ status.energy or "-" }} | Holding {{ status.holding or "-" }}
+            </span>
+          </div>
+        </div>
+        <div class="vlm-reasoning">
+          <div class="vlm-subhead">Last Reasoning</div>
+          <p id="vlmReasoning">{{ status.last_reasoning or "None" }}</p>
+        </div>
+        <div class="vlm-actions">
+          <div class="vlm-subhead">Last Actions</div>
+          <ol id="vlmActions" class="vlm-actions__list">
+            {% if status.last_actions %}
+            {% for action in status.last_actions %}
+            <li>{{ action }}</li>
+            {% endfor %}
+            {% else %}
+            <li>None</li>
+            {% endif %}
+          </ol>
+        </div>
+        <div class="movement-card">
+          <div class="movement-header">
+            <span class="vlm-subhead">Movement History</span>
+            <span id="movementStuck" class="movement-status">Moving</span>
+          </div>
+          <ol id="movementList" class="movement-list">
+            <li>None</li>
+          </ol>
+          <div class="movement-trail">
+            <span class="vlm-subhead">Direction Trail</span>
+            <span id="movementTrail" class="movement-trail__value">-</span>
+          </div>
+        </div>
+        <div class="compass-card">
+          <div class="vlm-subhead">Directional Compass</div>
+          <div class="compass-grid">
+            <div class="compass-cell compass-empty"></div>
+            <div class="compass-cell" id="compassUp"></div>
+            <div class="compass-cell compass-empty"></div>
+            <div class="compass-cell" id="compassLeft"></div>
+            <div class="compass-cell compass-center">●</div>
+            <div class="compass-cell" id="compassRight"></div>
+            <div class="compass-cell compass-empty"></div>
+            <div class="compass-cell" id="compassDown"></div>
+            <div class="compass-cell compass-empty"></div>
+          </div>
+          <p id="compassNote" class="compass-note">Waiting for surroundings...</p>
+        </div>
+        <details class="session-timeline">
+          <summary>Session Timeline</summary>
+          <ol id="sessionTimeline" class="session-timeline__list">
+            <li>None</li>
+          </ol>
+        </details>
+      </section>
+
+      <section class="panel__section">
+        <h2>Mode</h2>
+        <p class="help">Desired mode informs the agent next run.</p>
+        <div class="field-row">
+          <select id="modeSelect" class="input">
+            <option value="helper" {% if (status.desired_mode or "helper") == "helper" %}selected{% endif %}>Helper</option>
+            <option value="coop" {% if (status.desired_mode or "helper") == "coop" %}selected{% endif %}>Co-op</option>
+          </select>
+          <button id="modeUpdate" class="button">Set</button>
+        </div>
+      </section>
+
+      <section class="panel__section">
+        <h2>Co-op Safety</h2>
+        <p class="help">Require confirmation before executing actions.</p>
+        <div class="field-col">
+          <label class="toggle">
+            <input id="modeFree" type="radio" name="safetyMode" value="free" {% if not status.confirm_before_execute %}checked{% endif %} />
+            <span>Free mode (no confirm)</span>
+          </label>
+          <label class="toggle">
+            <input id="modeConfirm" type="radio" name="safetyMode" value="confirm" {% if status.confirm_before_execute %}checked{% endif %} />
+            <span>Confirm mode</span>
+          </label>
+          <button id="confirmGrant" class="button" {% if not status.confirm_before_execute %}disabled{% endif %}>Allow Next Action</button>
+        </div>
+        <div class="pending">
+          <div class="pending__header">
+            <strong>Pending Action</strong>
+            <span id="pendingAt" class="meta">{{ status.pending_action_at or "" }}</span>
+          </div>
+          <p id="pendingText">{{ status.pending_action or "None" }}</p>
+          <div class="field-row">
+            <button id="confirmApprove" class="button small" {% if not status.confirm_before_execute %}disabled{% endif %}>Approve</button>
+            <button id="confirmClear" class="button small button--ghost">Clear</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel__section">
+        <h2>Voice</h2>
+        <p class="help">Text-to-speech for agent replies.</p>
+        <div class="field-col">
+          <label class="toggle">
+            <input id="ttsToggle" type="checkbox" {% if status.tts_enabled %}checked{% endif %} />
+            <span>Auto-speak agent replies</span>
+          </label>
+          <input id="ttsVoice" class="input" placeholder="Voice id" value="{{ status.tts_voice or '' }}" />
+          <button id="ttsTest" class="button">Speak Last Agent Message</button>
+        </div>
+      </section>
+
+      <section class="panel__section">
+        <h2>Current Goal</h2>
+        <p class="help">Long-term objective for the agent.</p>
+        <div class="field-col">
+          <input id="goalInput" class="input" placeholder="e.g., Help water crops" value="{{ active_goal.text if active_goal }}" />
+          <button id="goalUpdate" class="button">Update Goal</button>
+        </div>
+      </section>
+
+      <section class="panel__section">
+        <h2>Team Chat</h2>
+        <p class="help">Coordinate with Claude and Tim.</p>
+        <div id="teamFeed" class="team-feed"></div>
+        <div class="team-input">
+          <select id="teamSender" class="input">
+            <option value="codex" selected>codex</option>
+            <option value="claude">claude</option>
+            <option value="tim">tim</option>
+          </select>
+          <input id="teamInput" class="input" placeholder="Send a team update..." />
+          <button id="teamSend" class="button">Send</button>
+        </div>
+      </section>
+
+      <section class="panel__section">
+        <h2>Task Queue</h2>
+        <p class="help">Free-form task plus optional structured fields.</p>
+        <div class="field-col">
+          <input id="taskTitle" class="input" placeholder="Task title (free-form)" />
+          <div class="grid">
+            <input id="taskLocation" class="input" placeholder="Location" />
+            <input id="taskTool" class="input" placeholder="Tool" />
+            <input id="taskPriority" class="input" placeholder="Priority (0-5)" type="number" min="0" max="5" />
+            <input id="taskDue" class="input" placeholder="Due (e.g., Day 4 2pm)" />
+            <select id="taskMode" class="input">
+              <option value="">Mode (optional)</option>
+              <option value="helper">Helper</option>
+              <option value="coop">Co-op</option>
+            </select>
+            <input id="taskNotes" class="input" placeholder="Notes" />
+          </div>
+          <button id="taskAdd" class="button">Add Task</button>
+        </div>
+
+        <div id="taskList" class="task-list">
+          {% for task in tasks %}
+          <div class="task" data-task-id="{{ task.id }}">
+            <div>
+              <input class="input task-title" value="{{ task.title }}" />
+              <div class="meta">
+                <label>Priority</label>
+                <input class="input task-priority" type="number" min="0" max="5" value="{{ task.priority }}" />
+                <span>{% if task.mode %}{{ task.mode }}{% endif %}</span>
+              </div>
+              <div class="details">
+                <input class="input task-notes" placeholder="Notes" value="{{ task.details.notes if task.details }}" />
+                <input class="input task-location" placeholder="Location" value="{{ task.details.location if task.details }}" />
+                <input class="input task-tool" placeholder="Tool" value="{{ task.details.tool if task.details }}" />
+                <input class="input task-due" placeholder="Due" value="{{ task.details.due if task.details }}" />
+              </div>
+            </div>
+            <div class="task-actions">
+              <select class="input task-status">
+                <option value="queued" {% if task.status == "queued" %}selected{% endif %}>Queued</option>
+                <option value="active" {% if task.status == "active" %}selected{% endif %}>Active</option>
+                <option value="done" {% if task.status == "done" %}selected{% endif %}>Done</option>
+                <option value="blocked" {% if task.status == "blocked" %}selected{% endif %}>Blocked</option>
+              </select>
+              <button class="button small task-save">Save</button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </section>
+    </aside>
+
+    <main class="chat">
+      <header class="chat__header">
+        <h2>Conversation</h2>
+        <div class="status">
+          <span id="statusRunning">Running: {{ "yes" if status.running else "no" }}</span>
+          <span id="statusTick">Last tick: {{ status.last_tick or "-" }}</span>
+          <span id="statusConfirm">Confirm: {{ "on" if status.confirm_before_execute else "off" }}</span>
+          <span id="statusGrant">Grant: {{ "yes" if status.confirm_granted else "no" }}</span>
+          <span id="statusError" class="error">{{ status.last_error or "" }}</span>
+        </div>
+      </header>
+
+      <section class="quick-bar">
+        <div class="quick-bar__group">
+          <label class="quick-bar__label" for="quickMode">Mode</label>
+          <select id="quickMode" class="input">
+            <option value="helper" {% if (status.desired_mode or "helper") == "helper" %}selected{% endif %}>Helper</option>
+            <option value="coop" {% if (status.desired_mode or "helper") == "coop" %}selected{% endif %}>Co-op</option>
+          </select>
+          <button id="quickModeSet" class="button small">Set</button>
+        </div>
+        <div class="quick-bar__group">
+          <label class="quick-bar__label" for="quickGoal">Goal</label>
+          <input id="quickGoal" class="input" placeholder="Set quick goal" value="{{ active_goal.text if active_goal }}" />
+          <button id="quickGoalSet" class="button small">Update</button>
+        </div>
+        <div class="quick-bar__group">
+          <span class="quick-bar__label">Safety</span>
+          <label class="toggle">
+            <input id="quickFree" type="radio" name="quickSafety" value="free" {% if not status.confirm_before_execute %}checked{% endif %} />
+            <span>Free</span>
+          </label>
+          <label class="toggle">
+            <input id="quickConfirm" type="radio" name="quickSafety" value="confirm" {% if status.confirm_before_execute %}checked{% endif %} />
+            <span>Confirm</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="chat__input">
+        <textarea id="chatInput" class="input" rows="3" placeholder="Send a message to the agent..."></textarea>
+        <button id="chatSend" class="button">Send</button>
+      </section>
+
+      <section id="pendingBanner" class="pending-banner {% if not status.pending_action %}hidden{% endif %}">
+        <div class="pending-banner__title">Next action preview</div>
+        <div class="pending-banner__meta">
+          <span id="pendingBannerText">{{ status.pending_action or "" }}</span>
+          <span id="pendingBannerId">{{ status.pending_action_id or "" }}</span>
+          <span id="pendingBannerAt">{{ status.pending_action_at or "" }}</span>
+        </div>
+        <div class="pending-banner__actions">
+          <button id="pendingBannerApprove" class="button small" {% if not status.confirm_before_execute %}disabled{% endif %}>Approve</button>
+          <button id="pendingBannerDeny" class="button small button--ghost">Deny</button>
+        </div>
+      </section>
+
+      <section id="chatFeed" class="chat__feed">
+        {% for message in messages|reverse %}
+        <article class="message message--{{ message.role }}">
+          <header>
+            <span class="role">{{ message.role }}</span>
+            <span class="timestamp">{{ message.created_at }}</span>
+            {% if message.role == "agent" %}
+            <button class="button small speak-button" data-message-id="{{ message.id }}">Speak</button>
+            {% endif %}
+          </header>
+          <p>{{ message.content }}</p>
+          {% if message.reasoning %}
+          <details class="reasoning">
+            <summary>Reasoning</summary>
+            <div>{{ message.reasoning }}</div>
+          </details>
+          {% endif %}
+        </article>
+        {% endfor %}
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "Name": "StardewAI GameBridge",
+  "Author": "tim",
+  "Version": "0.1.0",
+  "Description": "HTTP API for AI agent control - provides game state and action execution",
+  "UniqueID": "tim.StardewAI.GameBridge",
+  "EntryDll": "StardewAI.GameBridge.dll",
+  "MinimumApiVersion": "4.0.0",
+  "UpdateKeys": [],
+  "Dependencies": []
+}

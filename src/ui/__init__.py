@@ -1,0 +1,1 @@
+"""StardewAI web UI package."""

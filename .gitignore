@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Logs and screenshots
+logs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local data
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment and secrets
+.env
+*.env.local
+
+# Test artifacts
+test_capture.png
+*.png
+!docs/*.png
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+/tmp/
+*.tmp
+*.temp
+
+# Model files (too large for git)
+models/*.gguf
+models/*.bin
+
+# Build artifacts - C#/SMAPI mod
+src/smapi-mod/**/bin/
+src/smapi-mod/**/obj/
+*.dll
+*.pdb
+
+# Team chat local storage (contains session data)
+/tmp/team_chat.json
+
+# Claude Code local files
+.claude/
+
+# Comms (local runtime data)
+comms/
