@@ -28,6 +28,9 @@ public class PlayerState
     public int CurrentToolIndex { get; set; }
     public bool IsMoving { get; set; }
     public bool CanMove { get; set; }
+    // Watering can state
+    public int WateringCanWater { get; set; }  // Current water level
+    public int WateringCanMax { get; set; }    // Max capacity (40 for basic can)
 }
 
 /// <summary>In-game time and date</summary>

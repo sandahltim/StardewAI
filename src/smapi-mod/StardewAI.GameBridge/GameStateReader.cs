@@ -220,6 +220,19 @@ public class GameStateReader
         var player = Game1.player;
         var tool = player.CurrentTool;
 
+        // Find watering can water level
+        int waterLeft = 0;
+        int waterMax = 40;
+        foreach (var item in player.Items)
+        {
+            if (item is StardewValley.Tools.WateringCan wateringCan)
+            {
+                waterLeft = wateringCan.WaterLeft;
+                waterMax = wateringCan.waterCanMax;
+                break;
+            }
+        }
+
         return new PlayerState
         {
             Name = player.Name,
@@ -236,7 +249,9 @@ public class GameStateReader
             CurrentTool = tool?.DisplayName ?? "None",
             CurrentToolIndex = player.CurrentToolIndex,
             IsMoving = player.isMoving(),
-            CanMove = player.CanMove
+            CanMove = player.CanMove,
+            WateringCanWater = waterLeft,
+            WateringCanMax = waterMax
         };
     }
 

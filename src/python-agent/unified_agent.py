@@ -557,6 +557,12 @@ class ModBridgeController:
 
         # Add current tile state from game data (more reliable than vision)
         current_tile = data.get("currentTile", {})
+        current_tool = state.get("player", {}).get("currentTool", "Unknown") if state else "Unknown"
+        current_slot = state.get("player", {}).get("currentToolIndex", -1) if state else -1
+
+        # Tool slot mapping for switch instructions
+        tool_slots = {"Axe": 0, "Hoe": 1, "Watering Can": 2, "Pickaxe": 3, "Scythe": 4}
+
         if current_tile:
             tile_state = current_tile.get("state", "unknown")
             tile_obj = current_tile.get("object")
@@ -564,18 +570,37 @@ class ModBridgeController:
             can_plant = current_tile.get("canPlant", False)
 
             if tile_state == "tilled":
-                front_info = ">>> TILE IN FRONT: TILLED SOIL - select SEEDS and PLANT! <<<"
+                if "Seed" in current_tool:
+                    front_info = f">>> TILE: TILLED - You have {current_tool}, use_tool to PLANT! <<<"
+                else:
+                    front_info = ">>> TILE: TILLED - select_slot 5 for SEEDS, then use_tool to PLANT! <<<"
             elif tile_state == "planted":
-                front_info = ">>> TILE IN FRONT: PLANTED - select WATERING CAN and WATER! <<<"
+                # Check watering can water level
+                water_left = state.get("player", {}).get("wateringCanWater", 0) if state else 0
+                water_max = state.get("player", {}).get("wateringCanMax", 40) if state else 40
+
+                if water_left <= 0:
+                    front_info = ">>> WATERING CAN EMPTY! Go to water (pond/river) and use_tool to REFILL! <<<"
+                elif "Watering" in current_tool:
+                    front_info = f">>> TILE: PLANTED - You have {current_tool} ({water_left}/{water_max}), use_tool to WATER! <<<"
+                else:
+                    front_info = f">>> TILE: PLANTED - select_slot 2 for WATERING CAN ({water_left}/{water_max}), then use_tool! <<<"
             elif tile_state == "watered":
-                front_info = ">>> TILE IN FRONT: WATERED - DONE! Move to next tile. <<<"
+                front_info = ">>> TILE: WATERED - DONE! Move to next clear tile. <<<"
             elif tile_state == "debris":
-                tool = "SCYTHE" if tile_obj in ["Weeds", "Grass"] else "PICKAXE" if tile_obj == "Stone" else "AXE"
-                front_info = f">>> TILE IN FRONT: {tile_obj} - use {tool} to clear! <<<"
+                needed_tool = "Scythe" if tile_obj in ["Weeds", "Grass"] else "Pickaxe" if tile_obj == "Stone" else "Axe"
+                needed_slot = tool_slots.get(needed_tool, 4)
+                if needed_tool.lower() in current_tool.lower():
+                    front_info = f">>> TILE: {tile_obj} - You have {current_tool}, use_tool to clear! <<<"
+                else:
+                    front_info = f">>> TILE: {tile_obj} - select_slot {needed_slot} for {needed_tool.upper()}, then use_tool! <<<"
             elif tile_state == "clear" and can_till:
-                front_info = ">>> TILE IN FRONT: CLEAR DIRT - use HOE to TILL! <<<"
+                if "Hoe" in current_tool:
+                    front_info = f">>> TILE: CLEAR DIRT - You have {current_tool}, use_tool to TILL! <<<"
+                else:
+                    front_info = ">>> TILE: CLEAR DIRT - select_slot 1 for HOE, then use_tool to TILL! <<<"
             elif tile_state == "clear":
-                front_info = ">>> TILE IN FRONT: CLEAR (non-tillable) - move elsewhere <<<"
+                front_info = ">>> TILE: CLEAR (non-tillable) - move to find farmable ground <<<"
 
         if front_info:
             result = f"{front_info}\n{result}"
@@ -1238,6 +1263,12 @@ class StardewAgent:
             # Think! (unified perception + planning)
             logging.info("🧠 Thinking...")
             result = self.vlm.think(img, self.goal, spatial_context=spatial_context, memory_context=memory_context)
+
+            # Override VLM's tool perception with actual game state (VLM often hallucinates tools)
+            if self.last_state:
+                actual_tool = self.last_state.get("player", {}).get("currentTool")
+                if actual_tool:
+                    result.holding = actual_tool
 
             # Log perception with personality
             energy_emoji = {"full": "💪", "good": "👍", "half": "😐", "low": "😓", "exhausted": "💀"}.get(result.energy, "❓")
