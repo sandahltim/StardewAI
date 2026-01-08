@@ -1,7 +1,7 @@
 # Next Session - StardewAI
 
 **Last Updated:** 2026-01-08 by Claude
-**Status:** ✅ Memory System COMPLETE
+**Status:** ✅ Game Knowledge DB EXPANDED
 
 ---
 
@@ -16,24 +16,30 @@
 | VLM Reasoning | Working | Contextual plans with personality |
 | Spatial Awareness | Working | /surroundings + VLM uses directional info |
 | Blocker Names | Working | Returns "Stone", "Tree", NPC names |
-| **Game Knowledge DB** | **NEW** | SQLite: 12 NPCs, 36 crops |
-| **Episodic Memory** | **NEW** | ChromaDB: semantic search over experiences |
-| **Memory Integration** | **NEW** | Context injected into VLM prompt per tick |
+| **Game Knowledge DB** | **EXPANDED** | SQLite: 35 NPCs, 46 crops, 647 items, 23 locations, 210 recipes |
+| **Episodic Memory** | Working | ChromaDB: semantic search over experiences |
+| **Memory Integration** | Working | Context injected into VLM prompt per tick |
 
 ## Session Accomplishments (2026-01-08)
 
+**Session 4 (DB Expansion):**
+1. Expanded game_knowledge.db:
+   - 35 NPCs (all villagers, not just marriage candidates)
+   - 46 crops (all seasons)
+   - 647 items (fish with locations, forage, tools)
+   - 23 locations (with types: Farm, Town, Nature, Mine, Building)
+   - 210 recipes (cooking + crafting)
+2. Added query helpers:
+   - `get_location_info(name)`
+   - `get_locations_by_type(type)`
+3. Enhanced build script with forage/fish location parsing
+4. Tested full agent with memory - working correctly
+
 **Session 3 (Memory System):**
 1. Installed ChromaDB for episodic memory
-2. Created `src/python-agent/memory/` module:
-   - `episodic.py` - ChromaDB storage/retrieval
-   - `retrieval.py` - Combined memory context for VLM
-   - `game_knowledge.py` - SQLite queries (extended with new helpers)
-3. Created `src/data/game_knowledge.db` with:
-   - 12 NPCs (all marriage candidates with gift preferences)
-   - 36 crops (all seasons with growth/price data)
-4. Integrated memory into `unified_agent.py`:
-   - Memory context retrieved per tick
-   - Injected into VLM prompt before spatial context
+2. Created `src/python-agent/memory/` module
+3. Created game_knowledge.db (initial version)
+4. Integrated memory into unified_agent.py
 5. Tested full system - NPC knowledge + episodic memories working
 
 ## Files Changed (Session 3)
@@ -49,29 +55,26 @@
 ## Next Steps (Priority Order)
 
 ### High Priority
-1. **Expand Game Knowledge DB**
-   - Add `items` table (tools, forage, artifacts, fish)
-   - Add `locations` table (buildings, areas, unlock conditions)
-   - Add `recipes` table (cooking, crafting)
-   - Consider: fish locations, tool upgrades, calendar events
-
-2. **Test Memory in Action**
-   - Run agent with goal "Make friends with Shane"
-   - Verify NPC info appears in VLM prompt
-   - Verify episodic memories are stored after interactions
-   - Test birthday detection
-
-### Medium Priority
-3. **Memory Storage Triggers**
+1. **Memory Storage Triggers** ✨
    - Auto-store on NPC interaction
    - Auto-store on new location visited
    - Auto-store when VLM says "remember this"
    - Currently: manual storage only
 
-4. **UI Memory Viewer**
+2. **Long-Running Agent Test**
+   - Run agent for extended period with social goal
+   - Verify memory accumulation works
+   - Check for stability issues
+
+### Medium Priority
+3. **UI Memory Viewer**
    - Show recent episodic memories
    - Show game knowledge lookups
    - Search interface
+
+4. **Item Recognition Enhancement**
+   - Use items DB to identify objects in screenshots
+   - VLM can now query "what is this item?" from DB
 
 ### Low Priority
 5. **Memory Pruning**
@@ -79,52 +82,29 @@
    - Forget old irrelevant memories
    - Keep memory count manageable
 
+### Completed ✅
+- ~~Expand Game Knowledge DB~~ (35 NPCs, 647 items, 23 locations, 210 recipes)
+- ~~Test Memory in Action~~ (birthday detection, NPC gifts working)
+
 ---
 
-## Data to Add (Game Knowledge DB)
+## Game Knowledge DB (Current State)
 
-### Items Table (High Priority)
-```sql
-CREATE TABLE items (
-    name TEXT PRIMARY KEY,
-    category TEXT,       -- "Fish", "Forage", "Artifact", "Tool", etc.
-    description TEXT,
-    sell_price INTEGER,
-    locations TEXT       -- JSON array of where to find
-);
+```
+Tables: npcs (35), crops (46), items (647), locations (23), recipes (210)
 ```
 
-**Categories to populate:**
-- Tools (Hoe, Watering Can, Pickaxe, Axe, Fishing Rod)
-- Forage items by season
-- Common fish with locations/times
-- Artifacts for museum
-
-### Locations Table (Medium Priority)
-```sql
-CREATE TABLE locations (
-    name TEXT PRIMARY KEY,
-    type TEXT,           -- "Town", "Farm", "Mine", "Beach", etc.
-    unlocked_by TEXT,    -- How to access
-    notable_features TEXT -- JSON array
-);
-```
-
-**Locations to add:**
-- Farm, FarmHouse, Greenhouse
-- Town buildings (Pierre's, Blacksmith, Saloon, etc.)
-- Beach, Forest, Mountain, Desert
-- Mines (with floor info)
-
-### Recipes Table (Low Priority)
-```sql
-CREATE TABLE recipes (
-    name TEXT PRIMARY KEY,
-    type TEXT,           -- "Cooking", "Crafting"
-    ingredients TEXT,    -- JSON: {"Wood": 50, "Stone": 20}
-    unlock_condition TEXT
-);
-```
+Query helpers in `src/python-agent/memory/game_knowledge.py`:
+- `get_npc_info(name)` - NPC with gift preferences
+- `get_npc_gift_reaction(npc, item)` - "loved", "liked", etc.
+- `get_crop_info(name)` - Crop details
+- `get_item_locations(name)` - Where to find items
+- `get_location_info(name)` - Location details
+- `get_locations_by_type(type)` - All locations of a type
+- `get_crops_for_season(season)` - Plantable crops
+- `get_birthday_npcs(season, day)` - Who has birthday
+- `format_npc_for_prompt(name)` - Formatted for VLM
+- `format_crop_for_prompt(name)` - Formatted for VLM
 
 ---
 
@@ -156,12 +136,12 @@ Screenshot → Qwen3VL (8780) → Actions → ModBridgeController → SMAPI mod 
 
 | Team Member | Status | Current Focus |
 |-------------|--------|---------------|
-| Claude | PM | Memory system complete, expand DB next |
-| Codex | Idle | Available for items/locations/recipes |
+| Claude | PM | DB expanded, next: memory triggers |
+| Codex | Active | Expanded DB with items/locations/recipes |
 | Tim | Lead | Testing, direction |
 
 ---
 
-*Memory system complete. Next: expand game knowledge with items, locations, recipes.*
+*Game knowledge DB expanded. 35 NPCs, 647 items, 23 locations, 210 recipes. Memory integration working.*
 
 — Claude (PM)
