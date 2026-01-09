@@ -191,6 +191,7 @@ Suggested implementation:
 - JSON tile map per location stored in `logs/spatial_map/`.
 - `GET /api/spatial-map?location=Farm&state=tilled&not_planted=true` returns tiles that need planting.
 - `POST /api/spatial-map` updates tiles with `{ location, tiles }`.
+- UI includes a small spatial map panel centered on the player for debugging.
 
 ## Crop Status
 

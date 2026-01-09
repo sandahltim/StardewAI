@@ -213,7 +213,7 @@ model:
 
     CONTROLS (Game Commands):
     - move: direction (up/down/left/right), tiles (1-5, how many tiles to walk)
-    - face: direction (up/down/left/right) - turn to face without moving
+    - face: direction (up/down/left/right) - TURN to face without moving!
     - use_tool: swing current tool at facing direction
     - interact: talk, check, pickup, harvest, confirm dialogs
     - menu: open/close inventory
@@ -223,6 +223,13 @@ model:
     - select_slot: slot number (0-11) to directly select toolbar slot
     - warp: location name (Farm, Town, Beach, Mine, Forest, etc.) - teleport to location
     - wait: seconds (0.5-2.0) - pause before next action
+
+    FACE vs MOVE - CRITICAL DISTINCTION:
+    - FACE = turn to look at adjacent tile (for watering/harvesting 1 tile away)
+    - MOVE = walk to a different tile (for traveling 2+ tiles)
+    - WRONG: Crop 1 tile right, do "move right" (puts you ON crop, wastes time)
+    - RIGHT: Crop 1 tile right, do "face right, use_tool" (water from where you stand!)
+    - Tools hit the tile IN FRONT of you, not the tile you're ON!
 
     STARDEW KNOWLEDGE:
     Time & Energy:

@@ -314,6 +314,8 @@ function updateStatus(status) {
   const daySeasonNote = document.getElementById("daySeasonNote");
   const goalProgressSummary = document.getElementById("goalProgressSummary");
   const goalProgressList = document.getElementById("goalProgressList");
+  const spatialMapGrid = document.getElementById("spatialMapGrid");
+  const spatialMapNote = document.getElementById("spatialMapNote");
 
   const formatDuration = (seconds) => {
     if (!Number.isFinite(seconds) || seconds <= 0) return "-";
@@ -866,6 +868,55 @@ function init() {
       li.textContent = `${mark} ${task.title}`;
       goalProgressList.append(li);
     });
+  };
+
+  const updateSpatialMap = (tiles, center) => {
+    if (!spatialMapGrid || !spatialMapNote || !center) return;
+    spatialMapGrid.innerHTML = "";
+    if (!Array.isArray(tiles)) {
+      spatialMapNote.textContent = "Waiting for map data...";
+      return;
+    }
+    if (!tiles.length) {
+      spatialMapNote.textContent = "No map data yet.";
+    } else {
+      spatialMapNote.textContent = `Tiles tracked: ${tiles.length}`;
+    }
+
+    const radius = 10;
+    const size = radius * 2 + 1;
+    const lookup = new Map();
+    tiles.forEach((tile) => {
+      if (tile && Number.isFinite(tile.x) && Number.isFinite(tile.y)) {
+        lookup.set(`${tile.x},${tile.y}`, tile);
+      }
+    });
+
+    for (let row = 0; row < size; row += 1) {
+      for (let col = 0; col < size; col += 1) {
+        const x = center.x + (col - radius);
+        const y = center.y + (row - radius);
+        const cell = document.createElement("div");
+        cell.className = "spatial-cell";
+        const tile = lookup.get(`${x},${y}`);
+        if (tile) {
+          const state = tile.state || "";
+          const isWatered = Boolean(tile.watered);
+          if (state === "obstacle") cell.classList.add("obstacle");
+          else if (state === "ready") cell.classList.add("ready");
+          else if (isWatered) cell.classList.add("watered");
+          else if (state === "planted" || tile.crop) cell.classList.add("planted");
+          else if (state === "tilled") cell.classList.add("tilled");
+          cell.title = `${x},${y} ${state || "unknown"} ${tile.crop ? `(${tile.crop})` : ""}`.trim();
+        } else {
+          cell.title = `${x},${y}`;
+        }
+        if (x === center.x && y === center.y) {
+          cell.classList.add("center");
+        }
+        spatialMapGrid.append(cell);
+      }
+    }
   };
 
   const updateCropStatus = (crops) => {
@@ -1536,6 +1587,20 @@ function init() {
           const y = latestPlayer?.tileY ?? "?";
           positionDisplay.textContent = `(${x}, ${y})`;
         }
+
+        const locationName = latestState?.location?.name || "Farm";
+        if (spatialMapGrid && spatialMapNote && latestPlayer?.tileX !== undefined && latestPlayer?.tileY !== undefined) {
+          const params = new URLSearchParams({ location: locationName });
+          fetch(`/api/spatial-map?${params.toString()}`)
+            .then((res) => res.json())
+            .then((payload) => {
+              const tiles = payload?.tiles || [];
+              updateSpatialMap(tiles, { x: latestPlayer.tileX, y: latestPlayer.tileY });
+            })
+            .catch(() => {
+              updateSpatialMap(null, { x: latestPlayer.tileX, y: latestPlayer.tileY });
+            });
+        }
       })
       .catch(() => {
         updateWateringCan(null);
@@ -1544,6 +1609,8 @@ function init() {
         updateCropCountdown(null);
         updateBedtime(null, null);
         updateDaySeason(null);
+        if (spatialMapGrid) spatialMapGrid.innerHTML = "";
+        if (spatialMapNote) spatialMapNote.textContent = "Spatial map unavailable";
       });
   }, pollIntervalMs);
 

@@ -1,11 +1,49 @@
 # Next Session - StardewAI
 
-**Last Updated:** 2026-01-08 Session 18 by Claude
-**Status:** Day 5 - Navigation & Tool Selection Improvements
+**Last Updated:** 2026-01-09 Session 19 by Claude
+**Status:** Day 7 - Bug Fixes + Face Action Issue
 
 ---
 
-## Session 18 Results
+## Session 19 Results
+
+### COMPLETED
+| Feature | Status |
+|---------|--------|
+| Seed Slot Detection | ✅ Dynamic - no more hardcoded slot 5 |
+| Face Action Hints | ✅ Added for adjacent crops (1 tile away) |
+| Face vs Move Guidance | ✅ Added to system prompt |
+| UI Restart | ✅ Codex's Spatial Map UI working |
+
+### KEY FIXES
+
+**Seed Slot Detection (Bug Fix):**
+Agent was hardcoded to use `select_slot 5` for seeds, but Sap was in slot 5.
+- Fix: Now dynamically finds seed slot from inventory
+- Shows actual seed name: `>>> PLANT NOW! DO: select_slot 3 (Parsnip Seeds)...`
+
+**Face Action for Adjacent Tiles:**
+Agent kept using `move` instead of `face` when crop was 1 tile away.
+- Fix: Navigation hints now say `face {direction}, use_tool` for adjacent targets
+- Added "FACE vs MOVE - CRITICAL DISTINCTION" section to system prompt
+
+### KNOWN ISSUES (Still Open)
+1. **Agent still prefers `move` over `face`** - VLM ignores face hints
+2. **Agent doesn't harvest ready crops** - just waters them
+3. **Desync issues** - commands sent but character doesn't move (requires game restart)
+4. **Some crops died** - 3 of 8 parsnips withered (99999 days = dead)
+
+### Game State (End of Session)
+- **Day:** 7, 12:30 PM
+- **Crops:** 7 total (3 dead, 4 alive)
+- **Watered:** 4/7
+- **Ready to Harvest:** 0 (nearest tomorrow if watered)
+- **Watering Can:** 13/40
+- **Energy:** 252/270
+
+---
+
+## Session 18 Results (Previous)
 
 ### COMPLETED
 | Feature | Status |
@@ -13,50 +51,8 @@
 | Bedtime Hints | ✅ Time-based (8PM, 10PM, midnight) + energy-based |
 | Crop Protection | ✅ Warns "DO NOT use Scythe/Hoe on crop!" |
 | Debris Clearing | ✅ Suggests clearing when farming done |
-| Blocked Path Hint | ✅ "Face UP, select SCYTHE to clear Weeds" |
-| Water Refill Fix | ✅ Now tells agent to select_slot 2 first |
 | Water = Resource | ✅ Shows "💧 WATER" not "BLOCKED (water)" |
 | Codex Spatial Map | ✅ Verified implementation |
-
-### KEY FIXES
-
-**Water as Resource, Not Blocker:**
-Agent saw "BLOCKED (water, 1 tile)" and tried to clear it like debris.
-- Fix: Show `💧 WATER (1 tile) - refill here!` instead
-- When facing water: `>>> 💧 WATER SOURCE! select_slot 2, use_tool to REFILL! <<<`
-
-**Tool Selection for Refill:**
-Agent was at water with Pickaxe equipped, couldn't refill.
-- Fix: All water hints now include `select_slot 2 (Watering Can)`
-
-**Crop Protection:**
-Agent could accidentally use Scythe/Hoe on planted crops.
-- Fix: When on planted tile with wrong tool: `>>> ⚠️ CROP HERE! DO NOT use Scythe! Select WATERING CAN (slot 2)! <<<`
-
-### Game State (End of Session)
-- **Day:** 5, 9:20 PM
-- **Crops:** 8 parsnips (some watered)
-- **Watering Can:** 40/40 (full)
-- **Energy:** 174/270
-- **Next:** Finish watering, sleep to Day 6, harvest
-
-### Known Issues
-1. Agent still slow at navigating around debris
-2. Farmhouse exit navigation takes many attempts
-3. May need tool abstraction layer (user suggestion)
-
----
-
-## Session 17 Results (Previous)
-
-### COMPLETED
-| Feature | Status |
-|---------|--------|
-| Rain Bug Fix | ✅ Wet tilled soil was showing "WATERED-DONE" |
-| Aggressive Plant Prompts | ✅ "🌱🌱🌱 PLANT NOW!" with emojis |
-| No Seeds Check | ✅ Don't show plant prompt if no seeds |
-| go_to_bed Fix | ✅ Now uses `Game1.NewDay(0.0f)` |
-| Game Knowledge DB | ✅ 12 NPCs + 36 crops scraped from wiki |
 
 ---
 
@@ -74,43 +70,44 @@ curl http://localhost:8790/state      # SMAPI mod
 curl http://localhost:9001/api/status # UI server
 
 # 3. Run agent
-python src/python-agent/unified_agent.py --ui --goal "Water crops, then go_to_bed"
+python src/python-agent/unified_agent.py --ui --goal "Water crops and harvest ready ones"
 ```
 
 ---
 
 ## Next Steps (Priority Order)
 
-### HIGH - Complete Farming Cycle
-1. Finish watering Day 5 crops
-2. Sleep to Day 6
-3. **HARVEST first parsnips!**
-4. Ship to bin, verify money
+### HIGH - Fix Agent Behavior
+1. **Make agent use `face` action** - currently ignores hints
+2. **Fix harvest behavior** - agent should pick ready crops, not water them
+3. Water remaining 3 crops on Day 7
+4. Sleep to Day 8 and harvest
 
-### MEDIUM - Navigation Improvements
-5. Faster debris avoidance (currently slow)
-6. Farmhouse exit reliability
-7. Consider warp_to_farm when stuck
+### MEDIUM - Navigation/Desync
+5. Investigate desync issue (commands succeed but no movement)
+6. Faster debris avoidance
+7. Consider alternative to `move` (maybe `move_direction` with tiles?)
 
 ### LOW - Architecture
 8. Tool abstraction layer (user suggestion)
-9. Spatial map UI visualization
+9. Crop health indicator in UI (dead vs alive)
 
 ---
 
-## Files Changed (Session 18)
+## Files Changed (Session 19)
 
 ### `src/python-agent/unified_agent.py`
-- **Lines 570-589:** Water shown as 💧 resource, not BLOCKED
-- **Lines 580:** Water facing = explicit refill instructions
-- **Lines 643-656:** Water refill hints include select_slot 2
-- **Lines 658-661:** Crop protection warning
-- **Lines 880-900:** Bedtime hints (time + energy based)
-- **Lines 907-944:** Done farming hint with debris clearing
-- **Lines 593-601:** Blocked path clearing hint
+- **Lines 666-683:** Dynamic seed slot detection (was hardcoded slot 5)
+- **Lines 715-732:** Same fix for wet tilled soil case
+- **Lines 755-770:** Adjacent crop detection - suggest `face` for 1-tile distance
+- **Lines 795-810:** Same fix for unwatered crop navigation
+
+### `config/settings.yaml`
+- **Lines 216:** Enhanced `face` action description
+- **Lines 227-232:** NEW: "FACE vs MOVE - CRITICAL DISTINCTION" section
 
 ---
 
-*Session 18: Fixed water perception bug (resource not blocker), added tool selection to refill hints, crop protection warnings, and bedtime hints. Agent can now properly refill watering can.*
+*Session 19: Fixed seed slot bug (was hardcoded), added face action hints for adjacent tiles, but VLM still ignores them. Some crops died from desync issues. Need to fix harvest detection next.*
 
 — Claude (PM)

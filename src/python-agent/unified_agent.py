@@ -666,13 +666,21 @@ class ModBridgeController:
             elif tile_state == "tilled":
                 # Check if player has seeds before showing plant message
                 inventory = state.get("inventory", []) if state else []
-                has_seeds = any("Seed" in item.get("name", "") for item in inventory)
+                # Find first seed slot (not just check existence)
+                seed_slot = None
+                seed_name = None
+                for item in inventory:
+                    item_name = item.get("name", "")
+                    if "Seed" in item_name or item_name == "Mixed Seeds":
+                        seed_slot = item.get("slot")
+                        seed_name = item_name
+                        break
 
-                if has_seeds:
-                    if "Seed" in current_tool:
+                if seed_slot is not None:
+                    if "Seed" in current_tool or current_tool == "Mixed Seeds":
                         front_info = f">>> 🌱🌱🌱 PLANT NOW! TILE IS TILLED! You have {current_tool}! DO: use_tool 🌱🌱🌱 <<<"
                     else:
-                        front_info = ">>> 🌱🌱🌱 PLANT NOW! TILE IS TILLED! DO: select_slot 5, THEN use_tool! DO NOT MOVE! 🌱🌱🌱 <<<"
+                        front_info = f">>> 🌱🌱🌱 PLANT NOW! TILE IS TILLED! DO: select_slot {seed_slot} ({seed_name}), THEN use_tool! 🌱🌱🌱 <<<"
                 else:
                     # No seeds - treat as empty tillable ground, suggest finding crops to water
                     if unwatered_crops:
@@ -707,13 +715,21 @@ class ModBridgeController:
                 if can_plant:
                     # Wet empty soil from rain - check if player has seeds
                     inventory = state.get("inventory", []) if state else []
-                    has_seeds = any("Seed" in item.get("name", "") for item in inventory)
+                    # Find first seed slot
+                    seed_slot = None
+                    seed_name = None
+                    for item in inventory:
+                        item_name = item.get("name", "")
+                        if "Seed" in item_name or item_name == "Mixed Seeds":
+                            seed_slot = item.get("slot")
+                            seed_name = item_name
+                            break
 
-                    if has_seeds:
-                        if "Seed" in current_tool:
+                    if seed_slot is not None:
+                        if "Seed" in current_tool or current_tool == "Mixed Seeds":
                             front_info = f">>> 🌱🌱🌱 WET TILLED SOIL - NEEDS PLANTING! You have {current_tool}! DO: use_tool NOW! 🌱🌱🌱 <<<"
                         else:
-                            front_info = ">>> 🌱🌱🌱 WET TILLED SOIL - NEEDS PLANTING! DO: select_slot 5, THEN use_tool! 🌱🌱🌱 <<<"
+                            front_info = f">>> 🌱🌱🌱 WET TILLED SOIL - NEEDS PLANTING! DO: select_slot {seed_slot} ({seed_name}), THEN use_tool! 🌱🌱🌱 <<<"
                     else:
                         # No seeds - just wet empty soil
                         if unwatered_crops:
@@ -734,17 +750,24 @@ class ModBridgeController:
                             nearest = min(unwatered_others, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
                             dx = nearest["x"] - player_x
                             dy = nearest["y"] - player_y
-                            dirs = []
-                            if dy < 0:
-                                dirs.append(f"{abs(dy)} UP")
-                            elif dy > 0:
-                                dirs.append(f"{abs(dy)} DOWN")
-                            if dx < 0:
-                                dirs.append(f"{abs(dx)} LEFT")
-                            elif dx > 0:
-                                dirs.append(f"{abs(dx)} RIGHT")
-                            direction_str = " then ".join(dirs) if dirs else "nearby"
-                            front_info = f">>> TILE: WATERED ✓ - NEXT CROP: move {direction_str}! ({len(unwatered_others)} more to water) <<<"
+                            dist = abs(dx) + abs(dy)
+
+                            # If crop is exactly 1 tile away, use FACE + use_tool (don't move onto the crop!)
+                            if dist == 1:
+                                face_dir = "up" if dy < 0 else "down" if dy > 0 else "left" if dx < 0 else "right"
+                                front_info = f">>> TILE: WATERED ✓ - NEXT CROP 1 tile {face_dir.upper()}! DO: face {face_dir}, use_tool ({len(unwatered_others)} more) <<<"
+                            else:
+                                dirs = []
+                                if dy < 0:
+                                    dirs.append(f"{abs(dy)} UP")
+                                elif dy > 0:
+                                    dirs.append(f"{abs(dy)} DOWN")
+                                if dx < 0:
+                                    dirs.append(f"{abs(dx)} LEFT")
+                                elif dx > 0:
+                                    dirs.append(f"{abs(dx)} RIGHT")
+                                direction_str = " then ".join(dirs) if dirs else "nearby"
+                                front_info = f">>> TILE: WATERED ✓ - NEXT CROP: move {direction_str}! ({len(unwatered_others)} more to water) <<<"
                         else:
                             front_info = self._get_done_farming_hint(state, data)
                     else:
@@ -767,17 +790,24 @@ class ModBridgeController:
                     nearest = min(unwatered, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
                     dx = nearest["x"] - player_x
                     dy = nearest["y"] - player_y
-                    dirs = []
-                    if dy < 0:
-                        dirs.append(f"{abs(dy)} UP")
-                    elif dy > 0:
-                        dirs.append(f"{abs(dy)} DOWN")
-                    if dx < 0:
-                        dirs.append(f"{abs(dx)} LEFT")
-                    elif dx > 0:
-                        dirs.append(f"{abs(dx)} RIGHT")
-                    direction_str = " and ".join(dirs) if dirs else "here"
-                    front_info = f">>> {len(unwatered)} CROPS NEED WATERING! Nearest: {direction_str}. GO THERE FIRST! <<<"
+                    dist = abs(dx) + abs(dy)
+
+                    # If crop is exactly 1 tile away, use FACE + use_tool
+                    if dist == 1:
+                        face_dir = "up" if dy < 0 else "down" if dy > 0 else "left" if dx < 0 else "right"
+                        front_info = f">>> {len(unwatered)} CROPS NEED WATERING! One is 1 tile {face_dir.upper()}! DO: select_slot 2, face {face_dir}, use_tool <<<"
+                    else:
+                        dirs = []
+                        if dy < 0:
+                            dirs.append(f"{abs(dy)} UP")
+                        elif dy > 0:
+                            dirs.append(f"{abs(dy)} DOWN")
+                        if dx < 0:
+                            dirs.append(f"{abs(dx)} LEFT")
+                        elif dx > 0:
+                            dirs.append(f"{abs(dx)} RIGHT")
+                        direction_str = " and ".join(dirs) if dirs else "here"
+                        front_info = f">>> {len(unwatered)} CROPS NEED WATERING! Nearest: {direction_str}. GO THERE FIRST! <<<"
                 elif "Hoe" in current_tool:
                     front_info = f">>> TILE: CLEAR DIRT - You have {current_tool}, use_tool to TILL! <<<"
                 else:
