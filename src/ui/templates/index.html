@@ -98,6 +98,48 @@
             {% if status.vlm_errors %}{{ status.vlm_errors[-1].raw_response }}{% else %}-{% endif %}
           </div>
         </div>
+        <div class="session-stats-card">
+          <div class="vlm-subhead">Session Stats</div>
+          <div class="session-stats__row">
+            <span>Uptime</span>
+            <span id="sessionUptime">-</span>
+          </div>
+          <div class="session-stats__row">
+            <span>Thinks</span>
+            <span id="sessionThinks">0</span>
+          </div>
+          <div class="session-stats__row">
+            <span>Actions</span>
+            <span id="sessionActions">0</span>
+          </div>
+          <div class="session-stats__row">
+            <span>Failures</span>
+            <span id="sessionFailures">0</span>
+          </div>
+          <div class="session-stats__row">
+            <span>Distance</span>
+            <span id="sessionDistance">0 tiles</span>
+          </div>
+          <div class="session-stats__row">
+            <span>Watered</span>
+            <span id="sessionWatered">0</span>
+          </div>
+          <div class="session-stats__row">
+            <span>Harvested</span>
+            <span id="sessionHarvested">0</span>
+          </div>
+          <div class="session-stats__list">
+            <div class="vlm-subhead">Action Types</div>
+            <ol id="sessionActionTypes" class="session-types">
+              <li>None</li>
+            </ol>
+          </div>
+        </div>
+        <div class="latency-card">
+          <div class="vlm-subhead">Latency Graph</div>
+          <div id="latencyGraph" class="latency-graph"></div>
+          <div id="latencyStats" class="latency-stats">No samples</div>
+        </div>
         <div class="vlm-actions">
           <div class="vlm-subhead">Last Actions</div>
           <ol id="vlmActions" class="vlm-actions__list">
@@ -179,6 +221,12 @@
         <div class="crop-card">
           <div class="vlm-subhead">Crop Growth</div>
           <ol id="cropProgress" class="crop-list">
+            <li>None</li>
+          </ol>
+        </div>
+        <div class="crop-countdown-card">
+          <div class="vlm-subhead">Crop Countdown</div>
+          <ol id="cropCountdown" class="crop-list">
             <li>None</li>
           </ol>
         </div>

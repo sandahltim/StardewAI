@@ -104,6 +104,15 @@ class StatusUpdate(BaseModel):
     vlm_parse_success: Optional[int] = None
     vlm_parse_fail: Optional[int] = None
     vlm_errors: Optional[List[Dict[str, Any]]] = None
+    session_started_at: Optional[str] = None
+    think_count: Optional[int] = None
+    action_count: Optional[int] = None
+    action_fail_count: Optional[int] = None
+    action_type_counts: Optional[Dict[str, int]] = None
+    distance_traveled: Optional[int] = None
+    crops_watered_count: Optional[int] = None
+    crops_harvested_count: Optional[int] = None
+    latency_history: Optional[List[float]] = None
     player_tile_x: Optional[int] = None
     player_tile_y: Optional[int] = None
     current_instruction: Optional[str] = None
@@ -191,6 +200,15 @@ def _default_status() -> Dict[str, Any]:
         "vlm_parse_success": 0,
         "vlm_parse_fail": 0,
         "vlm_errors": [],
+        "session_started_at": None,
+        "think_count": 0,
+        "action_count": 0,
+        "action_fail_count": 0,
+        "action_type_counts": {},
+        "distance_traveled": 0,
+        "crops_watered_count": 0,
+        "crops_harvested_count": 0,
+        "latency_history": [],
         "player_tile_x": None,
         "player_tile_y": None,
         "current_instruction": None,

@@ -8,39 +8,7 @@
 
 ## Active Tasks
 
-### 1. MEDIUM: Session Stats Panel
-**Why:** Track agent performance over time. Useful for debugging and showing progress.
-
-**What:** Add a stats panel showing:
-- Actions executed this session (count by type: move, use_tool, etc.)
-- Crops watered / harvested counts
-- Distance traveled (sum of tile movements)
-- Session duration (time since agent started)
-
-**Data source:** Aggregate from `/api/status` updates or add `/api/stats` endpoint
-
----
-
-### 2. MEDIUM: VLM Latency Graph
-**Why:** Response time varies (2-4 seconds). Seeing trends helps tune settings.
-
-**What:** Show VLM response times:
-- Current latency (already in status as `vlm_latency`)
-- Rolling average of last 10 requests
-- Mini sparkline or simple bars showing recent latencies
-
-**Data source:** `vlm_latency` already in `/api/status`, just needs aggregation
-
----
-
-### 3. LOW: Crop Maturity Countdown
-**Why:** Parsnips take 4 days to grow. Helpful to know when harvest will be ready.
-
-**What:** If crops are planted but not ready for harvest:
-- Show "Crops ready in ~X days"
-- Calculate from crop type growth time and current day
-
-**Data source:** SMAPI `/state` has crop info, game_knowledge.db has growth times
+None.
 
 ---
 
@@ -56,6 +24,9 @@
 
 ## Completed Tasks
 
+- [x] UI: Session Stats Panel (2026-01-08 Session 14)
+- [x] UI: VLM Latency Graph (2026-01-08 Session 14)
+- [x] UI: Crop Maturity Countdown (2026-01-08 Session 14)
 - [x] UI: VLM Error Display Panel (2026-01-08 Session 13)
 - [x] UI: Navigation Intent Display (2026-01-08 Session 13)
 - [x] Agent: User Chat Context + Reply Hook (2026-01-08 Session 13)

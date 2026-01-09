@@ -205,6 +205,59 @@ h2 {
   font-size: 12px;
 }
 
+.session-stats-card,
+.latency-card,
+.crop-countdown-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf8;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.session-stats__row {
+  display: flex;
+  justify-content: space-between;
+  color: #1f2937;
+}
+
+.session-stats__list {
+  display: grid;
+  gap: 6px;
+}
+
+.session-types {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.latency-graph {
+  display: grid;
+  grid-auto-flow: column;
+  align-items: end;
+  gap: 4px;
+  min-height: 60px;
+  background: #fff7ed;
+  border-radius: 12px;
+  padding: 8px;
+}
+
+.latency-bar {
+  width: 6px;
+  border-radius: 6px;
+  background: #f59e0b;
+  opacity: 0.8;
+}
+
+.latency-stats {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .vlm-error__meta,
 .nav-meta {
   display: flex;

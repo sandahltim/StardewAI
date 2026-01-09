@@ -259,6 +259,16 @@ function updateStatus(status) {
   const navTarget = document.getElementById("navTarget");
   const navBlocked = document.getElementById("navBlocked");
   const navAttempts = document.getElementById("navAttempts");
+  const sessionUptime = document.getElementById("sessionUptime");
+  const sessionThinks = document.getElementById("sessionThinks");
+  const sessionActions = document.getElementById("sessionActions");
+  const sessionFailures = document.getElementById("sessionFailures");
+  const sessionDistance = document.getElementById("sessionDistance");
+  const sessionWatered = document.getElementById("sessionWatered");
+  const sessionHarvested = document.getElementById("sessionHarvested");
+  const sessionActionTypes = document.getElementById("sessionActionTypes");
+  const latencyGraph = document.getElementById("latencyGraph");
+  const latencyStats = document.getElementById("latencyStats");
   const movementList = document.getElementById("movementList");
   const movementStuck = document.getElementById("movementStuck");
   const movementTrail = document.getElementById("movementTrail");
@@ -296,6 +306,35 @@ function updateStatus(status) {
   const staminaStatus = document.getElementById("staminaStatus");
   const staminaFill = document.getElementById("staminaFill");
   const actionHistory = document.getElementById("actionHistory");
+
+  const formatDuration = (seconds) => {
+    if (!Number.isFinite(seconds) || seconds <= 0) return "-";
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    if (mins === 0) return `${secs}s`;
+    return `${mins}m ${secs}s`;
+  };
+
+  const updateLatencyGraph = (samples) => {
+    if (!latencyGraph || !latencyStats) return;
+    latencyGraph.innerHTML = "";
+    if (!Array.isArray(samples) || samples.length === 0) {
+      latencyStats.textContent = "No samples";
+      return;
+    }
+    const max = Math.max(...samples);
+    const avg = samples.reduce((sum, val) => sum + val, 0) / samples.length;
+    const recent = samples.slice(-30);
+    recent.forEach((val) => {
+      const bar = document.createElement("div");
+      const height = max ? Math.max(6, Math.round((val / max) * 60)) : 6;
+      bar.className = "latency-bar";
+      bar.style.height = `${height}px`;
+      bar.title = `${Math.round(val)}ms`;
+      latencyGraph.append(bar);
+    });
+    latencyStats.textContent = `Avg ${Math.round(avg)}ms | Max ${Math.round(max)}ms`;
+  };
 
   if (mode) mode.textContent = `Mode: ${status.mode || "helper"}`;
   if (running) running.textContent = `Running: ${status.running ? "yes" : "no"}`;
@@ -381,6 +420,42 @@ function updateStatus(status) {
   if (navAttempts) {
     const attempts = Number(status.navigation_attempts || 0);
     navAttempts.textContent = `Move attempts: ${attempts}`;
+  }
+  if (sessionUptime || sessionThinks || sessionActions || sessionFailures) {
+    const startedAt = status.session_started_at ? Date.parse(status.session_started_at) : null;
+    const seconds = startedAt ? (Date.now() - startedAt) / 1000 : 0;
+    if (sessionUptime) sessionUptime.textContent = formatDuration(seconds);
+    if (sessionThinks) sessionThinks.textContent = String(status.think_count || 0);
+    if (sessionActions) sessionActions.textContent = String(status.action_count || 0);
+    if (sessionFailures) sessionFailures.textContent = String(status.action_fail_count || 0);
+  }
+  if (sessionDistance) {
+    sessionDistance.textContent = `${status.distance_traveled || 0} tiles`;
+  }
+  if (sessionWatered) {
+    sessionWatered.textContent = String(status.crops_watered_count || 0);
+  }
+  if (sessionHarvested) {
+    sessionHarvested.textContent = String(status.crops_harvested_count || 0);
+  }
+  if (sessionActionTypes) {
+    sessionActionTypes.innerHTML = "";
+    const counts = status.action_type_counts || {};
+    const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    if (!entries.length) {
+      const li = document.createElement("li");
+      li.textContent = "None";
+      sessionActionTypes.append(li);
+    } else {
+      entries.slice(0, 6).forEach(([name, count]) => {
+        const li = document.createElement("li");
+        li.textContent = `${name}: ${count}`;
+        sessionActionTypes.append(li);
+      });
+    }
+  }
+  if (latencyGraph || latencyStats) {
+    updateLatencyGraph(status.latency_history || []);
   }
   if (currentInstruction) {
     currentInstruction.textContent = status.current_instruction || "No instruction yet.";
@@ -691,6 +766,35 @@ function init() {
     });
   };
 
+  const updateCropCountdown = (crops) => {
+    const countdown = document.getElementById("cropCountdown");
+    if (!countdown) return;
+    countdown.innerHTML = "";
+    if (!Array.isArray(crops) || !crops.length) {
+      const li = document.createElement("li");
+      li.textContent = "None";
+      countdown.append(li);
+      return;
+    }
+    const grouped = {};
+    crops.forEach((crop) => {
+      const name = crop.cropName || "Crop";
+      const days = Number(crop.daysUntilHarvest ?? 0);
+      const key = `${name}::${days}`;
+      grouped[key] = grouped[key] || { name, days, count: 0 };
+      grouped[key].count += 1;
+    });
+    Object.values(grouped)
+      .sort((a, b) => a.days - b.days || a.name.localeCompare(b.name))
+      .slice(0, 6)
+      .forEach((entry) => {
+        const li = document.createElement("li");
+        const label = entry.days <= 0 ? "Ready now" : `${entry.days} day${entry.days === 1 ? "" : "s"}`;
+        li.textContent = `${entry.name}: ${label} (x${entry.count})`;
+        countdown.append(li);
+      });
+  };
+
   const updateCropStatus = (crops) => {
     if (!cropStatus || !cropStatusNote) return;
     cropStatus.classList.remove("ok", "warn");
@@ -809,7 +913,7 @@ function init() {
       return;
     }
     const stamina = Number(player.stamina ?? player.energy ?? 0);
-    const max = Number(player.maxStamina ?? 0);
+    const max = Number(player.maxStamina ?? player.maxEnergy ?? player.max_energy ?? 0);
     if (!max) {
       staminaStatus.textContent = "Energy: unknown";
       staminaFill.style.width = "0%";
@@ -1328,6 +1432,7 @@ function init() {
           updateWateringCan(null);
           updateShippingBin(null);
           updateCropProgress(null);
+          updateCropCountdown(null);
           return;
         }
         latestState = payload.data || null;
@@ -1335,6 +1440,7 @@ function init() {
         updateWateringCan(latestPlayer);
         updateShippingBin(latestState);
         updateCropProgress(latestState?.location?.crops);
+        updateCropCountdown(latestState?.location?.crops);
         updateCropStatus(latestState?.location?.crops);
         updateHarvestStatus(latestState?.location?.crops);
         updateInventoryGrid(latestState?.inventory, latestState?.player?.currentToolIndex);
@@ -1352,6 +1458,7 @@ function init() {
         updateWateringCan(null);
         updateShippingBin(null);
         updateCropProgress(null);
+        updateCropCountdown(null);
       });
   }, pollIntervalMs);
 

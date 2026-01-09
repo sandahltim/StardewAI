@@ -30,6 +30,8 @@ The UI uses `status_updated` to populate the Rusty Snapshot panel with:
 - `last_tick` (shown as the snapshot timestamp)
 - `vlm_status` (Idle/Thinking/Executing), `last_reasoning`, `last_actions`
 - `vlm_parse_success`, `vlm_parse_fail`, `vlm_errors` (JSON parse debug)
+- `session_started_at`, `think_count`, `action_count`, `action_fail_count`, `latency_history`
+- `action_type_counts`, `distance_traveled`, `crops_watered_count`, `crops_harvested_count`
 - `player_tile_x`, `player_tile_y`
 - `current_instruction`, `navigation_target`, `navigation_blocked`, `navigation_attempts`
 
@@ -165,6 +167,11 @@ Suggested implementation:
 - Crop progress aggregates `location.crops[].daysUntilHarvest` from `/state`.
 - Shows counts by days remaining and ready crops.
 
+## Crop Countdown
+
+- Countdown list groups `location.crops[]` by crop name and days until harvest.
+- Shows the soonest-ready crops at a glance.
+
 ## Crop Status
 
 - Watered summary uses `location.crops[].isWatered` from `/state`.
@@ -205,6 +212,15 @@ Suggested implementation:
 ## VLM Error Display
 
 - Error panel reports VLM JSON parse failures with last raw response (truncated) and success/fail counters.
+
+## Latency Graph
+
+- Latency graph shows recent VLM response times (`latency_history`) with avg/max stats.
+
+## Session Stats
+
+- Session stats show uptime, think/action counts, distance traveled, and crop water/harvest counts.
+- Action type breakdown lists the most frequent action types this session.
 
 ## Location + Position
 
