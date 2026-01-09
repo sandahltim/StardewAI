@@ -143,6 +143,8 @@ public class ActionExecutor
             _pathIndex++;
             if (_pathIndex >= _currentPath.Count)
             {
+                // Snap to final tile center for consistent tool usage
+                player.Position = new Microsoft.Xna.Framework.Vector2(targetTile.X * 64f, targetTile.Y * 64f);
                 _state = ActionState.Complete;
                 _currentPath = null;
             }
@@ -218,10 +220,12 @@ public class ActionExecutor
         var targetTile = _currentPath[_pathIndex];
         var currentTile = player.TilePoint;
 
-        // Check if we've reached the target tile
+        // Check if we've reached the target tile - snap to center for consistency
         if (currentTile.X == targetTile.X && currentTile.Y == targetTile.Y)
         {
-            return; // Already at target
+            // Snap to tile center to prevent tool misalignment from edge positions
+            player.Position = new Microsoft.Xna.Framework.Vector2(targetTile.X * 64f, targetTile.Y * 64f);
+            return;
         }
 
         // Use game's movement system - this respects collisions and triggers warps

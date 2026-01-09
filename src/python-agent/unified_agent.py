@@ -587,6 +587,9 @@ class ModBridgeController:
         current_tool = state.get("player", {}).get("currentTool", "Unknown") if state else "Unknown"
         current_slot = state.get("player", {}).get("currentToolIndex", -1) if state else -1
 
+        # EXPLICIT TOOL CONTEXT - VLM must know what's equipped!
+        tool_info = f"🔧 EQUIPPED: {current_tool} (slot {current_slot})"
+
         # Tool slot mapping for switch instructions
         tool_slots = {"Axe": 0, "Hoe": 1, "Watering Can": 2, "Pickaxe": 3, "Scythe": 4}
 
@@ -769,11 +772,14 @@ class ModBridgeController:
                 bin_dir_str = " and ".join(bin_dirs) if bin_dirs else "here"
                 shipping_info = f"📦 SHIPPING BIN: {distance} tiles away ({bin_dir_str})"
 
+        # Assemble result with explicit tool context always visible
+        header_parts = [location_header, tool_info]
+        if shipping_info:
+            header_parts.append(shipping_info)
         if front_info:
-            result = f"{location_header}\n{shipping_info}\n{front_info}\n{result}" if shipping_info else f"{location_header}\n{front_info}\n{result}"
-        else:
-            result = f"{location_header}\n{shipping_info}\n{result}" if shipping_info else f"{location_header}\n{result}"
-        return result
+            header_parts.append(front_info)
+        header_parts.append(result)
+        return "\n".join(header_parts)
 
     def execute(self, action: Action) -> bool:
         """Execute an action via SMAPI mod API."""
@@ -1070,6 +1076,16 @@ class StardewAgent:
         self.vlm_parse_success = 0
         self.vlm_parse_fail = 0
         self.vlm_errors: List[Dict[str, Any]] = []
+        self.session_started_at: Optional[str] = None
+        self.think_count = 0
+        self.action_count = 0
+        self.action_fail_count = 0
+        self.action_type_counts: Dict[str, int] = {}
+        self.distance_traveled = 0
+        self.last_distance_position: Optional[Tuple[int, int]] = None
+        self.crops_watered_count = 0
+        self.crops_harvested_count = 0
+        self.latency_history: List[float] = []
         self.last_user_message_id = 0
         self.awaiting_user_reply = False
         self.ui = None
@@ -1216,6 +1232,11 @@ class StardewAgent:
         if tile_x is not None and tile_y is not None:
             position = (tile_x, tile_y)
             self.last_position = position
+            if self.last_distance_position:
+                dx = abs(position[0] - self.last_distance_position[0])
+                dy = abs(position[1] - self.last_distance_position[1])
+                self.distance_traveled += dx + dy
+            self.last_distance_position = position
             if self.last_position_logged != position:
                 location = (state.get("location") or {}).get("name")
                 self.last_position_logged = position
@@ -1230,6 +1251,24 @@ class StardewAgent:
             self.last_tool = current_tool
 
     def _record_action_event(self, action: Action, success: bool) -> None:
+        self.action_count += 1
+        if not success:
+            self.action_fail_count += 1
+        action_key = action.action_type.lower()
+        self.action_type_counts[action_key] = self.action_type_counts.get(action_key, 0) + 1
+        if success and action_key == "use_tool" and self.last_state:
+            player = self.last_state.get("player", {})
+            location = self.last_state.get("location", {})
+            crops = location.get("crops", [])
+            px = player.get("tileX")
+            py = player.get("tileY")
+            tool = player.get("currentTool", "")
+            if px is not None and py is not None:
+                crop_here = next((c for c in crops if c.get("x") == px and c.get("y") == py), None)
+                if crop_here and crop_here.get("isReadyForHarvest"):
+                    self.crops_harvested_count += 1
+                elif crop_here and not crop_here.get("isWatered", True) and "Watering" in tool:
+                    self.crops_watered_count += 1
         self._record_session_event("action", {
             "action_type": action.action_type,
             "params": action.params,
@@ -1346,6 +1385,15 @@ class StardewAgent:
             "vlm_parse_success": self.vlm_parse_success,
             "vlm_parse_fail": self.vlm_parse_fail,
             "vlm_errors": list(self.vlm_errors),
+            "session_started_at": self.session_started_at,
+            "think_count": self.think_count,
+            "action_count": self.action_count,
+            "action_fail_count": self.action_fail_count,
+            "action_type_counts": dict(self.action_type_counts),
+            "distance_traveled": self.distance_traveled,
+            "crops_watered_count": self.crops_watered_count,
+            "crops_harvested_count": self.crops_harvested_count,
+            "latency_history": list(self.latency_history),
         }
         if result:
             payload.update({
@@ -1388,6 +1436,7 @@ class StardewAgent:
         self.running = True
         self.goal = goal
         self.vlm_status = "Idle"
+        self.session_started_at = datetime.now().isoformat(timespec="seconds")
 
         logging.info("=" * 60)
         logging.info("StardewAI Unified Agent Starting")
@@ -1551,6 +1600,10 @@ class StardewAgent:
             # Think! (unified perception + planning)
             logging.info("🧠 Thinking...")
             result = self.vlm.think(img, self.goal, spatial_context=spatial_context, memory_context=memory_context, action_context=action_context)
+            self.think_count += 1
+            if result.latency_ms:
+                self.latency_history.append(result.latency_ms)
+                self.latency_history = self.latency_history[-60:]
             self._track_vlm_parse(result)
 
             # Override VLM's tool perception with actual game state (VLM often hallucinates tools)
