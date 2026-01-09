@@ -1,7 +1,7 @@
 # Next Session - StardewAI
 
 **Last Updated:** 2026-01-09 Session 21 by Claude
-**Status:** Skill Integration Phase 3 In Progress
+**Status:** Ready for harvest testing
 
 ---
 
@@ -14,6 +14,8 @@
 | Skill Integration | ✅ Skills now load in agent, context injected to VLM |
 | Slot 5 Seeds Bug | ✅ Fixed hardcoded "Slot 5: PARSNIP SEEDS" in system prompt |
 | Loader Fixes | ✅ Added `time_management` category, composite skill validation |
+| SMAPI Harvest Fix | ✅ Fixed `isReadyForHarvest` detection (use currentPhase) |
+| Skill Status UI | ✅ Codex added skills count to dashboard |
 
 ### KEY CHANGES
 
@@ -33,6 +35,33 @@
 - Added `time_management` to ALLOWED_CATEGORIES
 - Composite skills (with `steps`) now validate correctly
 - 45/55 skills load (pure evaluation skills excluded - no actions)
+
+**SMAPI Mod Fix:**
+- `isReadyForHarvest` now uses `crop.currentPhase.Value >= crop.phaseDays.Count - 1`
+- Previously used `crop.fullyGrown.Value` which was unreliable
+- Mod rebuilt and deployed to game mods folder
+
+### Game State (Day 8)
+- Day 8, crops should now show `isReadyForHarvest: true`
+- 4 parsnips visually ready (large sprites)
+- 3 more parsnips 1 day from ready
+
+---
+
+## Next Steps (Priority Order)
+
+### HIGH - Test Harvest
+1. **Reload game** - SMAPI mod has been rebuilt
+2. **Test harvest detection** - Check `/state` shows `isReadyForHarvest: true`
+3. **Run agent with harvest goal** - Verify VLM uses `interact` for ready crops
+
+### MEDIUM - VLM Focus Issues
+4. **Improve goal adherence** - VLM gets distracted by tile hints, ignores goal
+5. **Consider priority in prompts** - GOAL first, then tile hints
+
+### LOW - Future Enhancements
+6. **Skill-based actions** - VLM outputs skill names instead of raw actions
+7. **More skill definitions** - Mining, fishing, social
 
 ---
 
