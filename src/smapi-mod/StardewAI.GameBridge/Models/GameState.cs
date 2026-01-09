@@ -7,6 +7,7 @@ public class GameState
     public PlayerState Player { get; set; }
     public TimeState Time { get; set; }
     public LocationState Location { get; set; }
+    public Dictionary<string, LandmarkInfo> Landmarks { get; set; } = new();
     public List<InventoryItem> Inventory { get; set; } = new();
 }
 
@@ -18,7 +19,8 @@ public class PlayerState
     public int TileY { get; set; }
     public int PixelX { get; set; }
     public int PixelY { get; set; }
-    public int FacingDirection { get; set; } // 0=up, 1=right, 2=down, 3=left
+    public int FacingDirection { get; set; } // 0=north, 1=east, 2=south, 3=west
+    public string Facing { get; set; } // Cardinal direction: "north", "east", "south", "west"
     public int Energy { get; set; }
     public int MaxEnergy { get; set; }
     public int Health { get; set; }
@@ -121,6 +123,13 @@ public class WaterSourceInfo
     public int Y { get; set; }
     public int Distance { get; set; }      // Manhattan distance from player
     public string Direction { get; set; }  // General direction: "north", "south", "east", "west", "here"
+}
+
+/// <summary>Landmark relative info</summary>
+public class LandmarkInfo
+{
+    public int Distance { get; set; }
+    public string Direction { get; set; }  // "north", "south", "east", "west", "northeast", etc.
 }
 
 /// <summary>What's on the player's current tile</summary>

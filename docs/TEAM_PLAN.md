@@ -54,13 +54,16 @@
 | use_tool (axe) | Partial | Needs test |
 | use_tool (pickaxe) | Partial | Needs test |
 | use_tool (scythe) | Partial | Needs test |
-| use_tool (seeds/planting) | No | **Fix ready, test next** |
+| use_tool (seeds/planting) | Yes | Working |
 | use_tool (fishing rod) | No | Future |
 | select_slot (0-11) | Yes | Working |
+| harvest | Yes | Working (Session 25) |
+| ship | Yes | Working (Session 26) |
+| eat | Yes | Working (Session 26) |
+| buy | Yes | Working (Session 26) |
 | interact (NPCs) | No | Future |
 | interact (chests) | No | Future |
-| interact (shipping bin) | No | Future |
-| warp (locations) | Partial | Debug command |
+| warp (locations) | Yes | Working |
 
 ### Locations - Must Navigate All
 | Location | Can Enter | Can Navigate | Can Exit |
@@ -68,7 +71,7 @@
 | FarmHouse | Yes | Yes | Yes |
 | Farm | Yes | Yes | Yes |
 | Town | Partial | Needs test | Needs test |
-| Pierre's Shop | No | No | No |
+| Pierre's Shop (SeedShop) | Yes | Yes | Yes |
 | Beach | No | No | No |
 | Forest | No | No | No |
 | Mountain | No | No | No |
@@ -78,11 +81,12 @@
 ### Game Cycles - Must Complete
 | Cycle | Status | Notes |
 |-------|--------|-------|
-| Till → Plant → Water | Partial | Planting fix pending |
+| Till → Plant → Water | **Yes** | Working (Session 17+) |
 | Water daily | Partial | Needs multi-day test |
 | Refill watering can | Ready | Water detection added |
-| Harvest crops | No | Not implemented |
-| Sell at shipping bin | No | Shipping bin location ready |
+| Harvest crops | **Yes** | Working (Session 25) |
+| Sell at shipping bin | **Yes** | ship action (Session 26) |
+| Buy seeds at shop | **Yes** | buy action (Session 26) |
 | Forage items | No | Forageable detection added |
 | Talk to NPCs | No | Future |
 | Give gifts | No | Future |
@@ -189,6 +193,8 @@
 See `docs/CODEX_TASKS.md` for current assignments.
 
 **Potential Future Tasks:**
+- Landmark-relative directions (e.g., "southeast of farmhouse", "near bus stop")
+- **Agent Commentary System** - Real-time narration of what Rusty is doing/thinking (Tim wants to discuss)
 - Location minimap showing player position
 - NPC relationship tracker
 - Seasonal calendar with events

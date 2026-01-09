@@ -57,6 +57,10 @@ public class ActionExecutor
                 "select_slot" => SelectSlot(command.Slot),
                 "interact" => Interact(command.Target),
                 "interact_facing" => InteractFacing(),
+                "harvest" => Harvest(command.Direction),
+                "ship" => ShipItem(command.Slot),
+                "eat" => EatItem(command.Slot),
+                "buy" => BuyItem(command.Item, command.Quantity),
                 "wait" => Wait(command.Ticks),
                 "face" => Face(command.Direction),
                 "toggle_menu" => ToggleMenu(),
@@ -319,11 +323,8 @@ public class ActionExecutor
 
             if (success)
             {
-                // Remove from inventory if placed
-                if (activeObject.Stack <= 1)
-                    player.removeItemFromInventory(activeObject);
-                else
-                    activeObject.Stack--;
+                // Note: Utility.tryToPlaceItem handles item consumption internally
+                // Do NOT manually decrement stack - that causes double consumption!
 
                 return new ActionResult
                 {
@@ -451,6 +452,385 @@ public class ActionExecutor
         {
             Success = true,
             Message = "Interacted with facing tile",
+            State = ActionState.Complete
+        };
+    }
+
+    private ActionResult Harvest(string direction)
+    {
+        var player = Game1.player;
+        var location = Game1.currentLocation;
+
+        // Set facing direction if specified
+        if (!string.IsNullOrEmpty(direction))
+        {
+            int facing = TilePathfinder.DirectionToFacing(direction);
+            if (facing >= 0) player.FacingDirection = facing;
+        }
+
+        // Calculate the tile we're facing (GetGrabTile was returning player's own tile)
+        var playerTile = player.TilePoint;
+        var delta = GetDirectionDelta(player.FacingDirection);
+        int tileX = playerTile.X + delta.X;
+        int tileY = playerTile.Y + delta.Y;
+        var facingTile = new Microsoft.Xna.Framework.Vector2(tileX, tileY);
+
+        // DEBUG: Log what we're checking
+        string facingCardinal = TilePathfinder.FacingToCardinal(player.FacingDirection);
+        _monitor.Log($"Harvest: Player at ({playerTile.X}, {playerTile.Y}) facing {facingCardinal}", LogLevel.Debug);
+        _monitor.Log($"Harvest: Facing tile = ({tileX}, {tileY})", LogLevel.Debug);
+
+        // DEBUG: Check what terrain features exist nearby
+        foreach (var kvp in location.terrainFeatures.Pairs)
+        {
+            var dist = Math.Abs(kvp.Key.X - player.TilePoint.X) + Math.Abs(kvp.Key.Y - player.TilePoint.Y);
+            if (dist <= 2)
+            {
+                _monitor.Log($"Harvest: TerrainFeature at ({kvp.Key.X}, {kvp.Key.Y}): {kvp.Value.GetType().Name}", LogLevel.Debug);
+            }
+        }
+
+        // Check if there's a HoeDirt with a harvestable crop at that tile
+        if (location.terrainFeatures.TryGetValue(facingTile, out var feature) &&
+            feature is StardewValley.TerrainFeatures.HoeDirt hoeDirt)
+        {
+            var crop = hoeDirt.crop;
+            if (crop != null && crop.currentPhase.Value >= crop.phaseDays.Count - 1)
+            {
+                // Crop is ready - trigger harvest via performUseAction
+                bool harvested = hoeDirt.performUseAction(facingTile);
+
+                if (harvested)
+                {
+                    return new ActionResult
+                    {
+                        Success = true,
+                        Message = $"Harvested crop at ({tileX}, {tileY})",
+                        State = ActionState.Complete
+                    };
+                }
+                else
+                {
+                    // Try alternate harvest method - direct crop harvest
+                    bool altHarvest = crop.harvest(tileX, tileY, hoeDirt);
+                    return new ActionResult
+                    {
+                        Success = altHarvest,
+                        Message = altHarvest ? $"Harvested crop at ({tileX}, {tileY})" : "Harvest failed",
+                        State = altHarvest ? ActionState.Complete : ActionState.Failed
+                    };
+                }
+            }
+            else
+            {
+                return new ActionResult
+                {
+                    Success = false,
+                    Error = crop == null ? "No crop at this tile" : "Crop not ready for harvest",
+                    State = ActionState.Failed
+                };
+            }
+        }
+        else
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No farmable soil at this tile",
+                State = ActionState.Failed
+            };
+        }
+    }
+
+    private ActionResult ShipItem(int slot)
+    {
+        var player = Game1.player;
+        var farm = Game1.getFarm();
+
+        if (farm == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "Not on farm - cannot access shipping bin",
+                State = ActionState.Failed
+            };
+        }
+
+        // Get item from specified slot (or current slot if -1)
+        int targetSlot = slot >= 0 ? slot : player.CurrentToolIndex;
+
+        if (targetSlot < 0 || targetSlot >= player.Items.Count)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Invalid slot {targetSlot}",
+                State = ActionState.Failed
+            };
+        }
+
+        var item = player.Items[targetSlot];
+
+        if (item == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"No item in slot {targetSlot}",
+                State = ActionState.Failed
+            };
+        }
+
+        // Check if item can be shipped (must be an Object, not a tool)
+        if (item is not StardewValley.Object obj)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"{item.Name} cannot be shipped",
+                State = ActionState.Failed
+            };
+        }
+
+        string itemName = item.Name;
+        int quantity = item.Stack;
+
+        // Add to shipping bin
+        farm.getShippingBin(player).Add(obj);
+
+        // Remove from inventory
+        player.Items[targetSlot] = null;
+
+        _monitor.Log($"Shipped {quantity}x {itemName}", LogLevel.Info);
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Shipped {quantity}x {itemName}",
+            State = ActionState.Complete
+        };
+    }
+
+    private ActionResult EatItem(int slot)
+    {
+        var player = Game1.player;
+
+        // Get item from specified slot (or current slot if -1)
+        int targetSlot = slot >= 0 ? slot : player.CurrentToolIndex;
+
+        if (targetSlot < 0 || targetSlot >= player.Items.Count)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Invalid slot {targetSlot}",
+                State = ActionState.Failed
+            };
+        }
+
+        var item = player.Items[targetSlot];
+
+        if (item == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"No item in slot {targetSlot}",
+                State = ActionState.Failed
+            };
+        }
+
+        // Check if item is edible (must be an Object with edibility > 0)
+        if (item is not StardewValley.Object obj || obj.Edibility <= 0)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"{item.Name} is not edible",
+                State = ActionState.Failed
+            };
+        }
+
+        string itemName = item.Name;
+        int energyRestored = obj.Edibility;
+        int healthRestored = (int)(obj.Edibility * 0.45f);
+
+        // Consume the item
+        player.eatObject(obj, false);
+
+        // Reduce stack or remove
+        if (item.Stack > 1)
+        {
+            item.Stack--;
+        }
+        else
+        {
+            player.Items[targetSlot] = null;
+        }
+
+        _monitor.Log($"Ate {itemName}: +{energyRestored} energy, +{healthRestored} health", LogLevel.Info);
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Ate {itemName}: +{energyRestored} energy",
+            State = ActionState.Complete
+        };
+    }
+
+    // Shop catalogs: maps item name (lowercase) to (itemId, price)
+    private static readonly Dictionary<string, Dictionary<string, (string Id, int Price)>> ShopCatalogs = new()
+    {
+        ["SeedShop"] = new() // Pierre's General Store
+        {
+            ["parsnip seeds"] = ("(O)472", 20),
+            ["bean starter"] = ("(O)473", 60),
+            ["cauliflower seeds"] = ("(O)474", 80),
+            ["potato seeds"] = ("(O)475", 50),
+            ["tulip bulb"] = ("(O)427", 20),
+            ["kale seeds"] = ("(O)477", 70),
+            ["jazz seeds"] = ("(O)429", 30),
+            ["garlic seeds"] = ("(O)476", 40),
+            ["rice shoot"] = ("(O)273", 40),
+            // Summer
+            ["melon seeds"] = ("(O)479", 80),
+            ["tomato seeds"] = ("(O)480", 50),
+            ["blueberry seeds"] = ("(O)481", 80),
+            ["pepper seeds"] = ("(O)482", 40),
+            ["wheat seeds"] = ("(O)483", 10),
+            ["radish seeds"] = ("(O)484", 40),
+            ["red cabbage seeds"] = ("(O)485", 100),
+            ["starfruit seeds"] = ("(O)486", 400),
+            ["corn seeds"] = ("(O)487", 150),
+            ["sunflower seeds"] = ("(O)431", 200),
+            ["poppy seeds"] = ("(O)453", 100),
+            // Fall
+            ["eggplant seeds"] = ("(O)488", 20),
+            ["pumpkin seeds"] = ("(O)490", 100),
+            ["bok choy seeds"] = ("(O)491", 50),
+            ["yam seeds"] = ("(O)492", 60),
+            ["cranberry seeds"] = ("(O)493", 240),
+            ["beet seeds"] = ("(O)494", 20),
+            ["fairy seeds"] = ("(O)425", 200),
+            ["amaranth seeds"] = ("(O)299", 70),
+            ["grape starter"] = ("(O)301", 60),
+            ["artichoke seeds"] = ("(O)489", 30),
+            // Basic supplies
+            ["grass starter"] = ("(O)297", 100),
+            ["sugar"] = ("(O)245", 100),
+            ["wheat flour"] = ("(O)246", 100),
+            ["oil"] = ("(O)247", 200),
+            ["vinegar"] = ("(O)419", 200),
+        },
+        ["AnimalShop"] = new() // Marnie's Ranch
+        {
+            ["hay"] = ("(O)178", 50),
+            ["heater"] = ("(BC)104", 2000),
+        },
+        ["FishShop"] = new() // Willy's
+        {
+            ["trout soup"] = ("(O)219", 250),
+            ["bait"] = ("(O)685", 5),
+        },
+    };
+
+    // Shops valid for purchasing (location name -> shop name)
+    private static readonly Dictionary<string, string> LocationToShop = new()
+    {
+        ["SeedShop"] = "SeedShop",
+        ["AnimalShop"] = "AnimalShop",
+        ["FishShop"] = "FishShop",
+    };
+
+    private ActionResult BuyItem(string itemName, int quantity)
+    {
+        var player = Game1.player;
+        var locationName = player.currentLocation?.Name;
+
+        // Check if in a valid shop location
+        if (string.IsNullOrEmpty(locationName) || !LocationToShop.TryGetValue(locationName, out var shopName))
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Not in a shop (current: {locationName ?? "unknown"}). Valid shops: SeedShop (Pierre's), AnimalShop (Marnie's), FishShop (Willy's)",
+                State = ActionState.Failed
+            };
+        }
+
+        // Get shop catalog
+        if (!ShopCatalogs.TryGetValue(shopName, out var catalog))
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Shop {shopName} has no catalog",
+                State = ActionState.Failed
+            };
+        }
+
+        // Look up item (case-insensitive)
+        var searchKey = itemName?.ToLower().Trim() ?? "";
+        if (!catalog.TryGetValue(searchKey, out var itemInfo))
+        {
+            var available = string.Join(", ", catalog.Keys.Take(5)) + (catalog.Count > 5 ? "..." : "");
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"'{itemName}' not found at {shopName}. Available: {available}",
+                State = ActionState.Failed
+            };
+        }
+
+        // Calculate total cost
+        int qty = Math.Max(1, quantity);
+        int totalCost = itemInfo.Price * qty;
+
+        // Check if player has enough money
+        if (player.Money < totalCost)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Not enough gold. Need {totalCost}g for {qty}x {itemName}, have {player.Money}g",
+                State = ActionState.Failed
+            };
+        }
+
+        // Create the item
+        var newItem = ItemRegistry.Create(itemInfo.Id, qty);
+        if (newItem == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Failed to create item {itemInfo.Id}",
+                State = ActionState.Failed
+            };
+        }
+
+        // Add to inventory
+        bool added = player.addItemToInventoryBool(newItem);
+        if (!added)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "Inventory full - cannot add item",
+                State = ActionState.Failed
+            };
+        }
+
+        // Deduct money
+        player.Money -= totalCost;
+
+        _monitor.Log($"Bought {qty}x {newItem.DisplayName} for {totalCost}g", LogLevel.Info);
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Bought {qty}x {newItem.DisplayName} for {totalCost}g (balance: {player.Money}g)",
             State = ActionState.Complete
         };
     }

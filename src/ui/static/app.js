@@ -260,6 +260,14 @@ function updateStatus(status) {
   const navBlocked = document.getElementById("navBlocked");
   const navAttempts = document.getElementById("navAttempts");
   const skillStatusCount = document.getElementById("skillStatusCount");
+  const skillHistoryTotal = document.getElementById("skillHistoryTotal");
+  const skillHistorySuccess = document.getElementById("skillHistorySuccess");
+  const skillUsageBars = document.getElementById("skillUsageBars");
+  const skillFailureList = document.getElementById("skillFailureList");
+  const commentaryText = document.getElementById("commentaryText");
+  const commentaryPersonality = document.getElementById("commentaryPersonality");
+  const commentaryTts = document.getElementById("commentaryTts");
+  const commentaryVolume = document.getElementById("commentaryVolume");
   const sessionUptime = document.getElementById("sessionUptime");
   const sessionThinks = document.getElementById("sessionThinks");
   const sessionActions = document.getElementById("sessionActions");
@@ -293,6 +301,8 @@ function updateStatus(status) {
   const waterSourceNote = document.getElementById("waterSourceNote");
   const shippingStatus = document.getElementById("shippingStatus");
   const shippingNote = document.getElementById("shippingNote");
+  const shippingList = document.getElementById("shippingList");
+  const shippingTotal = document.getElementById("shippingTotal");
   const cropProgress = document.getElementById("cropProgress");
   const cropCountdown = document.getElementById("cropCountdown");
   const currentInstruction = document.getElementById("currentInstruction");
@@ -387,6 +397,18 @@ function updateStatus(status) {
     });
   }
   if (vlmStatus) vlmStatus.textContent = status.vlm_status || "Idle";
+  if (commentaryText && status.commentary_text !== undefined) {
+    commentaryText.textContent = status.commentary_text || "Waiting for commentary...";
+  }
+  if (commentaryPersonality && status.commentary_personality) {
+    commentaryPersonality.value = status.commentary_personality;
+  }
+  if (commentaryTts && status.commentary_tts_enabled !== undefined) {
+    commentaryTts.checked = Boolean(status.commentary_tts_enabled);
+  }
+  if (commentaryVolume && status.commentary_volume !== undefined) {
+    commentaryVolume.value = status.commentary_volume;
+  }
   if (vlmPerception) {
     const location = status.location || "-";
     const time = status.time_of_day || "-";
@@ -499,6 +521,10 @@ function init() {
   const ttsToggle = document.getElementById("ttsToggle");
   const ttsVoice = document.getElementById("ttsVoice");
   const ttsTest = document.getElementById("ttsTest");
+  const commentaryText = document.getElementById("commentaryText");
+  const commentaryPersonality = document.getElementById("commentaryPersonality");
+  const commentaryTts = document.getElementById("commentaryTts");
+  const commentaryVolume = document.getElementById("commentaryVolume");
   const pendingBannerApprove = document.getElementById("pendingBannerApprove");
   const pendingBannerDeny = document.getElementById("pendingBannerDeny");
   const quickMode = document.getElementById("quickMode");
@@ -514,6 +540,7 @@ function init() {
   let currentStatus = {};
   let latestState = null;
   let latestPlayer = null;
+  const defaultPersonalities = ["sarcastic", "enthusiastic", "grumpy", "zen"];
 
   const updateMovementHistory = (events, actionEvents) => {
     if (!movementList || !movementStuck || !movementTrail) return;
@@ -755,6 +782,41 @@ function init() {
     shippingNote.textContent = "Ready to sell";
   };
 
+  const updateShippingHistory = (items, gameDay) => {
+    if (!shippingList || !shippingTotal) return;
+    shippingList.innerHTML = "";
+    if (!Array.isArray(items) || items.length === 0) {
+      const li = document.createElement("li");
+      li.textContent = "None";
+      shippingList.append(li);
+      shippingTotal.textContent = "0g";
+      return;
+    }
+    const filtered = gameDay ? items.filter((item) => Number(item.game_day) === Number(gameDay)) : items;
+    if (!filtered.length) {
+      const li = document.createElement("li");
+      li.textContent = "None";
+      shippingList.append(li);
+      shippingTotal.textContent = "0g";
+      return;
+    }
+    let total = 0;
+    filtered.slice(0, 10).forEach((item) => {
+      const li = document.createElement("li");
+      const quantity = Number(item.quantity ?? 1);
+      const value = Number(item.value ?? 0);
+      total += value;
+      li.textContent = `${item.item_name} x${quantity} (${value}g)`;
+      shippingList.append(li);
+    });
+    if (filtered.length > 10) {
+      const li = document.createElement("li");
+      li.textContent = `...and ${filtered.length - 10} more`;
+      shippingList.append(li);
+    }
+    shippingTotal.textContent = `${total}g`;
+  };
+
   const updateCropProgress = (crops) => {
     if (!cropProgress) return;
     cropProgress.innerHTML = "";
@@ -872,6 +934,109 @@ function init() {
       const mark = task.status === "done" ? "[x]" : "[ ]";
       li.textContent = `${mark} ${task.title}`;
       goalProgressList.append(li);
+    });
+  };
+
+  const updateSkillHistory = (history) => {
+    if (!skillFailureList) return;
+    skillFailureList.innerHTML = "";
+    if (!Array.isArray(history) || history.length === 0) {
+      const li = document.createElement("li");
+      li.textContent = "None";
+      skillFailureList.append(li);
+      return;
+    }
+    const failures = history.filter((entry) => !entry.success);
+    if (!failures.length) {
+      const li = document.createElement("li");
+      li.textContent = "None";
+      skillFailureList.append(li);
+      return;
+    }
+    failures.slice(0, 5).forEach((entry) => {
+      const li = document.createElement("li");
+      const reason = entry.failure_reason ? ` - ${entry.failure_reason}` : " - failed";
+      li.textContent = `${entry.skill_name}${reason}`;
+      skillFailureList.append(li);
+    });
+  };
+
+  const updateSkillStats = (stats) => {
+    if (!skillUsageBars || !skillHistoryTotal || !skillHistorySuccess) return;
+    skillUsageBars.innerHTML = "";
+    if (!Array.isArray(stats) || stats.length === 0) {
+      skillHistoryTotal.textContent = "0 runs";
+      skillHistorySuccess.textContent = "0% success";
+      const empty = document.createElement("div");
+      empty.className = "skill-bar empty";
+      empty.textContent = "No data yet";
+      skillUsageBars.append(empty);
+      return;
+    }
+    const totals = stats.reduce(
+      (acc, entry) => {
+        acc.total += Number(entry.total || 0);
+        acc.success += Number(entry.success_count || 0);
+        return acc;
+      },
+      { total: 0, success: 0 },
+    );
+    const overallRate = totals.total ? Math.round((totals.success / totals.total) * 100) : 0;
+    skillHistoryTotal.textContent = `${totals.total} runs`;
+    skillHistorySuccess.textContent = `${overallRate}% success`;
+
+    const maxTotal = Math.max(...stats.map((entry) => Number(entry.total || 0)), 1);
+    stats.slice(0, 6).forEach((entry) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "skill-bar";
+      const label = document.createElement("div");
+      label.className = "skill-bar__label";
+      label.textContent = entry.skill_name;
+      const track = document.createElement("div");
+      track.className = "skill-bar__track";
+      const fill = document.createElement("div");
+      fill.className = "skill-bar__fill";
+      const rate = Number(entry.success_rate || 0);
+      if (rate < 50) {
+        fill.classList.add("danger");
+      } else if (rate < 80) {
+        fill.classList.add("warn");
+      }
+      fill.style.width = `${Math.round((Number(entry.total || 0) / maxTotal) * 100)}%`;
+      track.append(fill);
+      const meta = document.createElement("div");
+      meta.className = "skill-bar__meta";
+      meta.textContent = `${entry.total} uses · ${rate}% success`;
+      wrapper.append(label, track, meta);
+      skillUsageBars.append(wrapper);
+    });
+  };
+
+  const updateCommentary = (payload) => {
+    if (!payload) return;
+    if (commentaryText && payload.text !== undefined) {
+      commentaryText.textContent = payload.text || "Waiting for commentary...";
+    }
+    if (commentaryPersonality && payload.personality) {
+      commentaryPersonality.value = payload.personality;
+    }
+    if (commentaryTts && payload.tts_enabled !== undefined) {
+      commentaryTts.checked = Boolean(payload.tts_enabled);
+    }
+    if (commentaryVolume && payload.volume !== undefined) {
+      commentaryVolume.value = payload.volume;
+    }
+  };
+
+  const updateCommentaryVoices = (voices) => {
+    if (!commentaryPersonality) return;
+    commentaryPersonality.innerHTML = "";
+    const list = Array.isArray(voices) && voices.length ? voices : defaultPersonalities;
+    list.forEach((voice) => {
+      const option = document.createElement("option");
+      option.value = voice;
+      option.textContent = voice;
+      commentaryPersonality.append(option);
     });
   };
 
@@ -1315,6 +1480,24 @@ function init() {
     });
   }
 
+  if (commentaryPersonality) {
+    commentaryPersonality.addEventListener("change", () => {
+      postJSON("/api/commentary/personality", { personality: commentaryPersonality.value });
+    });
+  }
+
+  if (commentaryTts) {
+    commentaryTts.addEventListener("change", () => {
+      postJSON("/api/commentary", { tts_enabled: commentaryTts.checked });
+    });
+  }
+
+  if (commentaryVolume) {
+    commentaryVolume.addEventListener("input", () => {
+      postJSON("/api/commentary", { volume: Number(commentaryVolume.value) });
+    });
+  }
+
   if (pendingBannerApprove) {
     pendingBannerApprove.addEventListener("click", () => {
       postJSON("/api/confirm", {});
@@ -1476,6 +1659,8 @@ function init() {
       }
     } else if (data.type === "team_message_created") {
       appendTeamMessage(data.payload);
+    } else if (data.type === "commentary_updated") {
+      updateCommentary(data.payload);
     }
   };
 
@@ -1543,6 +1728,22 @@ function init() {
       })
       .catch(() => {});
 
+    fetch("/api/skill-history?limit=20")
+      .then((res) => res.json())
+      .then((history) => {
+        if (!Array.isArray(history)) return;
+        updateSkillHistory(history);
+      })
+      .catch(() => {});
+
+    fetch("/api/skill-stats?limit=10")
+      .then((res) => res.json())
+      .then((stats) => {
+        if (!Array.isArray(stats)) return;
+        updateSkillStats(stats);
+      })
+      .catch(() => {});
+
     const smapiBase = `${window.location.protocol}//${window.location.hostname}:8790`;
     fetch(`${smapiBase}/surroundings`)
       .then((res) => res.json())
@@ -1584,6 +1785,20 @@ function init() {
         updateStamina(latestPlayer);
         updateBedtime(latestState?.time, latestPlayer);
         updateDaySeason(latestState?.time);
+        const gameDay = latestState?.time?.day ?? latestState?.time?.Day ?? null;
+        if (shippingList && shippingTotal) {
+          const params = new URLSearchParams();
+          if (gameDay) params.set("game_day", gameDay);
+          fetch(`/api/shipping${params.toString() ? `?${params.toString()}` : ""}`)
+            .then((res) => res.json())
+            .then((items) => {
+              if (!Array.isArray(items)) return;
+              updateShippingHistory(items, gameDay);
+            })
+            .catch(() => {
+              updateShippingHistory(null, gameDay);
+            });
+        }
         if (locationDisplay) {
           locationDisplay.textContent = latestState?.location?.name || "Unknown";
         }
@@ -1614,6 +1829,7 @@ function init() {
         updateCropCountdown(null);
         updateBedtime(null, null);
         updateDaySeason(null);
+        updateShippingHistory(null, null);
         if (spatialMapGrid) spatialMapGrid.innerHTML = "";
         if (spatialMapNote) spatialMapNote.textContent = "Spatial map unavailable";
       });
@@ -1633,6 +1849,26 @@ function init() {
         fetchMemories(memorySearch.value.trim());
       }
     });
+  }
+
+  if (commentaryPersonality) {
+    fetch("/api/commentary/voices")
+      .then((res) => res.json())
+      .then((payload) => {
+        updateCommentaryVoices(payload.personalities || []);
+      })
+      .catch(() => {
+        updateCommentaryVoices(defaultPersonalities);
+      });
+  }
+
+  if (commentaryText) {
+    fetch("/api/commentary")
+      .then((res) => res.json())
+      .then((payload) => {
+        updateCommentary(payload);
+      })
+      .catch(() => {});
   }
 
   fetchMemories("");

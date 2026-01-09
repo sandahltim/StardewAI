@@ -1,5 +1,6 @@
 using Microsoft.Xna.Framework;
 using StardewAI.GameBridge.Models;
+using StardewAI.GameBridge.Pathfinding;
 using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Buildings;
@@ -32,6 +33,7 @@ public class GameStateReader
             Player = ReadPlayerState(),
             Time = ReadTimeState(),
             Location = ReadLocationState(),
+            Landmarks = ReadLandmarks(),
             Inventory = ReadInventory()
         };
     }
@@ -60,12 +62,14 @@ public class GameStateReader
         {
             Position = new TilePosition { X = start.X, Y = start.Y },
             CurrentTile = currentTile,
+            // Use cardinal directions (north/south/east/west) for clarity
+            // north = screen up, south = screen down, east = screen right, west = screen left
             Directions = new Dictionary<string, DirectionInfo>
             {
-                ["up"] = ScanDirection(location, start.X, start.Y, 0, -1, maxTiles, mapWidth, mapHeight),
-                ["down"] = ScanDirection(location, start.X, start.Y, 0, 1, maxTiles, mapWidth, mapHeight),
-                ["left"] = ScanDirection(location, start.X, start.Y, -1, 0, maxTiles, mapWidth, mapHeight),
-                ["right"] = ScanDirection(location, start.X, start.Y, 1, 0, maxTiles, mapWidth, mapHeight)
+                ["north"] = ScanDirection(location, start.X, start.Y, 0, -1, maxTiles, mapWidth, mapHeight),
+                ["south"] = ScanDirection(location, start.X, start.Y, 0, 1, maxTiles, mapWidth, mapHeight),
+                ["west"] = ScanDirection(location, start.X, start.Y, -1, 0, maxTiles, mapWidth, mapHeight),
+                ["east"] = ScanDirection(location, start.X, start.Y, 1, 0, maxTiles, mapWidth, mapHeight)
             },
             NearestWater = FindNearestWater(location, start.X, start.Y, 25)
         };
@@ -291,6 +295,7 @@ public class GameStateReader
             PixelX = (int)player.Position.X,
             PixelY = (int)player.Position.Y,
             FacingDirection = player.FacingDirection,
+            Facing = TilePathfinder.FacingToCardinal(player.FacingDirection),
             Energy = (int)player.Stamina,
             MaxEnergy = player.MaxStamina,
             Health = player.health,
@@ -464,6 +469,65 @@ public class GameStateReader
         }
 
         return state;
+    }
+
+    private Dictionary<string, LandmarkInfo> ReadLandmarks()
+    {
+        var landmarks = new Dictionary<string, LandmarkInfo>();
+        var player = Game1.player;
+        var location = player.currentLocation;
+        if (location == null) return landmarks;
+
+        var playerX = player.TilePoint.X;
+        var playerY = player.TilePoint.Y;
+
+        if (location is StardewValley.Farm)
+        {
+            var farmhouse = BuildLandmarkInfo(64, 15, playerX, playerY);
+            if (farmhouse != null)
+                landmarks["farmhouse"] = farmhouse;
+
+            var shippingBin = BuildLandmarkInfo(71, 14, playerX, playerY);
+            if (shippingBin != null)
+                landmarks["shipping_bin"] = shippingBin;
+        }
+
+        var nearestWater = FindNearestWater(location, playerX, playerY, 25);
+        if (nearestWater != null)
+        {
+            landmarks["water"] = new LandmarkInfo
+            {
+                Distance = nearestWater.Distance,
+                Direction = nearestWater.Direction
+            };
+        }
+
+        return landmarks;
+    }
+
+    private LandmarkInfo BuildLandmarkInfo(int targetX, int targetY, int playerX, int playerY)
+    {
+        int dx = targetX - playerX;
+        int dy = targetY - playerY;
+        int distance = Math.Abs(dx) + Math.Abs(dy);
+
+        string direction;
+        if (dx == 0 && dy == 0)
+        {
+            direction = "here";
+        }
+        else
+        {
+            string northSouth = dy < 0 ? "north" : dy > 0 ? "south" : "";
+            string eastWest = dx < 0 ? "west" : dx > 0 ? "east" : "";
+            direction = $"{northSouth}{eastWest}";
+        }
+
+        return new LandmarkInfo
+        {
+            Distance = distance,
+            Direction = direction
+        };
     }
 
     private string GetCropName(Crop crop)

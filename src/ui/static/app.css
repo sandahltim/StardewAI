@@ -569,6 +569,30 @@ h2 {
   color: #b91c1c;
 }
 
+.shipping-history {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.shipping-history__header {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.shipping-total {
+  color: #1f2937;
+}
+
+.shipping-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
 .crop-list {
   margin: 0;
   padding-left: 18px;
@@ -813,6 +837,113 @@ h2 {
 .skill-status__count {
   font-weight: 600;
   color: #1f2937;
+}
+
+.skill-history-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf8;
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.skill-history__summary {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.skill-history__bars {
+  display: grid;
+  gap: 6px;
+}
+
+.skill-bar {
+  display: grid;
+  gap: 4px;
+}
+
+.skill-bar__label {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.skill-bar__track {
+  height: 8px;
+  background: #f1f5f9;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.skill-bar__fill {
+  height: 100%;
+  background: #10b981;
+  width: 0%;
+}
+
+.skill-bar__fill.warn {
+  background: #f59e0b;
+}
+
+.skill-bar__fill.danger {
+  background: #ef4444;
+}
+
+.skill-bar__meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.skill-bar.empty {
+  color: var(--muted);
+}
+
+.skill-history__failures {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.skill-history-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.commentary-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf8;
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.commentary-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.commentary-controls {
+  display: grid;
+  gap: 6px;
+}
+
+.commentary-controls .input {
+  width: 100%;
+}
+
+.commentary-label {
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .location-display {

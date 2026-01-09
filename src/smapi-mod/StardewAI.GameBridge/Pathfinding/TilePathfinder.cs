@@ -134,15 +134,39 @@ public class TilePathfinder
     }
 
     /// <summary>Convert direction string to facing direction int</summary>
+    /// <remarks>
+    /// Accepts both screen-relative (up/down/left/right) and cardinal (north/south/east/west).
+    /// Cardinal is preferred for clarity:
+    ///   north=0 (screen up), east=1 (screen right), south=2 (screen down), west=3 (screen left)
+    /// </remarks>
     public static int DirectionToFacing(string direction)
     {
         return direction?.ToLower() switch
         {
+            // Cardinal directions (preferred - unambiguous)
+            "north" => 0,
+            "east" => 1,
+            "south" => 2,
+            "west" => 3,
+            // Screen-relative (legacy support)
             "up" => 0,
             "right" => 1,
             "down" => 2,
             "left" => 3,
             _ => -1
+        };
+    }
+
+    /// <summary>Convert facing direction int to cardinal direction string</summary>
+    public static string FacingToCardinal(int facing)
+    {
+        return facing switch
+        {
+            0 => "north",
+            1 => "east",
+            2 => "south",
+            3 => "west",
+            _ => "unknown"
         };
     }
 

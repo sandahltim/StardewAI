@@ -104,6 +104,34 @@
             Skills available: {{ status.available_skills_count or 0 }}
           </div>
         </div>
+        <div class="skill-history-card">
+          <div class="vlm-subhead">Skill History</div>
+          <div class="skill-history__summary">
+            <span id="skillHistoryTotal">0 runs</span>
+            <span id="skillHistorySuccess">0% success</span>
+          </div>
+          <div id="skillUsageBars" class="skill-history__bars">
+            <div class="skill-bar empty">No data yet</div>
+          </div>
+          <div class="skill-history__failures">
+            <div class="vlm-subhead">Recent Failures</div>
+            <ol id="skillFailureList" class="skill-history-list">
+              <li>None</li>
+            </ol>
+          </div>
+        </div>
+        <div class="commentary-card">
+          <div class="vlm-subhead">Rusty Commentary</div>
+          <p id="commentaryText" class="commentary-text">Waiting for commentary...</p>
+          <div class="commentary-controls">
+            <label class="commentary-label" for="commentaryPersonality">Personality</label>
+            <select id="commentaryPersonality" class="input"></select>
+            <label class="commentary-label" for="commentaryTts">TTS</label>
+            <input id="commentaryTts" type="checkbox" />
+            <label class="commentary-label" for="commentaryVolume">Volume</label>
+            <input id="commentaryVolume" type="range" min="0" max="100" value="70" />
+          </div>
+        </div>
         <div class="session-stats-card">
           <div class="vlm-subhead">Session Stats</div>
           <div class="session-stats__row">
@@ -235,6 +263,15 @@
           <div class="vlm-subhead">Shipping Bin</div>
           <div id="shippingStatus" class="shipping-status">Waiting for state...</div>
           <p id="shippingNote" class="water-note">-</p>
+          <div class="shipping-history">
+            <div class="shipping-history__header">
+              <span>Today's Shipped</span>
+              <span id="shippingTotal" class="shipping-total">0g</span>
+            </div>
+            <ol id="shippingList" class="shipping-list">
+              <li>None</li>
+            </ol>
+          </div>
         </div>
         <div class="crop-card">
           <div class="vlm-subhead">Crop Growth</div>

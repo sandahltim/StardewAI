@@ -72,6 +72,29 @@ class UIClient:
         payload = {"event_type": event_type, "data": data or {}}
         return self._post("/api/session-memory", payload)
 
+    def get_commentary(self) -> Dict[str, Any]:
+        response = self.client.get(f"{self.base_url}/api/commentary")
+        response.raise_for_status()
+        return response.json()
+
+    def update_commentary(
+        self,
+        text: Optional[str] = None,
+        personality: Optional[str] = None,
+        tts_enabled: Optional[bool] = None,
+        volume: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        if text is not None:
+            payload["text"] = text
+        if personality is not None:
+            payload["personality"] = personality
+        if tts_enabled is not None:
+            payload["tts_enabled"] = tts_enabled
+        if volume is not None:
+            payload["volume"] = volume
+        return self._post("/api/commentary", payload)
+
     def _post(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         response = self.client.post(f"{self.base_url}{path}", json=payload)
         response.raise_for_status()

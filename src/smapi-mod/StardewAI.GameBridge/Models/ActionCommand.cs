@@ -12,6 +12,8 @@ public class ActionCommand
     public int Slot { get; set; }
     public int Ticks { get; set; }
     public string Location { get; set; }  // For warp_location action
+    public string Item { get; set; }      // For buy action - item name or ID
+    public int Quantity { get; set; } = 1; // For buy action - how many to buy
 }
 
 /// <summary>Target tile coordinates</summary>

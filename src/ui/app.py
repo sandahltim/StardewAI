@@ -24,7 +24,10 @@ except ImportError:  # pragma: no cover - optional dependency
     chromadb = None
     Settings = None
 
-from . import storage
+try:
+    from . import storage
+except ImportError:
+    import storage
 
 AGENT_DIR = (Path(__file__).resolve().parent.parent / "python-agent").resolve()
 if AGENT_DIR.exists() and str(AGENT_DIR) not in sys.path:
@@ -45,8 +48,12 @@ CHROMA_COLLECTION = "rusty_memories"
 _chroma_collection = None
 TTS_OUTPUT_DIR = Path("/home/tim/StardewAI/logs/ui/tts")
 TTS_CACHE_DIR = TTS_OUTPUT_DIR / "cache"
-TTS_MODEL_DIR = Path("/home/tim/StardewAI/models/tts")
-DEFAULT_TTS_VOICE = "en_US-amy-medium"
+TTS_MODEL_DIRS = [
+    Path("/home/tim/StardewAI/models/tts"),
+    Path.home() / ".local/share/piper-voices",
+    Path("/usr/share/piper-voices"),
+]
+DEFAULT_TTS_VOICE = "en_US-lessac-medium"
 PIPER_CMD = os.environ.get("PIPER_CMD", "piper")
 APLAYER_CMD = os.environ.get("APLAYER_CMD", "aplay")
 
@@ -84,6 +91,32 @@ class TaskUpdate(BaseModel):
     status: Optional[str] = None
     priority: Optional[int] = None
     mode: Optional[str] = None
+
+
+class ShippingItemCreate(BaseModel):
+    item_name: str
+    quantity: int = 1
+    value: int = 0
+    shipped_at: Optional[str] = None
+    game_day: Optional[int] = None
+
+
+class SkillHistoryCreate(BaseModel):
+    skill_name: str
+    success: bool = True
+    failure_reason: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class CommentaryUpdate(BaseModel):
+    text: Optional[str] = None
+    personality: Optional[str] = None
+    tts_enabled: Optional[bool] = None
+    volume: Optional[int] = None
+
+
+class CommentaryPersonalityUpdate(BaseModel):
+    personality: str
 
 
 class StatusUpdate(BaseModel):
@@ -130,6 +163,10 @@ class StatusUpdate(BaseModel):
     navigation_target: Optional[str] = None
     navigation_blocked: Optional[str] = None
     navigation_attempts: Optional[int] = None
+    commentary_text: Optional[str] = None
+    commentary_personality: Optional[str] = None
+    commentary_tts_enabled: Optional[bool] = None
+    commentary_volume: Optional[int] = None
 
 
 class MessageStream(BaseModel):
@@ -243,6 +280,10 @@ def _default_status() -> Dict[str, Any]:
         "navigation_target": None,
         "navigation_blocked": None,
         "navigation_attempts": 0,
+        "commentary_text": "",
+        "commentary_personality": "enthusiastic",
+        "commentary_tts_enabled": False,
+        "commentary_volume": 70,
     }
 
 
@@ -272,12 +313,16 @@ def _write_status(update: Dict[str, Any], allow_none_keys: Optional[List[str]] =
 
 
 def _resolve_tts_model(voice: str) -> Dict[str, Optional[Path]]:
-    model_path = TTS_MODEL_DIR / f"{voice}.onnx"
-    config_path = TTS_MODEL_DIR / f"{voice}.onnx.json"
-    return {
-        "model": model_path if model_path.exists() else None,
-        "config": config_path if config_path.exists() else None,
-    }
+    """Find TTS model files across multiple directories."""
+    for model_dir in TTS_MODEL_DIRS:
+        model_path = model_dir / f"{voice}.onnx"
+        config_path = model_dir / f"{voice}.onnx.json"
+        if model_path.exists():
+            return {
+                "model": model_path,
+                "config": config_path if config_path.exists() else None,
+            }
+    return {"model": None, "config": None}
 
 
 def _query_game_knowledge(entity_type: str, name: str) -> Optional[Dict[str, Any]]:
@@ -472,6 +517,57 @@ async def update_status(payload: StatusUpdate) -> Dict[str, Any]:
     return status
 
 
+@app.get("/api/commentary")
+def get_commentary() -> Dict[str, Any]:
+    status = _read_status()
+    return {
+        "text": status.get("commentary_text", ""),
+        "personality": status.get("commentary_personality", "enthusiastic"),
+        "tts_enabled": status.get("commentary_tts_enabled", False),
+        "volume": status.get("commentary_volume", 70),
+    }
+
+
+@app.get("/api/commentary/voices")
+def get_commentary_voices() -> Dict[str, Any]:
+    return {"personalities": ["sarcastic", "enthusiastic", "grumpy", "zen"]}
+
+
+@app.post("/api/commentary")
+async def update_commentary(payload: CommentaryUpdate) -> Dict[str, Any]:
+    update: Dict[str, Any] = {}
+    if payload.text is not None:
+        update["commentary_text"] = payload.text
+    if payload.personality is not None:
+        update["commentary_personality"] = payload.personality
+    if payload.tts_enabled is not None:
+        update["commentary_tts_enabled"] = payload.tts_enabled
+    if payload.volume is not None:
+        update["commentary_volume"] = payload.volume
+    status = _write_status(update)
+    response = {
+        "text": status.get("commentary_text", ""),
+        "personality": status.get("commentary_personality", "enthusiastic"),
+        "tts_enabled": status.get("commentary_tts_enabled", False),
+        "volume": status.get("commentary_volume", 70),
+    }
+    await manager.broadcast("commentary_updated", response)
+    return response
+
+
+@app.post("/api/commentary/personality")
+async def update_commentary_personality(payload: CommentaryPersonalityUpdate) -> Dict[str, Any]:
+    status = _write_status({"commentary_personality": payload.personality})
+    response = {
+        "text": status.get("commentary_text", ""),
+        "personality": status.get("commentary_personality", "enthusiastic"),
+        "tts_enabled": status.get("commentary_tts_enabled", False),
+        "volume": status.get("commentary_volume", 70),
+    }
+    await manager.broadcast("commentary_updated", response)
+    return response
+
+
 @app.post("/api/confirm")
 async def confirm_next_action() -> Dict[str, Any]:
     status = _write_status({"confirm_granted": True})
@@ -623,6 +719,42 @@ async def patch_task(task_id: int, payload: TaskUpdate) -> Dict[str, Any]:
     return updated
 
 
+@app.get("/api/shipping")
+def get_shipping(game_day: Optional[int] = None, limit: int = 200) -> List[Dict[str, Any]]:
+    return storage.list_shipping_items(limit=limit, game_day=game_day)
+
+
+@app.post("/api/shipping")
+def add_shipping(payload: ShippingItemCreate) -> Dict[str, Any]:
+    return storage.add_shipping_item(
+        item_name=payload.item_name,
+        quantity=payload.quantity,
+        value=payload.value,
+        shipped_at=payload.shipped_at,
+        game_day=payload.game_day,
+    )
+
+
+@app.get("/api/skill-history")
+def get_skill_history(limit: int = 200) -> List[Dict[str, Any]]:
+    return storage.list_skill_history(limit=limit)
+
+
+@app.post("/api/skill-history")
+def add_skill_history(payload: SkillHistoryCreate) -> Dict[str, Any]:
+    return storage.add_skill_execution(
+        skill_name=payload.skill_name,
+        success=payload.success,
+        failure_reason=payload.failure_reason,
+        created_at=payload.created_at,
+    )
+
+
+@app.get("/api/skill-stats")
+def get_skill_stats(limit: int = 50) -> List[Dict[str, Any]]:
+    return storage.list_skill_stats(limit=limit)
+
+
 # --- Team Chat ---
 
 @app.get("/api/team")
@@ -704,3 +836,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=9001)
+

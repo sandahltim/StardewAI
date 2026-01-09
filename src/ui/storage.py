@@ -74,6 +74,29 @@ def init_db(db_path: Path = DEFAULT_DB_PATH) -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS shipping_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_name TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                value INTEGER NOT NULL,
+                shipped_at TEXT NOT NULL,
+                game_day INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS skill_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                skill_name TEXT NOT NULL,
+                success INTEGER NOT NULL,
+                failure_reason TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
 
 
 def add_message(
@@ -470,3 +493,143 @@ def list_session_events(
         data["data"] = json.loads(data.pop("data_json") or "{}")
         events.append(data)
     return events
+
+
+def add_shipping_item(
+    item_name: str,
+    quantity: int,
+    value: int,
+    game_day: Optional[int] = None,
+    shipped_at: Optional[str] = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> Dict[str, Any]:
+    created_at = shipped_at or datetime.utcnow().isoformat()
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO shipping_items (item_name, quantity, value, shipped_at, game_day)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (item_name, quantity, value, created_at, game_day),
+        )
+        item_id = cur.lastrowid
+    return {
+        "id": item_id,
+        "item_name": item_name,
+        "quantity": quantity,
+        "value": value,
+        "shipped_at": created_at,
+        "game_day": game_day,
+    }
+
+
+def list_shipping_items(
+    limit: int = 200,
+    game_day: Optional[int] = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> List[Dict[str, Any]]:
+    with _connect(db_path) as conn:
+        if game_day is not None:
+            rows = conn.execute(
+                """
+                SELECT id, item_name, quantity, value, shipped_at, game_day
+                FROM shipping_items
+                WHERE game_day = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (game_day, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, item_name, quantity, value, shipped_at, game_day
+                FROM shipping_items
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def add_skill_execution(
+    skill_name: str,
+    success: bool,
+    failure_reason: Optional[str] = None,
+    created_at: Optional[str] = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> Dict[str, Any]:
+    timestamp = created_at or datetime.utcnow().isoformat()
+    success_value = 1 if success else 0
+    with _connect(db_path) as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO skill_history (skill_name, success, failure_reason, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (skill_name, success_value, failure_reason, timestamp),
+        )
+        history_id = cur.lastrowid
+    return {
+        "id": history_id,
+        "skill_name": skill_name,
+        "success": bool(success_value),
+        "failure_reason": failure_reason,
+        "created_at": timestamp,
+    }
+
+
+def list_skill_history(
+    limit: int = 200,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> List[Dict[str, Any]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, skill_name, success, failure_reason, created_at
+            FROM skill_history
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    results = []
+    for row in rows:
+        data = dict(row)
+        data["success"] = bool(data.get("success"))
+        results.append(data)
+    return results
+
+
+def list_skill_stats(
+    limit: int = 50,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> List[Dict[str, Any]]:
+    with _connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                skill_name,
+                COUNT(*) AS total,
+                SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS success_count,
+                SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failure_count
+            FROM skill_history
+            GROUP BY skill_name
+            ORDER BY total DESC, skill_name ASC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    stats = []
+    for row in rows:
+        data = dict(row)
+        total = data.get("total") or 0
+        success_count = data.get("success_count") or 0
+        failure_count = data.get("failure_count") or 0
+        rate = (success_count / total) * 100 if total else 0
+        data["success_rate"] = round(rate, 1)
+        data["success_count"] = success_count
+        data["failure_count"] = failure_count
+        stats.append(data)
+    return stats

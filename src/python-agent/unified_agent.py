@@ -60,6 +60,14 @@ except ImportError:
     SkillContext = None
     HAS_SKILLS = False
 
+try:
+    from commentary import CommentaryGenerator, PiperTTS
+    HAS_COMMENTARY = True
+except ImportError:
+    CommentaryGenerator = None
+    PiperTTS = None
+    HAS_COMMENTARY = False
+
 # =============================================================================
 # Optional Input Methods
 # =============================================================================
@@ -84,6 +92,46 @@ HAS_INPUT = HAS_GAMEPAD or HAS_PYAUTOGUI
 # =============================================================================
 # Configuration
 # =============================================================================
+
+CARDINAL_DIRECTIONS = ["north", "east", "south", "west"]
+_DIRECTION_ALIASES = {
+    "up": "north",
+    "down": "south",
+    "left": "west",
+    "right": "east",
+    "north": "north",
+    "south": "south",
+    "east": "east",
+    "west": "west",
+}
+
+# Diagonal directions split into two cardinal moves
+# Order: vertical first, then horizontal (so we move away from obstacles first)
+DIAGONAL_TO_CARDINAL = {
+    "northeast": ("north", "east"),
+    "northwest": ("north", "west"),
+    "southeast": ("south", "east"),
+    "southwest": ("south", "west"),
+    "ne": ("north", "east"),
+    "nw": ("north", "west"),
+    "se": ("south", "east"),
+    "sw": ("south", "west"),
+}
+
+
+def normalize_direction(direction: str) -> str:
+    if not direction:
+        return ""
+    return _DIRECTION_ALIASES.get(direction.strip().lower(), direction.strip().lower())
+
+
+def normalize_directions_map(directions: Dict[str, Any]) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
+    for key, value in directions.items():
+        normalized_key = normalize_direction(key)
+        if normalized_key and normalized_key not in normalized:
+            normalized[normalized_key] = value
+    return normalized
 
 @dataclass
 class Config:
@@ -279,7 +327,7 @@ class UnifiedVLM:
         and decides what actions to take - all in one pass.
 
         Args:
-            spatial_context: Optional directional info (e.g., "up: clear | down: BLOCKED")
+            spatial_context: Optional directional info (e.g., "north: clear | south: BLOCKED")
             memory_context: Optional memory context (NPC info, past experiences)
         """
         start_time = time.time()
@@ -465,7 +513,7 @@ class UnifiedVLM:
                     params = {}
 
                     if action_type == "move":
-                        params["direction"] = action_data.get("direction", "down")
+                        params["direction"] = normalize_direction(action_data.get("direction", "south"))
                         params["duration"] = action_data.get("duration", 0.5)
                     elif action_type == "button":
                         params["button"] = action_data.get("button", "a")
@@ -473,6 +521,8 @@ class UnifiedVLM:
                         params["seconds"] = action_data.get("seconds", 1)
                     elif action_type == "interact":
                         pass  # No extra params needed
+                    elif action_type == "harvest":
+                        params["direction"] = normalize_direction(action_data.get("direction", ""))  # Optional facing direction
                     elif action_type == "use_tool":
                         pass  # No extra params needed
                     elif action_type == "cancel":
@@ -482,7 +532,7 @@ class UnifiedVLM:
                     elif action_type == "warp":
                         params["location"] = action_data.get("location", "farm")
                     elif action_type == "face":
-                        params["direction"] = action_data.get("direction", "down")
+                        params["direction"] = normalize_direction(action_data.get("direction", "south"))
                     elif action_type == "select_slot":
                         params["slot"] = action_data.get("slot", 0)
 
@@ -557,18 +607,18 @@ class ModBridgeController:
         if not data:
             return ""
 
-        dirs = data.get("directions", {})
+        dirs = normalize_directions_map(data.get("directions", {}))
 
         # Get facing direction from game state
         facing_dir = None
         if state:
-            facing_map = {0: "up", 1: "right", 2: "down", 3: "left"}
+            facing_map = {0: "north", 1: "east", 2: "south", 3: "west"}
             facing_dir = facing_map.get(state.get("player", {}).get("facingDirection"))
 
         # Format all directions
         parts = []
         front_info = ""
-        for direction in ["up", "down", "left", "right"]:
+        for direction in CARDINAL_DIRECTIONS:
             info = dirs.get(direction, {})
             if info.get("clear"):
                 tiles = info.get("tilesUntilBlocked", "?")
@@ -600,7 +650,7 @@ class ModBridgeController:
 
         # Add hint if surrounded by clearable debris
         clearable_debris = []
-        for direction in ["up", "down", "left", "right"]:
+        for direction in CARDINAL_DIRECTIONS:
             info = dirs.get(direction, {})
             if not info.get("clear"):
                 blocker = info.get("blocker", "")
@@ -645,7 +695,7 @@ class ModBridgeController:
             if water_left <= 0 and unwatered_crops:
                 # CAN IS EMPTY AND CROPS NEED WATER - REFILL IS THE ONLY PRIORITY
                 # Check if we're already AT the water (water is immediate blocker, 0-1 tiles)
-                directions = data.get("directions", {})
+                directions = normalize_directions_map(data.get("directions", {}))
                 water_adjacent = None
                 for dir_name, dir_info in directions.items():
                     blocker = dir_info.get("blocker", "")
@@ -663,14 +713,14 @@ class ModBridgeController:
                 else:
                     nearest_water = data.get("nearestWater")
                     if nearest_water:
-                        water_dir = nearest_water.get("direction", "nearby")
+                        water_dir = normalize_direction(nearest_water.get("direction", "nearby"))
                         water_dist = nearest_water.get("distance", "?")
                         front_info = f">>> ⚠️ WATERING CAN EMPTY! Go {water_dist} tiles {water_dir} to water, select_slot 2, use_tool to REFILL! <<<"
                     else:
                         front_info = ">>> ⚠️ WATERING CAN EMPTY! Find water (pond/river), select_slot 2, use_tool to REFILL! <<<"
             elif crop_here and crop_here.get("isReadyForHarvest"):
                 crop_name = crop_here.get("cropName", "crop")
-                front_info = f">>> 🌾 HARVEST TIME! {crop_name} is READY! DO: interact (NOT use_tool!) <<<"
+                front_info = f">>> 🌾 HARVEST TIME! {crop_name} is READY! DO: harvest (facing crop) <<<"
             elif tile_state == "tilled":
                 # Check if player has seeds before showing plant message
                 inventory = state.get("inventory", []) if state else []
@@ -709,7 +759,7 @@ class ModBridgeController:
                         # Get nearest water location
                         nearest_water = data.get("nearestWater")
                         if nearest_water:
-                            water_dir = nearest_water.get("direction", "nearby")
+                            water_dir = normalize_direction(nearest_water.get("direction", "nearby"))
                             water_dist = nearest_water.get("distance", "?")
                             front_info = f">>> WATERING CAN EMPTY! Water is {water_dist} tiles {water_dir} - go there and use_tool to REFILL! <<<"
                         else:
@@ -754,20 +804,20 @@ class ModBridgeController:
                                 dy = nearest["y"] - player_y
                                 dist = abs(dx) + abs(dy)
                                 if dist == 1:
-                                    face_dir = "up" if dy < 0 else "down" if dy > 0 else "left" if dx < 0 else "right"
-                                    front_info = f">>> 🌾 HARVEST 1 tile {face_dir.upper()}! DO: face {face_dir}, interact ({len(harvestable)} ready) <<<"
+                                    face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
+                                    front_info = f">>> 🌾 HARVEST 1 tile {face_dir.upper()}! DO: face {face_dir}, harvest ({len(harvestable)} ready) <<<"
                                 else:
                                     dirs = []
                                     if dy < 0:
-                                        dirs.append(f"{abs(dy)} UP")
+                                        dirs.append(f"{abs(dy)} NORTH")
                                     elif dy > 0:
-                                        dirs.append(f"{abs(dy)} DOWN")
+                                        dirs.append(f"{abs(dy)} SOUTH")
                                     if dx < 0:
-                                        dirs.append(f"{abs(dx)} LEFT")
+                                        dirs.append(f"{abs(dx)} WEST")
                                     elif dx > 0:
-                                        dirs.append(f"{abs(dx)} RIGHT")
+                                        dirs.append(f"{abs(dx)} EAST")
                                     direction_str = " and ".join(dirs) if dirs else "here"
-                                    front_info = f">>> 🌾 {len(harvestable)} READY! Move {direction_str}, then interact to harvest <<<"
+                                    front_info = f">>> 🌾 {len(harvestable)} READY! Move {direction_str}, then harvest <<<"
                             else:
                                 front_info = ">>> TILE: WET SOIL (no seeds) - All crops watered! <<<"
                 else:
@@ -788,18 +838,18 @@ class ModBridgeController:
 
                             # If crop is exactly 1 tile away, use FACE + use_tool (don't move onto the crop!)
                             if dist == 1:
-                                face_dir = "up" if dy < 0 else "down" if dy > 0 else "left" if dx < 0 else "right"
+                                face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
                                 front_info = f">>> TILE: WATERED ✓ - NEXT CROP 1 tile {face_dir.upper()}! DO: face {face_dir}, use_tool ({len(unwatered_others)} more) <<<"
                             else:
                                 dirs = []
                                 if dy < 0:
-                                    dirs.append(f"{abs(dy)} UP")
+                                    dirs.append(f"{abs(dy)} NORTH")
                                 elif dy > 0:
-                                    dirs.append(f"{abs(dy)} DOWN")
+                                    dirs.append(f"{abs(dy)} SOUTH")
                                 if dx < 0:
-                                    dirs.append(f"{abs(dx)} LEFT")
+                                    dirs.append(f"{abs(dx)} WEST")
                                 elif dx > 0:
-                                    dirs.append(f"{abs(dx)} RIGHT")
+                                    dirs.append(f"{abs(dx)} EAST")
                                 direction_str = " then ".join(dirs) if dirs else "nearby"
                                 front_info = f">>> TILE: WATERED ✓ - NEXT CROP: move {direction_str}! ({len(unwatered_others)} more to water) <<<"
                         else:
@@ -828,18 +878,18 @@ class ModBridgeController:
 
                     # If crop is exactly 1 tile away, use FACE + use_tool
                     if dist == 1:
-                        face_dir = "up" if dy < 0 else "down" if dy > 0 else "left" if dx < 0 else "right"
+                        face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
                         front_info = f">>> {len(unwatered)} CROPS NEED WATERING! One is 1 tile {face_dir.upper()}! DO: select_slot 2, face {face_dir}, use_tool <<<"
                     else:
                         dirs = []
                         if dy < 0:
-                            dirs.append(f"{abs(dy)} UP")
+                            dirs.append(f"{abs(dy)} NORTH")
                         elif dy > 0:
-                            dirs.append(f"{abs(dy)} DOWN")
+                            dirs.append(f"{abs(dy)} SOUTH")
                         if dx < 0:
-                            dirs.append(f"{abs(dx)} LEFT")
+                            dirs.append(f"{abs(dx)} WEST")
                         elif dx > 0:
-                            dirs.append(f"{abs(dx)} RIGHT")
+                            dirs.append(f"{abs(dx)} EAST")
                         direction_str = " and ".join(dirs) if dirs else "here"
                         front_info = f">>> {len(unwatered)} CROPS NEED WATERING! Nearest: {direction_str}. GO THERE FIRST! <<<"
                 elif "Hoe" in current_tool:
@@ -863,13 +913,13 @@ class ModBridgeController:
                     # Build directional guidance
                     dirs = []
                     if dy < 0:
-                        dirs.append(f"{abs(dy)} tiles UP")
+                        dirs.append(f"{abs(dy)} tiles NORTH")
                     elif dy > 0:
-                        dirs.append(f"{abs(dy)} tiles DOWN")
+                        dirs.append(f"{abs(dy)} tiles SOUTH")
                     if dx < 0:
-                        dirs.append(f"{abs(dx)} tiles LEFT")
+                        dirs.append(f"{abs(dx)} tiles WEST")
                     elif dx > 0:
-                        dirs.append(f"{abs(dx)} tiles RIGHT")
+                        dirs.append(f"{abs(dx)} tiles EAST")
 
                     direction_str = " and ".join(dirs) if dirs else "here"
                     front_info = f">>> TILE: NOT FARMABLE - {len(unwatered)} UNWATERED CROPS! Nearest is {direction_str}. Move there to water! <<<"
@@ -882,22 +932,22 @@ class ModBridgeController:
                         dy = nearest_h["y"] - player_y
                         dist = abs(dx) + abs(dy)
 
-                        # If harvestable crop is exactly 1 tile away, use FACE + interact
+                        # If harvestable crop is exactly 1 tile away, use FACE + harvest
                         if dist == 1:
-                            face_dir = "up" if dy < 0 else "down" if dy > 0 else "left" if dx < 0 else "right"
-                            front_info = f">>> 🌾 HARVEST 1 tile {face_dir.upper()}! DO: face {face_dir}, interact ({len(harvestable)} ready) <<<"
+                            face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
+                            front_info = f">>> 🌾 HARVEST 1 tile {face_dir.upper()}! DO: face {face_dir}, harvest ({len(harvestable)} ready) <<<"
                         else:
                             dirs = []
                             if dy < 0:
-                                dirs.append(f"{abs(dy)} UP")
+                                dirs.append(f"{abs(dy)} NORTH")
                             elif dy > 0:
-                                dirs.append(f"{abs(dy)} DOWN")
+                                dirs.append(f"{abs(dy)} SOUTH")
                             if dx < 0:
-                                dirs.append(f"{abs(dx)} LEFT")
+                                dirs.append(f"{abs(dx)} WEST")
                             elif dx > 0:
-                                dirs.append(f"{abs(dx)} RIGHT")
+                                dirs.append(f"{abs(dx)} EAST")
                             direction_str = " and ".join(dirs) if dirs else "here"
-                            front_info = f">>> 🌾 {len(harvestable)} READY! Nearest: move {direction_str}, then interact to harvest <<<"
+                            front_info = f">>> 🌾 {len(harvestable)} READY! Nearest: move {direction_str}, then harvest <<<"
                     elif crops:
                         front_info = ">>> TILE: NOT FARMABLE - All crops watered, none ready to harvest. <<<"
                     else:
@@ -921,20 +971,75 @@ class ModBridgeController:
                 distance = abs(dx) + abs(dy)
                 bin_dirs = []
                 if dy < 0:
-                    bin_dirs.append(f"{abs(dy)} UP")
+                    bin_dirs.append(f"{abs(dy)} NORTH")
                 elif dy > 0:
-                    bin_dirs.append(f"{abs(dy)} DOWN")
+                    bin_dirs.append(f"{abs(dy)} SOUTH")
                 if dx < 0:
-                    bin_dirs.append(f"{abs(dx)} LEFT")
+                    bin_dirs.append(f"{abs(dx)} WEST")
                 elif dx > 0:
-                    bin_dirs.append(f"{abs(dx)} RIGHT")
+                    bin_dirs.append(f"{abs(dx)} EAST")
                 bin_dir_str = " and ".join(bin_dirs) if bin_dirs else "here"
                 shipping_info = f"📦 SHIPPING BIN: {distance} tiles away ({bin_dir_str})"
+
+        landmark_hint = ""
+        if state:
+            landmarks = state.get("landmarks") or {}
+            if isinstance(landmarks, dict) and landmarks:
+                nearest_name = None
+                nearest_info = None
+                nearest_distance = None
+                for name, info in landmarks.items():
+                    if not isinstance(info, dict):
+                        continue
+                    distance = info.get("distance")
+                    if distance is None:
+                        continue
+                    if nearest_distance is None or distance < nearest_distance:
+                        nearest_distance = distance
+                        nearest_name = name
+                        nearest_info = info
+                if nearest_name and nearest_info:
+                    direction = (nearest_info.get("direction") or "").lower()
+                    label = nearest_name.replace("_", " ")
+                    if direction == "here" or nearest_distance == 0:
+                        landmark_hint = f"📌 LANDMARK: at {label}"
+                    else:
+                        landmark_hint = f"📌 LANDMARK: {nearest_distance} tiles {direction} of {label}"
 
         # Location-specific navigation hints
         location_hint = ""
         if location_name == "FarmHouse":
-            # FarmHouse exit is at south edge - walk DOWN to exit through door
+            # Bed is at tile (10, 9) - for sleeping
+            bed_x, bed_y = 10, 9
+            dy_to_bed = bed_y - player_y
+            dx_to_bed = bed_x - player_x
+            bed_distance = abs(dx_to_bed) + abs(dy_to_bed)
+
+            bed_dirs = []
+            if dy_to_bed < 0:
+                bed_dirs.append(f"{abs(dy_to_bed)} NORTH")
+            elif dy_to_bed > 0:
+                bed_dirs.append(f"{dy_to_bed} SOUTH")
+            if dx_to_bed > 0:
+                bed_dirs.append(f"{dx_to_bed} EAST")
+            elif dx_to_bed < 0:
+                bed_dirs.append(f"{abs(dx_to_bed)} WEST")
+
+            if bed_distance <= 1:
+                # Tell agent exactly which direction to face
+                if dy_to_bed < 0:
+                    face_dir = "NORTH"
+                elif dy_to_bed > 0:
+                    face_dir = "SOUTH"
+                elif dx_to_bed > 0:
+                    face_dir = "EAST"
+                else:
+                    face_dir = "WEST"
+                bed_hint = f"🛏️ BED: Adjacent! Face {face_dir} and interact to sleep."
+            else:
+                bed_hint = f"🛏️ BED: {bed_distance} tiles away ({' and '.join(bed_dirs)}). Walk there, face it, interact to sleep."
+
+            # FarmHouse exit is at south edge - walk SOUTH to exit through door
             # Door mat is around (3, 12) - walk south to trigger exit
             exit_y = 12  # Exit triggers when walking south past y=11
             exit_x = 3
@@ -944,15 +1049,18 @@ class ModBridgeController:
                 # Need to get to exit area first
                 dirs = []
                 if dy_to_exit > 0:
-                    dirs.append(f"{dy_to_exit} DOWN")
+                    dirs.append(f"{dy_to_exit} SOUTH")
                 if dx_to_exit > 0:
-                    dirs.append(f"{dx_to_exit} RIGHT")
+                    dirs.append(f"{dx_to_exit} EAST")
                 elif dx_to_exit < 0:
-                    dirs.append(f"{abs(dx_to_exit)} LEFT")
-                location_hint = f"🚪 EXIT: Go {' then '.join(dirs)} to reach door, then keep going DOWN to exit!"
+                    dirs.append(f"{abs(dx_to_exit)} WEST")
+                exit_hint = f"🚪 EXIT: Go {' then '.join(dirs)} to reach door, then keep going SOUTH to exit!"
             else:
-                # At or near exit - just go down
-                location_hint = "🚪 EXIT: Walk DOWN (south) to exit the farmhouse!"
+            # At or near exit - just go south
+                exit_hint = "🚪 EXIT: Walk SOUTH to exit the farmhouse!"
+
+            # Combine both hints - bed first since sleeping is common goal
+            location_hint = f"{bed_hint}\n{exit_hint}"
         elif location_name == "Farm":
             # Farmhouse entrance is around (64, 15)
             farmhouse_x, farmhouse_y = 64, 15
@@ -962,13 +1070,13 @@ class ModBridgeController:
             if distance > 0:
                 dirs = []
                 if dy < 0:
-                    dirs.append(f"{abs(dy)} UP")
+                    dirs.append(f"{abs(dy)} NORTH")
                 elif dy > 0:
-                    dirs.append(f"{abs(dy)} DOWN")
+                    dirs.append(f"{abs(dy)} SOUTH")
                 if dx < 0:
-                    dirs.append(f"{abs(dx)} LEFT")
+                    dirs.append(f"{abs(dx)} WEST")
                 elif dx > 0:
-                    dirs.append(f"{abs(dx)} RIGHT")
+                    dirs.append(f"{abs(dx)} EAST")
                 location_hint = f"🏠 FARMHOUSE DOOR: {distance} tiles away ({' and '.join(dirs)})"
 
         # Assemble result with explicit tool context always visible
@@ -977,6 +1085,8 @@ class ModBridgeController:
             header_parts.append(location_hint)
         if shipping_info:
             header_parts.append(shipping_info)
+        if landmark_hint:
+            header_parts.append(landmark_hint)
 
         # Bedtime hint based on time and energy
         bedtime_hint = ""
@@ -1025,25 +1135,25 @@ class ModBridgeController:
             dy = nearest["y"] - player_y
             dist = abs(dx) + abs(dy)
             if dist == 1:
-                face_dir = "up" if dy < 0 else "down" if dy > 0 else "left" if dx < 0 else "right"
-                return f">>> 🌾 HARVEST 1 tile {face_dir.upper()}! DO: face {face_dir}, interact ({len(harvestable)} ready) <<<"
+                face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
+                return f">>> 🌾 HARVEST 1 tile {face_dir.upper()}! DO: face {face_dir}, harvest ({len(harvestable)} ready) <<<"
             else:
                 dirs = []
                 if dy < 0:
-                    dirs.append(f"{abs(dy)} UP")
+                    dirs.append(f"{abs(dy)} NORTH")
                 elif dy > 0:
-                    dirs.append(f"{abs(dy)} DOWN")
+                    dirs.append(f"{abs(dy)} SOUTH")
                 if dx < 0:
-                    dirs.append(f"{abs(dx)} LEFT")
+                    dirs.append(f"{abs(dx)} WEST")
                 elif dx > 0:
-                    dirs.append(f"{abs(dx)} RIGHT")
+                    dirs.append(f"{abs(dx)} EAST")
                 direction_str = " and ".join(dirs) if dirs else "here"
-                return f">>> 🌾 {len(harvestable)} READY TO HARVEST! Move {direction_str}, then interact <<<"
+                return f">>> 🌾 {len(harvestable)} READY TO HARVEST! Move {direction_str}, then harvest <<<"
 
         # Check for nearby debris in surroundings
         nearby_debris = []
         if surroundings:
-            for direction, info in surroundings.get("directions", {}).items():
+            for direction, info in normalize_directions_map(surroundings.get("directions", {})).items():
                 blocker = info.get("blockerName", "")
                 if blocker in ["Stone", "Weeds", "Twig", "Wood", "Log", "Stump", "Boulder"]:
                     dist = info.get("tilesUntilBlocked", 5)
@@ -1078,10 +1188,14 @@ class ModBridgeController:
             tool = "SCYTHE" if debris_name == "Weeds" else "PICKAXE" if debris_name == "Stone" else "AXE"
             tool_slot = {"SCYTHE": 4, "PICKAXE": 3, "AXE": 0}.get(tool, 4)
             dirs = []
-            if dy < 0: dirs.append(f"{abs(dy)} UP")
-            elif dy > 0: dirs.append(f"{abs(dy)} DOWN")
-            if dx < 0: dirs.append(f"{abs(dx)} LEFT")
-            elif dx > 0: dirs.append(f"{abs(dx)} RIGHT")
+            if dy < 0:
+                dirs.append(f"{abs(dy)} NORTH")
+            elif dy > 0:
+                dirs.append(f"{abs(dy)} SOUTH")
+            if dx < 0:
+                dirs.append(f"{abs(dx)} WEST")
+            elif dx > 0:
+                dirs.append(f"{abs(dx)} EAST")
             direction_str = " then ".join(dirs) if dirs else "nearby"
             return f">>> ✅ WATERING DONE! NOW CLEAR DEBRIS: {debris_name} {direction_str}. DO: move there, select_slot {tool_slot}, use_tool <<<"
 
@@ -1101,7 +1215,7 @@ class ModBridgeController:
                 return True
 
             elif action_type == "move":
-                direction = action.params.get("direction", "").lower()
+                direction = normalize_direction(action.params.get("direction", ""))
                 tiles = action.params.get("tiles", 1)
                 # Convert duration-based moves to tile-based
                 if "duration" in action.params:
@@ -1116,15 +1230,22 @@ class ModBridgeController:
             elif action_type == "interact":
                 return self._send_action({"action": "interact_facing"})
 
+            elif action_type == "harvest":
+                direction = normalize_direction(action.params.get("direction", ""))
+                return self._send_action({
+                    "action": "harvest",
+                    "direction": direction
+                })
+
             elif action_type == "use_tool":
-                direction = action.params.get("direction", "")
+                direction = normalize_direction(action.params.get("direction", ""))
                 return self._send_action({
                     "action": "use_tool",
                     "direction": direction
                 })
 
             elif action_type == "face":
-                direction = action.params.get("direction", "down")
+                direction = normalize_direction(action.params.get("direction", "south"))
                 return self._send_action({
                     "action": "face",
                     "direction": direction
@@ -1228,14 +1349,18 @@ class GamepadController:
         }
 
     DIRECTIONS = {
+        "north": (0, 1),
+        "south": (0, -1),
+        "west": (-1, 0),
+        "east": (1, 0),
+        "north_west": (-0.7, 0.7),
+        "north_east": (0.7, 0.7),
+        "south_west": (-0.7, -0.7),
+        "south_east": (0.7, -0.7),
         "up": (0, 1),
         "down": (0, -1),
         "left": (-1, 0),
         "right": (1, 0),
-        "up_left": (-0.7, 0.7),
-        "up_right": (0.7, 0.7),
-        "down_left": (-0.7, -0.7),
-        "down_right": (0.7, -0.7),
     }
 
     def __init__(self):
@@ -1264,7 +1389,7 @@ class GamepadController:
                 return True
 
             elif action_type == "move":
-                direction = action.params.get("direction", "").lower()
+                direction = normalize_direction(action.params.get("direction", ""))
                 duration = action.params.get("duration", 0.5)
 
                 if direction in self.DIRECTIONS:
@@ -1402,6 +1527,9 @@ class StardewAgent:
         self.last_surroundings: Optional[Dict[str, Any]] = None
         self.ui = None
         self.ui_enabled = False
+        self.commentary_generator = CommentaryGenerator() if HAS_COMMENTARY and CommentaryGenerator else None
+        self.commentary_tts = PiperTTS() if HAS_COMMENTARY and PiperTTS else None
+        self.last_mood: str = ""
 
         # Skill system (contextual guidance for VLM)
         self.skill_context = None
@@ -1463,6 +1591,103 @@ class StardewAgent:
                 logging.info(f"Loaded memory state: {len(self.visited_locations)} locations, {len(self.met_npcs)} NPCs")
         except Exception as e:
             logging.debug(f"Could not load memory state: {e}")
+
+    def _get_adjacent_debris_hint(self, state: dict) -> str:
+        """Check for debris in adjacent tiles and suggest tool to clear it."""
+        if not state:
+            return ""
+
+        player = state.get("player", {})
+        px = player.get("tileX", 0)
+        py = player.get("tileY", 0)
+
+        # Get all objects from location
+        objects = state.get("location", {}).get("objects", [])
+
+        # Tool mapping: debris type -> (tool name, slot number)
+        TOOL_MAP = {
+            "Weeds": ("SCYTHE", 4),
+            "Grass": ("SCYTHE", 4),
+            "Twig": ("AXE", 0),
+            "Wood": ("AXE", 0),
+            "Stone": ("PICKAXE", 3),
+            "Boulder": ("PICKAXE", 3),
+        }
+
+        # Check 4 adjacent tiles
+        adjacent_debris = []
+        for obj in objects:
+            ox, oy = obj.get("x", -99), obj.get("y", -99)
+            name = obj.get("name", "")
+
+            if name not in TOOL_MAP:
+                continue
+
+            # Check if adjacent (Manhattan distance = 1)
+            dx, dy = ox - px, oy - py
+            if abs(dx) + abs(dy) == 1:
+                # Determine direction
+                if dy < 0:
+                    direction = "north"
+                elif dy > 0:
+                    direction = "south"
+                elif dx < 0:
+                    direction = "west"
+                else:
+                    direction = "east"
+
+                tool_name, tool_slot = TOOL_MAP[name]
+                adjacent_debris.append((direction, name, tool_name, tool_slot))
+
+        if not adjacent_debris:
+            return ""
+        # Build hint for adjacent debris
+        hint_lines = ["🧹 DEBRIS BLOCKING YOUR PATH! Clear it:\n"]
+        for direction, debris, tool, slot in adjacent_debris:
+            hint_lines.append(f"  • {debris} to {direction.upper()}: select_slot {slot} ({tool}), face {direction}, use_tool")
+        hint_lines.append("\nClear the debris blocking you, then continue moving!")
+        return "\n".join(hint_lines)
+
+    def _get_time_urgency_hint(self, state: dict) -> str:
+        """Check time and return urgent bedtime warning if late (hour >= 22).
+
+        Returns empty string if not urgent, otherwise returns a warning that
+        should be added to action_context to override other goals.
+        """
+        if not state:
+            return ""
+
+        time_data = state.get("time", {})
+        hour = time_data.get("hour", 6)
+
+        # Game time: 6-2 (6am to 2am next day, wraps at 24)
+        # hour >= 24 means past midnight (e.g., 25 = 1am)
+
+        if hour >= 26:  # 2am - will pass out imminently
+            return (
+                "🚨🚨🚨 EMERGENCY! IT'S 2AM - YOU'RE ABOUT TO PASS OUT! 🚨🚨🚨\n"
+                "DO THIS NOW: go_to_bed (auto-warps home and sleeps)\n"
+                "IGNORE ALL OTHER GOALS - SLEEP IMMEDIATELY!"
+            )
+        elif hour >= 25:  # 1am - very urgent
+            return (
+                "⚠️⚠️ CRITICAL: 1AM - Only 1 hour until you PASS OUT! ⚠️⚠️\n"
+                "STOP what you're doing and use: go_to_bed\n"
+                "You will LOSE MONEY if you pass out!"
+            )
+        elif hour >= 24:  # Midnight
+            return (
+                "🌙 MIDNIGHT! 2 hours until you pass out and lose money!\n"
+                "STRONGLY RECOMMEND: go_to_bed to end the day safely.\n"
+                "Unless you're seconds from finishing a critical task, GO TO BED."
+            )
+        elif hour >= 22:  # 10pm
+            return (
+                "🌙 It's past 10PM. Consider wrapping up and using go_to_bed.\n"
+                "Tip: Don't start long tasks this late - you may pass out before finishing!"
+            )
+
+        return ""
 
     def _init_ui(self) -> None:
         if not self.config.ui_enabled:
@@ -1632,13 +1857,13 @@ class StardewAgent:
         dy = nearest.y - py
         dirs = []
         if dy < 0:
-            dirs.append(f"{abs(dy)} UP")
+            dirs.append(f"{abs(dy)} NORTH")
         elif dy > 0:
-            dirs.append(f"{abs(dy)} DOWN")
+            dirs.append(f"{abs(dy)} SOUTH")
         if dx < 0:
-            dirs.append(f"{abs(dx)} LEFT")
+            dirs.append(f"{abs(dx)} WEST")
         elif dx > 0:
-            dirs.append(f"{abs(dx)} RIGHT")
+            dirs.append(f"{abs(dx)} EAST")
         direction_str = " and ".join(dirs) if dirs else "here"
         return f"SPATIAL MAP: TILLED but UNPLANTED tile at {nearest.x},{nearest.y} ({direction_str})."
 
@@ -1749,6 +1974,66 @@ class StardewAgent:
                 "action_type": action.action_type,
                 "params": action.params,
             })
+        self._send_commentary(action, success)
+
+    def _send_commentary(self, action: Action, success: bool) -> None:
+        if not self.ui_enabled or not self.ui or not self.commentary_generator:
+            return
+
+        # Track commentary count for TTS throttling
+        if not hasattr(self, '_commentary_count'):
+            self._commentary_count = 0
+        self._commentary_count += 1
+
+        state = self.last_state or {}
+        stats = {
+            "crops_harvested_count": self.crops_harvested_count,
+            "crops_watered_count": self.crops_watered_count,
+            "distance_traveled": self.distance_traveled,
+            "action_count": self.action_count,
+        }
+        state_data = dict(state)
+        state_data["stats"] = stats
+        personality = None
+        tts_enabled = None
+        volume = None
+        try:
+            settings = self.ui.get_commentary()
+            personality = settings.get("personality")
+            tts_enabled = settings.get("tts_enabled")
+            volume = settings.get("volume")
+        except Exception:
+            settings = {}
+
+        if personality:
+            self.commentary_generator.set_personality(personality)
+
+        # Use VLM's creative mood for UI (full text)
+        # TTS will only read first sentence (handled separately below)
+        if self.last_mood and len(self.last_mood) > 10:
+            ui_text = self.last_mood  # Full commentary for display
+        else:
+            ui_text = self.commentary_generator.generate(action.action_type, state_data, "")
+
+        self._ui_safe(
+            self.ui.update_commentary,
+            text=ui_text,
+            personality=self.commentary_generator.personality,
+            tts_enabled=tts_enabled,
+            volume=volume,
+        )
+
+        # TTS: Read commentary every 4 actions (prevents queue backup)
+        if tts_enabled and self.commentary_tts and self._commentary_count % 4 == 0:
+            try:
+                # Clean text for TTS - remove special chars that get read aloud
+                import re
+                tts_text = ui_text
+                tts_text = re.sub(r'["\'\*\_\#\`\[\]\(\)\{\}]', '', tts_text)  # Remove quotes, markdown
+                tts_text = re.sub(r'\s+', ' ', tts_text).strip()  # Normalize whitespace
+                self.commentary_tts.speak(tts_text)
+            except Exception:
+                pass
 
     def _check_memory_triggers(self, result: ThinkResult, game_day: str = "") -> None:
         """Check for events that should trigger memory storage."""
@@ -1823,7 +2108,7 @@ class StardewAgent:
         if action.description:
             return action.description
         if action.action_type == "move":
-            direction = action.params.get("direction", "down")
+            direction = normalize_direction(action.params.get("direction", "south"))
             duration = action.params.get("duration", 0.0)
             return f"move {direction} ({duration:.1f}s)"
         if action.action_type == "wait":
@@ -1864,6 +2149,7 @@ class StardewAgent:
             "available_skills_count": len(self.skill_context.get_available_skills(self.last_state)) if self.skill_context and self.last_state else 0,
         }
         if result:
+            self.last_mood = result.mood or self.last_mood
             payload.update({
                 "last_tick": datetime.now().isoformat(timespec="seconds"),
                 "location": result.location,
@@ -1935,16 +2221,87 @@ class StardewAgent:
         if self.action_queue:
             action = self.action_queue.pop(0)
 
+            # Handle diagonal movement: split into two cardinal moves
+            diagonal_second_dir = None  # Track if we're doing a diagonal split
+            if action.action_type == "move":
+                raw_dir = action.params.get("direction", "").strip().lower()
+                if raw_dir in DIAGONAL_TO_CARDINAL:
+                    first_dir, second_dir = DIAGONAL_TO_CARDINAL[raw_dir]
+                    diagonal_second_dir = second_dir  # Remember for blocking check
+                    logging.info(f"↗️ Splitting diagonal '{raw_dir}' into {first_dir} + {second_dir}")
+
+                    # Modify current action to first cardinal direction
+                    action.params["direction"] = first_dir
+
+                    # Create second action and insert at front of queue
+                    second_action = Action(
+                        action_type="move",
+                        params={"direction": second_dir, "duration": action.params.get("duration", 0.3)},
+                        description=f"move {second_dir} (diagonal split)"
+                    )
+                    self.action_queue.insert(0, second_action)
+
             # Collision check for move actions - skip if direction is blocked
             if action.action_type == "move" and isinstance(self.controller, ModBridgeController):
-                direction = action.params.get("direction", "").lower()
+                direction = normalize_direction(action.params.get("direction", ""))
                 surroundings = self.controller.get_surroundings()
                 if surroundings:
-                    dirs = surroundings.get("directions", {})
+                    dirs = normalize_directions_map(surroundings.get("directions", {}))
                     dir_info = dirs.get(direction, {})
                     if not dir_info.get("clear", True) and dir_info.get("tilesUntilBlocked", 1) == 0:
                         blocker = dir_info.get('blocker', 'obstacle')
+
+                        # Check if blocker is clearable debris
+                        CLEARABLE_DEBRIS = {
+                            "Weeds": ("SCYTHE", 4),
+                            "Grass": ("SCYTHE", 4),
+                            "Twig": ("AXE", 0),
+                            "Wood": ("AXE", 0),
+                            "Stone": ("PICKAXE", 3),
+                            "Boulder": ("PICKAXE", 3),
+                        }
+
+                        if blocker in CLEARABLE_DEBRIS:
+                            tool_name, tool_slot = CLEARABLE_DEBRIS[blocker]
+                            logging.info(f"🧹 Proactive clear: {blocker} blocking {direction}, using {tool_name}")
+
+                            # Queue: select_slot → face → use_tool → retry original move
+                            clear_actions = [
+                                Action("select_slot", {"slot": tool_slot}, f"select {tool_name}"),
+                                Action("face", {"direction": direction}, f"face {direction}"),
+                                Action("use_tool", {}, f"clear {blocker}"),
+                                action,  # Retry the original move after clearing
+                            ]
+
+                            # If diagonal, also re-queue the second move
+                            if diagonal_second_dir:
+                                clear_actions.append(Action(
+                                    "move",
+                                    {"direction": diagonal_second_dir, "duration": 0.3},
+                                    f"move {diagonal_second_dir} (diagonal)"
+                                ))
+                                # Remove the queued second move (we'll add it back after clearing)
+                                if self.action_queue and self.action_queue[0].params.get("direction") == diagonal_second_dir:
+                                    self.action_queue.pop(0)
+
+                            # Insert clearing actions at front of queue
+                            self.action_queue = clear_actions + self.action_queue
+                            self.recent_actions.append(f"CLEARING: {blocker} to {direction}")
+                            self.recent_actions = self.recent_actions[-10:]
+                            self._send_ui_status()
+                            return  # Will execute select_slot next tick
+
+                        # Non-clearable obstacle - just skip
                         logging.warning(f"⚠️ Skipping move {direction} - blocked by {blocker}")
+
+                        # If this was part of a diagonal, cancel the second move too
+                        if diagonal_second_dir and self.action_queue:
+                            next_action = self.action_queue[0]
+                            if (next_action.action_type == "move" and
+                                next_action.params.get("direction") == diagonal_second_dir):
+                                self.action_queue.pop(0)
+                                logging.warning(f"   ↳ Cancelling diagonal second move ({diagonal_second_dir})")
+
                         # Still record the ATTEMPTED action so VLM learns from failed attempts
                         self.recent_actions.append(f"BLOCKED: move {direction} (hit {blocker})")
                         self.recent_actions = self.recent_actions[-10:]
@@ -2010,6 +2367,13 @@ class StardewAgent:
 
             # Build action context with history and repetition warnings
             action_context_parts = []
+
+            # Check for late-night urgency FIRST (overrides other goals)
+            time_hint = self._get_time_urgency_hint(self.last_state)
+            if time_hint:
+                action_context_parts.append(time_hint)
+                logging.info(f"   ⏰ Time urgency: hour >= 22, warning added")
+
             user_context = self._get_recent_user_messages()
             if user_context:
                 action_context_parts.append(
@@ -2035,11 +2399,28 @@ class StardewAgent:
                 if repeat_count >= 3:
                     # VERY PROMINENT warning - tell VLM to USE VISION
                     warning = f"🚨 STOP! You're STUCK! 🚨\nYou've done '{last_action}' {repeat_count} TIMES and it's not working!\n\n"
-                    warning += "👁️ LOOK AT THE SCREENSHOT! There's probably an obstacle blocking you.\n"
-                    warning += "USE YOUR EYES to find a path around it:\n"
-                    warning += "- See a TREE or ROCK blocking? Move sideways first to go AROUND it\n"
-                    warning += "- Can't go south? Try going LEFT or RIGHT first, THEN south\n"
-                    warning += "- Still stuck? Try a completely different route\n\n"
+
+                    # Check if stuck indoors - suggest warp
+                    current_location = ""
+                    if self.last_state:
+                        location_data = self.last_state.get("location", {})
+                        current_location = location_data.get("name", "") or ""
+
+                    if current_location in ["FarmHouse", "SeedShop", "Saloon", "JojaMart", "Blacksmith"]:
+                        warning += "🚪 STUCK INSIDE? Just use WARP to teleport outside!\n"
+                        warning += '→ {"type": "warp", "location": "Farm"}\n\n'
+                        warning += "Don't waste time finding the door - WARP is instant!\n\n"
+                    else:
+                        # Check for debris blocking adjacent tiles
+                        debris_hint = self._get_adjacent_debris_hint(self.last_state)
+                        if debris_hint:
+                            warning += debris_hint + "\n\n"
+                        else:
+                            warning += "👁️ LOOK AT THE SCREENSHOT! There's probably an obstacle blocking you.\n"
+                            warning += "USE YOUR EYES to find a path around it:\n"
+                            warning += "- See a TREE or ROCK blocking? Move sideways first to go AROUND it\n"
+                            warning += "- Can't go south? Try going WEST or EAST first, THEN south\n"
+                            warning += "- Still stuck? Try a completely different route\n\n"
                     action_context_parts.append(warning)
 
                 action_context_parts.append(f"YOUR RECENT ACTIONS (oldest→newest):\n{action_history}")

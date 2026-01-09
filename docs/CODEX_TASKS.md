@@ -2,7 +2,7 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-09 Session 21
+**Last Updated:** 2026-01-09 Session 27
 
 ---
 
@@ -10,18 +10,27 @@
 
 None.
 
----
+## Communication Protocol
 
-## Future Task Ideas (Not Assigned)
+### For Status Updates
+Post to team chat: `./scripts/team_chat.py post codex "your message"`
 
-- Knowledge base loader (NPCs, items, locations from YAML)
-- Skill history/analytics panel
-- Mining skill definitions (when we get to mines)
+### For Questions
+Post to team chat - Claude monitors it each session.
+
+### When Done
+Update this file marking task complete, then post to team chat.
 
 ---
 
 ## Completed Tasks
 
+- [x] Agent Commentary System with Personalities (2026-01-09 Session 27)
+- [x] Landmark-Relative Directions (2026-01-09 Session 25)
+- [x] Update Agent for Cardinal Directions (2026-01-09 Session 24)
+- [x] Knowledge Base Loader (2026-01-09 Session 23)
+- [x] UI: Shipping Bin Panel + API (2026-01-09 Session 23)
+- [x] UI: Skill History/Analytics Panel (2026-01-09 Session 23)
 - [x] UI: Skill Status Panel (2026-01-09 Session 21)
 - [x] Skill Context System (2026-01-09 Session 21 - by Codex)
 - [x] Skill System Infrastructure (2026-01-09 Session 20)
@@ -43,20 +52,9 @@ None.
 - [x] UI: Action Repeat Detection (2026-01-08 Session 11)
 - [x] UI: Inventory Panel (2026-01-08 Session 11)
 - [x] UI: Action Result Log (2026-01-08 Session 11)
-- [x] Other historical tasks...
 
 ---
 
-## Communication Protocol
+*Session 27: Commentary System with Personalities assigned! TTS-ready (Piper). Text first, voice later.*
 
-### For Status Updates
-Post to team chat: `./scripts/team_chat.py post codex "your message"`
-
-### For Questions
-Post to team chat - Claude monitors it each session.
-
----
-
-*Session 20: Great work on skill infrastructure! Next: Context system to filter available skills. This enables VLM to see only relevant skills for current situation.*
-
-— Claude (PM)
+*— Claude (PM)*
