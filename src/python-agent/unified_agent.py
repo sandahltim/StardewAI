@@ -637,10 +637,21 @@ class ModBridgeController:
                 crop_name = crop_here.get("cropName", "crop")
                 front_info = f">>> 🌾 HARVEST TIME! {crop_name} is READY! use_tool to PICK IT! <<<"
             elif tile_state == "tilled":
-                if "Seed" in current_tool:
-                    front_info = f">>> TILE: TILLED - You have {current_tool}, use_tool to PLANT! <<<"
+                # Check if player has seeds before showing plant message
+                inventory = state.get("inventory", []) if state else []
+                has_seeds = any("Seed" in item.get("name", "") for item in inventory)
+
+                if has_seeds:
+                    if "Seed" in current_tool:
+                        front_info = f">>> 🌱🌱🌱 PLANT NOW! TILE IS TILLED! You have {current_tool}! DO: use_tool 🌱🌱🌱 <<<"
+                    else:
+                        front_info = ">>> 🌱🌱🌱 PLANT NOW! TILE IS TILLED! DO: select_slot 5, THEN use_tool! DO NOT MOVE! 🌱🌱🌱 <<<"
                 else:
-                    front_info = ">>> TILE: TILLED - select_slot 5 for SEEDS, then use_tool to PLANT! <<<"
+                    # No seeds - treat as empty tillable ground, suggest finding crops to water
+                    if unwatered_crops:
+                        front_info = ">>> TILE: TILLED (empty, no seeds) - Move to find PLANTED crops to water! <<<"
+                    else:
+                        front_info = ">>> TILE: TILLED (empty, no seeds) - All crops watered! <<<"
             elif tile_state == "planted":
                 # Check watering can water level
                 water_left = state.get("player", {}).get("wateringCanWater", 0) if state else 0
@@ -660,7 +671,26 @@ class ModBridgeController:
                 else:
                     front_info = f">>> TILE: PLANTED - select_slot 2 for WATERING CAN ({water_left}/{water_max}), then use_tool! <<<"
             elif tile_state == "watered":
-                front_info = ">>> TILE: WATERED - DONE! Move to next clear tile. <<<"
+                # Check if this is wet EMPTY soil (canPlant=true) vs planted+watered (canPlant=false)
+                if can_plant:
+                    # Wet empty soil from rain - check if player has seeds
+                    inventory = state.get("inventory", []) if state else []
+                    has_seeds = any("Seed" in item.get("name", "") for item in inventory)
+
+                    if has_seeds:
+                        if "Seed" in current_tool:
+                            front_info = f">>> 🌱🌱🌱 WET TILLED SOIL - NEEDS PLANTING! You have {current_tool}! DO: use_tool NOW! 🌱🌱🌱 <<<"
+                        else:
+                            front_info = ">>> 🌱🌱🌱 WET TILLED SOIL - NEEDS PLANTING! DO: select_slot 5, THEN use_tool! 🌱🌱🌱 <<<"
+                    else:
+                        # No seeds - just wet empty soil
+                        if unwatered_crops:
+                            front_info = ">>> TILE: WET SOIL (no seeds) - Move to find PLANTED crops to water! <<<"
+                        else:
+                            front_info = ">>> TILE: WET SOIL (no seeds) - All crops watered! <<<"
+                else:
+                    # Actually planted and watered
+                    front_info = ">>> TILE: WATERED - DONE! Move to next tile. <<<"
             elif tile_state == "debris":
                 needed_tool = "Scythe" if tile_obj in ["Weeds", "Grass"] else "Pickaxe" if tile_obj == "Stone" else "Axe"
                 needed_slot = tool_slots.get(needed_tool, 4)
@@ -775,16 +805,25 @@ class ModBridgeController:
         # Location-specific navigation hints
         location_hint = ""
         if location_name == "FarmHouse":
-            # FarmHouse door is at the south edge, around tile (3, 11)
-            door_y = 11  # Door is typically at y=11
-            door_x = 3   # Door is typically at x=3
-            dy_to_door = door_y - player_y
-            dx_to_door = door_x - player_x
-            if dy_to_door > 0:
-                location_hint = f"🚪 EXIT: Door is {abs(dy_to_door)} tiles DOWN, {abs(dx_to_door)} tiles {'LEFT' if dx_to_door < 0 else 'RIGHT'}. Go DOWN then LEFT to exit!"
-            elif player_y >= door_y:
-                # Near the door row
-                location_hint = "🚪 EXIT: Door is on this row - go LEFT to find exit!"
+            # FarmHouse exit is at south edge - walk DOWN to exit through door
+            # Door mat is around (3, 12) - walk south to trigger exit
+            exit_y = 12  # Exit triggers when walking south past y=11
+            exit_x = 3
+            dy_to_exit = exit_y - player_y
+            dx_to_exit = exit_x - player_x
+            if abs(dx_to_exit) > 1 or dy_to_exit < 0:
+                # Need to get to exit area first
+                dirs = []
+                if dy_to_exit > 0:
+                    dirs.append(f"{dy_to_exit} DOWN")
+                if dx_to_exit > 0:
+                    dirs.append(f"{dx_to_exit} RIGHT")
+                elif dx_to_exit < 0:
+                    dirs.append(f"{abs(dx_to_exit)} LEFT")
+                location_hint = f"🚪 EXIT: Go {' then '.join(dirs)} to reach door, then keep going DOWN to exit!"
+            else:
+                # At or near exit - just go down
+                location_hint = "🚪 EXIT: Walk DOWN (south) to exit the farmhouse!"
         elif location_name == "Farm":
             # Farmhouse entrance is around (64, 15)
             farmhouse_x, farmhouse_y = 64, 15

@@ -1,7 +1,44 @@
 # Next Session - StardewAI
 
-**Last Updated:** 2026-01-08 Session 16 by Claude
-**Status:** Day 2 complete - go_to_bed action added!
+**Last Updated:** 2026-01-08 Session 17 by Claude
+**Status:** Day 4 - ALL 9 CROPS PLANTED! 🌱
+
+---
+
+## Session 17 Results
+
+### COMPLETED
+| Feature | Status |
+|---------|--------|
+| Rain Bug Fix | ✅ Wet tilled soil was showing "WATERED-DONE" |
+| Aggressive Plant Prompts | ✅ "🌱🌱🌱 PLANT NOW!" with emojis |
+| No Seeds Check | ✅ Don't show plant prompt if no seeds |
+| go_to_bed Fix | ✅ Now uses `Game1.NewDay(0.0f)` |
+| Game Knowledge DB | ✅ 12 NPCs + 36 crops scraped from wiki |
+| Spatial Map Task | ✅ Assigned to Codex |
+
+### KEY FIX: Rain Bug
+When it rained, empty tilled soil showed `state="watered"` with `canPlant=true`.
+Agent saw "TILE: WATERED - DONE!" and moved on without planting.
+
+**Fix:** Check `canPlant` - if true, soil is wet but EMPTY, show "NEEDS PLANTING!"
+
+### KEY FIX: No Seeds Check
+Agent was trying to plant with empty inventory (all seeds used).
+**Fix:** Check inventory for seeds before showing "PLANT NOW" prompt.
+
+### Game State (End of Session)
+- **Day:** 4, 11:40 AM
+- **Crops:** 9 parsnips (3 harvest Day 6, 3 Day 7, 3 Day 8)
+- **Seeds:** 0 remaining (all planted!)
+- **Next:** Water crops, sleep to Day 6, harvest
+
+### Spatial Map Task (Assigned to Codex)
+Agent tills but forgets where → can't find planted crops to water.
+Need persistent spatial memory:
+- SQLite/JSON map of tile states
+- `/api/spatial-map` endpoint
+- Query: "where are unwatered planted tiles?"
 
 ---
 

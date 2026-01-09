@@ -601,50 +601,36 @@ public class ActionExecutor
 
     private ActionResult GoToBed()
     {
-        // Warp to farmhouse bed position and trigger sleep dialog
+        // Force the day to end and advance to next day
         var player = Game1.player;
 
-        // First, ensure we're in the farmhouse
+        // Warp to farmhouse first
         if (Game1.currentLocation?.Name != "FarmHouse")
         {
             Game1.warpFarmer("FarmHouse", 9, 5, false);
         }
-        else
-        {
-            // Already in farmhouse, move to bed
-            player.Position = new Microsoft.Xna.Framework.Vector2(9 * 64f, 5 * 64f);
-        }
 
-        // Face up toward bed
-        player.FacingDirection = 0;
+        // Mark player as in bed (for proper animation/saving)
+        player.isInBed.Value = true;
 
-        // Try to find and interact with the bed
+        // Position at bed
         var farmHouse = Game1.getLocationFromName("FarmHouse") as StardewValley.Locations.FarmHouse;
         if (farmHouse != null)
         {
             var bedSpot = farmHouse.GetPlayerBedSpot();
             if (bedSpot != Microsoft.Xna.Framework.Point.Zero)
             {
-                // Position player at bed
                 player.Position = new Microsoft.Xna.Framework.Vector2(bedSpot.X * 64f, bedSpot.Y * 64f);
-                player.FacingDirection = 0;
-
-                // Trigger the bed interaction - this shows the sleep dialog
-                farmHouse.answerDialogueAction("Sleep_Yes", null);
-
-                return new ActionResult
-                {
-                    Success = true,
-                    Message = $"Going to bed at ({bedSpot.X}, {bedSpot.Y})",
-                    State = ActionState.Complete
-                };
             }
         }
+
+        // Trigger the new day transition (0.0f = instant, no fade time)
+        Game1.NewDay(0.0f);
 
         return new ActionResult
         {
             Success = true,
-            Message = "Positioned near bed - interact to sleep",
+            Message = "Going to sleep - day will advance",
             State = ActionState.Complete
         };
     }

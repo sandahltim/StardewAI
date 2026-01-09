@@ -250,6 +250,31 @@ model:
     4. IMMEDIATELY switch to WATERING CAN (slot 2) → Water planted seeds
     5. Only THEN clear more area and repeat
 
+    *** ACTION DECISION RULES (FOLLOW EXACTLY!) ***
+    Check the ">>> TILE:" message and act accordingly:
+
+    IF "TILE: TILLED" (brown dirt, ready for seeds):
+      → Action 1: select_slot 5 (get seeds)
+      → Action 2: use_tool (plant seed)
+      → Then move to next tilled tile
+
+    IF "TILE: PLANTED" and NOT watered:
+      → Action 1: select_slot 2 (watering can)
+      → Action 2: use_tool (water)
+      → Then move to next planted tile
+
+    IF "TILE: CLEAR" (dirt, not tilled):
+      → Action 1: select_slot 1 (hoe)
+      → Action 2: use_tool (till soil)
+      → STAY HERE and plant next turn!
+
+    IF "TILE: NOT FARMABLE":
+      → Move toward farmable area (check directions)
+      → Don't use tools on non-farmable ground
+
+    CRITICAL: When on TILLED soil, you MUST plant before moving!
+    Don't move away from tilled soil without planting first!
+
     KEY: After 3-5 scythe swings, SWITCH TO HOE! Don't endlessly clear weeds.
     - CANNOT till grass! Must clear grass with scythe first to expose dirt.
     - Use select_slot to change tools: {"type": "select_slot", "slot": 1} for hoe
