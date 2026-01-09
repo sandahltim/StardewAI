@@ -1,57 +1,115 @@
 # Next Session - StardewAI
 
-**Last Updated:** 2026-01-08 Session 14 by Claude
-**Status:** Ready for Day 1 full test run
+**Last Updated:** 2026-01-08 Session 15 by Claude
+**Status:** Day 1 test PASSED - planting/watering working!
 
 ---
 
-## 🧪 DAY 1 TEST PROTOCOL
+## Session 15 Results
+
+### COMPLETED
+| Feature | Status |
+|---------|--------|
+| Tool Hallucination Fix | ✅ Explicit "🔧 EQUIPPED: X" in prompt |
+| Tile Centering Fix | ✅ Snap to tile coords on move complete |
+| Day 1 Test | ✅ 3 parsnips planted & watered |
+| Codex UI Features | ✅ Stats panel, latency graph, crop countdown |
+
+### KEY FIX: Tool Hallucination
+VLM was guessing equipped tool from screenshot (unreliable).
+- VLM thought it had scythe when actually holding parsnip seeds
+- Now every prompt includes: `🔧 EQUIPPED: ToolName (slot X)`
+- Agent correctly selects tools based on explicit context
+
+### KEY FIX: Tile Centering
+Player was landing on tile edges after movement, causing tool misalignment.
+- Added `player.Position = (tileX * 64, tileY * 64)` snap when reaching destination
+- Both path-following and directional movement now snap to tile coords
+- **Note:** Requires game restart for SMAPI mod changes
+
+### DAY 1 TEST RESULTS
+- ✅ Exit farmhouse (navigated out successfully)
+- ✅ Navigate to farm (position 70,18)
+- ✅ Select seeds (slot 5 correctly)
+- ✅ Plant 3 parsnips
+- ✅ Select watering can (slot 2 correctly)
+- ✅ Water all 3 crops
+- Energy: 232/270 | Watering can: 34/40
+
+---
+
+## 🧪 FULL FARMING CYCLE TEST
 
 ### Prerequisites
 ```bash
-# 1. Start fresh Stardew Valley save (new farmer named "Rusty")
-# 2. Verify services running:
-curl http://localhost:8780/health   # llama-server (8K context)
-curl http://localhost:8790/state    # SMAPI mod
-curl http://localhost:9001/api/status  # UI server
-
-# 3. If llama-server not running:
-./scripts/start-llama-server.sh
+# 1. Fresh Stardew Valley save with farmer "Rusty" (or continue existing)
+# 2. RESTART GAME if SMAPI mod was updated (centering fix needs restart)
+# 3. Verify services:
+curl http://localhost:8780/health     # llama-server
+curl http://localhost:8790/state      # SMAPI mod
+curl http://localhost:9001/api/status # UI server
 ```
 
-### Run Agent
+### Test Phases
+
+#### Phase 1: Clear → Till → Plant → Water
 ```bash
-source venv/bin/activate
-python src/python-agent/unified_agent.py --ui --goal "Plant and water parsnip seeds"
+python src/python-agent/unified_agent.py --ui --goal "Clear weeds, till soil, plant parsnip seeds, water crops"
 ```
 
-### Expected Day 1 Behavior
-| Step | Action | Watch For |
-|------|--------|-----------|
-| 1 | Exit farmhouse | Moves right toward door, warps if stuck |
-| 2 | Navigate to farm | Position changes, finds farmable ground |
-| 3 | Clear weeds | Selects scythe (slot 4), swings |
-| 4 | Till soil | Selects hoe (slot 1), tills cleared dirt |
-| 5 | Plant seeds | Selects parsnip seeds (slot 5), plants |
-| 6 | Water | Selects watering can (slot 2), waters |
-| 7 | Repeat or rest | Continue farming or head to bed by 12am |
+| Step | Action | Tool | Success Indicator |
+|------|--------|------|-------------------|
+| 1 | Clear weeds | Scythe (4) | Weeds removed, debris gone |
+| 2 | Till soil | Hoe (1) | Brown tilled squares visible |
+| 3 | Plant seeds | Seeds (5) | Small seedling sprites appear |
+| 4 | Water crops | Can (2) | Soil darkens, can level decreases |
+
+#### Phase 2: Refill Watering Can
+```bash
+python src/python-agent/unified_agent.py --ui --goal "Refill watering can at water source"
+```
+
+| Step | Action | Success Indicator |
+|------|--------|-------------------|
+| 1 | Navigate to water | "Water is X tiles south" decreasing |
+| 2 | Face water | Player facing pond/river |
+| 3 | Use watering can | Can level resets to 40/40 |
+
+#### Phase 3: Sleep to Next Day
+```bash
+python src/python-agent/unified_agent.py --ui --goal "Go to bed and sleep"
+```
+
+| Step | Action | Success Indicator |
+|------|--------|-------------------|
+| 1 | Navigate to farmhouse | Location changes to "FarmHouse" |
+| 2 | Find bed | Position near bed coordinates |
+| 3 | Interact with bed | Day advances, new morning starts |
+
+#### Phase 4: Harvest (Day 4+)
+```bash
+python src/python-agent/unified_agent.py --ui --goal "Harvest ready crops and ship them"
+```
+
+| Step | Action | Success Indicator |
+|------|--------|-------------------|
+| 1 | Navigate to crops | Position near planted area |
+| 2 | Harvest | Parsnip added to inventory |
+| 3 | Navigate to shipping bin | Position near (71, 14) |
+| 4 | Ship | Parsnip removed, money pending |
 
 ### Success Criteria
-- [ ] No JSON parse errors in log
-- [ ] Agent exits farmhouse within 2 minutes
-- [ ] At least one crop planted and watered
-- [ ] Agent responds to obstacles (doesn't repeat same blocked move 10+ times)
+- [ ] No JSON parse errors
+- [ ] Agent selects correct tools (🔧 EQUIPPED shows in log)
+- [ ] Crops planted and watered (SMAPI shows watered=true)
+- [ ] Watering can refilled (40/40)
+- [ ] Day advances via sleeping
+- [ ] Harvest successful (Day 4+)
 
-### Known Issues to Watch
-- **Obstacle repetition**: May try blocked direction 3-5 times before adjusting
-- **Tool selection**: Sometimes slow to switch tools
-- **Door navigation**: May use warp instead of walking through door
-
-### UI Dashboard (localhost:9001)
-- VLM errors panel shows parse success/fail
-- Navigation intent shows target + blocked directions
-- Action history shows recent moves
-- Energy bar shows stamina level
+### Known Issues
+- **Tile centering**: Requires game restart after mod update
+- **Farmhouse exit**: May take several attempts to find door
+- **Bed interaction**: May need to stand on correct tile
 
 ---
 
