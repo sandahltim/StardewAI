@@ -64,3 +64,4 @@ src/smapi-mod/**/obj/
 
 # Comms (local runtime data)
 comms/
+data/

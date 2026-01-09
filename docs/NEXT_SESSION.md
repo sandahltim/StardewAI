@@ -1,7 +1,45 @@
 # Next Session - StardewAI
 
-**Last Updated:** 2026-01-08 Session 15 by Claude
-**Status:** Day 1 test PASSED - planting/watering working!
+**Last Updated:** 2026-01-08 Session 16 by Claude
+**Status:** Day 2 complete - go_to_bed action added!
+
+---
+
+## Session 16 Results
+
+### COMPLETED
+| Feature | Status |
+|---------|--------|
+| Day 1→2 Transition | ✅ Manual sleep (agent struggled) |
+| Day 2 Watering | ✅ All 3 crops watered |
+| Location Nav Hints | ✅ Added farmhouse door/farm directions |
+| `go_to_bed` Action | ✅ Added to SMAPI mod |
+| `sleep` Agent Action | ✅ Added to unified_agent.py |
+
+### KEY FIX: go_to_bed Action
+Agent was getting stuck finding farmhouse door and bed.
+- Added `go_to_bed` SMAPI action that:
+  - Warps to FarmHouse if not there
+  - Positions player at bed
+  - Triggers sleep dialog
+- Agent can now call `{"action": "sleep"}` or `{"action": "go_to_bed"}`
+- **Note:** Requires game restart for SMAPI mod changes!
+
+### KEY FIX: Location Navigation Hints
+Agent didn't know where doors/exits were located.
+- FarmHouse: `🚪 EXIT: Door is X tiles DOWN, Y tiles LEFT`
+- Farm: `🏠 FARMHOUSE DOOR: X tiles away (direction)`
+- Helps VLM navigate more efficiently
+
+### MEMORY SYSTEMS (Exist but Empty)
+- ChromaDB episodic memory: 0 items stored
+- SQLite game_knowledge.db: 0 bytes
+- Infrastructure ready but needs population
+
+### Day 2 Progress
+- ✅ 3 parsnips watered
+- Time: 2:10 PM
+- Crops: 3 days until harvest (Day 5)
 
 ---
 

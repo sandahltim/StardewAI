@@ -293,6 +293,7 @@ function updateStatus(status) {
   const shippingStatus = document.getElementById("shippingStatus");
   const shippingNote = document.getElementById("shippingNote");
   const cropProgress = document.getElementById("cropProgress");
+  const cropCountdown = document.getElementById("cropCountdown");
   const currentInstruction = document.getElementById("currentInstruction");
   const inventoryGrid = document.getElementById("inventoryGrid");
   const actionLog = document.getElementById("actionLog");
@@ -306,6 +307,13 @@ function updateStatus(status) {
   const staminaStatus = document.getElementById("staminaStatus");
   const staminaFill = document.getElementById("staminaFill");
   const actionHistory = document.getElementById("actionHistory");
+  const bedtimeStatus = document.getElementById("bedtimeStatus");
+  const bedtimeNote = document.getElementById("bedtimeNote");
+  const daySeasonStatus = document.getElementById("daySeasonStatus");
+  const daySeasonFill = document.getElementById("daySeasonFill");
+  const daySeasonNote = document.getElementById("daySeasonNote");
+  const goalProgressSummary = document.getElementById("goalProgressSummary");
+  const goalProgressList = document.getElementById("goalProgressList");
 
   const formatDuration = (seconds) => {
     if (!Number.isFinite(seconds) || seconds <= 0) return "-";
@@ -767,13 +775,12 @@ function init() {
   };
 
   const updateCropCountdown = (crops) => {
-    const countdown = document.getElementById("cropCountdown");
-    if (!countdown) return;
-    countdown.innerHTML = "";
+    if (!cropCountdown) return;
+    cropCountdown.innerHTML = "";
     if (!Array.isArray(crops) || !crops.length) {
       const li = document.createElement("li");
       li.textContent = "None";
-      countdown.append(li);
+      cropCountdown.append(li);
       return;
     }
     const grouped = {};
@@ -791,8 +798,74 @@ function init() {
         const li = document.createElement("li");
         const label = entry.days <= 0 ? "Ready now" : `${entry.days} day${entry.days === 1 ? "" : "s"}`;
         li.textContent = `${entry.name}: ${label} (x${entry.count})`;
-        countdown.append(li);
+        cropCountdown.append(li);
       });
+  };
+
+  const updateBedtime = (time, player) => {
+    if (!bedtimeStatus || !bedtimeNote) return;
+    if (!time) {
+      bedtimeStatus.textContent = "Waiting for time...";
+      bedtimeNote.textContent = "-";
+      return;
+    }
+    const hour = Number(time.hour ?? time.Hour ?? time.hour24 ?? 0);
+    const minute = Number(time.minute ?? time.Minute ?? 0);
+    const timeLabel = time.timeString || time.TimeString || `${hour}:${String(minute).padStart(2, "0")}`;
+    const stamina = Number(player?.energy ?? player?.stamina ?? 0);
+    const max = Number(player?.maxEnergy ?? player?.maxStamina ?? 0);
+    const lowEnergy = max ? stamina / max <= 0.25 : stamina <= 10;
+    const late = hour >= 24 || (hour >= 22 && minute >= 0);
+    let suggestion = "Plenty of time.";
+    if (hour >= 26) {
+      suggestion = "Too late! Pass out risk.";
+    } else if (late && lowEnergy) {
+      suggestion = "Low energy + late. Consider sleeping.";
+    } else if (late) {
+      suggestion = "It's getting late. Wrap up soon.";
+    } else if (lowEnergy) {
+      suggestion = "Energy is low. Plan to sleep soon.";
+    }
+    bedtimeStatus.textContent = `Time: ${timeLabel}`;
+    bedtimeNote.textContent = suggestion;
+  };
+
+  const updateDaySeason = (time) => {
+    if (!daySeasonStatus || !daySeasonFill || !daySeasonNote) return;
+    if (!time) {
+      daySeasonStatus.textContent = "Waiting for time...";
+      daySeasonFill.style.width = "0%";
+      daySeasonNote.textContent = "-";
+      return;
+    }
+    const season = (time.season || time.Season || "").toString();
+    const day = Number(time.day ?? time.Day ?? 0);
+    const dayOfWeek = time.dayOfWeek || time.DayOfWeek || "";
+    const labelSeason = season ? season.charAt(0).toUpperCase() + season.slice(1) : "Unknown";
+    const pct = day ? Math.max(0, Math.min(100, Math.round((day / 28) * 100))) : 0;
+    daySeasonStatus.textContent = `${labelSeason} Day ${day || "?"} ${dayOfWeek ? `(${dayOfWeek})` : ""}`.trim();
+    daySeasonFill.style.width = `${pct}%`;
+    daySeasonNote.textContent = `${day || 0}/28 days`;
+  };
+
+  const updateGoalProgress = (tasks) => {
+    if (!goalProgressSummary || !goalProgressList) return;
+    goalProgressList.innerHTML = "";
+    if (!Array.isArray(tasks) || !tasks.length) {
+      goalProgressSummary.textContent = "No tasks";
+      const li = document.createElement("li");
+      li.textContent = "None";
+      goalProgressList.append(li);
+      return;
+    }
+    const done = tasks.filter((task) => task.status === "done").length;
+    goalProgressSummary.textContent = `${done}/${tasks.length} done`;
+    tasks.slice(0, 6).forEach((task) => {
+      const li = document.createElement("li");
+      const mark = task.status === "done" ? "[x]" : "[ ]";
+      li.textContent = `${mark} ${task.title}`;
+      goalProgressList.append(li);
+    });
   };
 
   const updateCropStatus = (crops) => {
@@ -1406,6 +1479,14 @@ function init() {
       })
       .catch(() => {});
 
+    fetch("/api/tasks")
+      .then((res) => res.json())
+      .then((tasks) => {
+        if (!Array.isArray(tasks)) return;
+        updateGoalProgress(tasks);
+      })
+      .catch(() => {});
+
     const smapiBase = `${window.location.protocol}//${window.location.hostname}:8790`;
     fetch(`${smapiBase}/surroundings`)
       .then((res) => res.json())
@@ -1445,6 +1526,8 @@ function init() {
         updateHarvestStatus(latestState?.location?.crops);
         updateInventoryGrid(latestState?.inventory, latestState?.player?.currentToolIndex);
         updateStamina(latestPlayer);
+        updateBedtime(latestState?.time, latestPlayer);
+        updateDaySeason(latestState?.time);
         if (locationDisplay) {
           locationDisplay.textContent = latestState?.location?.name || "Unknown";
         }
@@ -1459,6 +1542,8 @@ function init() {
         updateShippingBin(null);
         updateCropProgress(null);
         updateCropCountdown(null);
+        updateBedtime(null, null);
+        updateDaySeason(null);
       });
   }, pollIntervalMs);
 

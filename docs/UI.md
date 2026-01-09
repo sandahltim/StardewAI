@@ -172,6 +172,18 @@ Suggested implementation:
 - Countdown list groups `location.crops[]` by crop name and days until harvest.
 - Shows the soonest-ready crops at a glance.
 
+## Bedtime Indicator
+
+- Shows current time and suggests when to sleep based on late hours or low energy.
+
+## Day/Season Progress
+
+- Displays day-of-season progress with a simple progress bar.
+
+## Goal Progress Checklist
+
+- Uses `/api/tasks` to show a small checklist with done/total progress.
+
 ## Crop Status
 
 - Watered summary uses `location.crops[].isWatered` from `/state`.

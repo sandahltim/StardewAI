@@ -8,42 +8,7 @@
 
 ## Active Tasks
 
-### 1. MEDIUM: Bedtime/Sleep Indicator
-**Why:** Agent needs to know when to sleep - energy drops, time gets late, need to advance day.
-
-**What:** Add panel showing:
-- Current time (prominently, e.g., "5:00 PM")
-- Time until forced collapse (2 AM)
-- Energy-based sleep suggestion: "Energy low - consider sleeping"
-- "Day complete" indicator when major tasks done
-
-**Data source:** `/api/status` has `time`, `energy`, `maxEnergy`
-
----
-
-### 2. LOW: Day/Season Progress
-**Why:** Useful context for tracking multi-day crop growth and seasonal planning.
-
-**What:** Simple display:
-- "Day 2 of Spring, Year 1"
-- Maybe a 28-day progress bar for the season
-
-**Data source:** SMAPI state has `day`, `season`, `year`
-
----
-
-### 3. LOW: Goal Progress Checklist
-**Why:** Help track which farming tasks are done today.
-
-**What:** Visual checklist updated by agent:
-- [ ] Exit house
-- [ ] Water crops (X/Y)
-- [ ] Plant seeds (if any)
-- [ ] Harvest ready (X)
-- [ ] Ship items
-- [ ] Go to bed
-
-**Data source:** Could be `/api/goals` or inferred from action history
+None.
 
 ---
 
@@ -59,6 +24,9 @@
 
 ## Completed Tasks
 
+- [x] UI: Bedtime/Sleep Indicator (2026-01-09 Session 15)
+- [x] UI: Day/Season Progress Display (2026-01-09 Session 15)
+- [x] UI: Goal Progress Checklist (2026-01-09 Session 15)
 - [x] UI: Session Stats Panel (2026-01-08 Session 14)
 - [x] UI: VLM Latency Graph (2026-01-08 Session 14)
 - [x] UI: Crop Maturity Countdown (2026-01-08 Session 14)

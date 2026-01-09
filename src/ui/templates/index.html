@@ -247,6 +247,19 @@
             <div id="staminaFill" class="stamina-bar__fill"></div>
           </div>
         </div>
+        <div class="bedtime-card">
+          <div class="vlm-subhead">Bedtime</div>
+          <div id="bedtimeStatus" class="bedtime-status">Waiting for time...</div>
+          <p id="bedtimeNote" class="bedtime-note">-</p>
+        </div>
+        <div class="day-season-card">
+          <div class="vlm-subhead">Day/Season</div>
+          <div id="daySeasonStatus" class="day-season-status">Waiting for time...</div>
+          <div class="day-season-bar">
+            <div id="daySeasonFill" class="day-season-bar__fill"></div>
+          </div>
+          <p id="daySeasonNote" class="bedtime-note">-</p>
+        </div>
         <div class="inventory-card">
           <div class="vlm-subhead">Toolbar Inventory</div>
           <div id="inventoryGrid" class="inventory-grid">
@@ -283,6 +296,13 @@
         <div class="action-repeat-card">
           <div class="vlm-subhead">Action Repeat</div>
           <div id="actionRepeat" class="action-repeat">No repeats detected</div>
+        </div>
+        <div class="goal-progress-card">
+          <div class="vlm-subhead">Goal Progress</div>
+          <div id="goalProgressSummary" class="goal-progress__summary">No tasks</div>
+          <ol id="goalProgressList" class="goal-progress__list">
+            <li>None</li>
+          </ol>
         </div>
         <details class="session-timeline">
           <summary>Session Timeline</summary>

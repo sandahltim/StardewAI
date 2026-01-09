@@ -590,7 +590,10 @@ h2 {
 
 .harvest-card,
 .stamina-card,
-.action-history-card {
+.action-history-card,
+.bedtime-card,
+.day-season-card,
+.goal-progress-card {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 12px;
@@ -658,6 +661,45 @@ h2 {
 
 .stamina-bar__fill.low {
   background: #ef4444;
+}
+
+.bedtime-status,
+.day-season-status {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.bedtime-note {
+  margin: 0;
+  color: var(--muted);
+}
+
+.day-season-bar {
+  width: 100%;
+  height: 10px;
+  background: #f4efe6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.day-season-bar__fill {
+  height: 100%;
+  width: 0%;
+  background: #60a5fa;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.goal-progress__summary {
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.goal-progress__list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
 }
 
 .location-display {

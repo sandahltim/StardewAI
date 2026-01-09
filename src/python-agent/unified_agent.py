@@ -772,8 +772,41 @@ class ModBridgeController:
                 bin_dir_str = " and ".join(bin_dirs) if bin_dirs else "here"
                 shipping_info = f"📦 SHIPPING BIN: {distance} tiles away ({bin_dir_str})"
 
+        # Location-specific navigation hints
+        location_hint = ""
+        if location_name == "FarmHouse":
+            # FarmHouse door is at the south edge, around tile (3, 11)
+            door_y = 11  # Door is typically at y=11
+            door_x = 3   # Door is typically at x=3
+            dy_to_door = door_y - player_y
+            dx_to_door = door_x - player_x
+            if dy_to_door > 0:
+                location_hint = f"🚪 EXIT: Door is {abs(dy_to_door)} tiles DOWN, {abs(dx_to_door)} tiles {'LEFT' if dx_to_door < 0 else 'RIGHT'}. Go DOWN then LEFT to exit!"
+            elif player_y >= door_y:
+                # Near the door row
+                location_hint = "🚪 EXIT: Door is on this row - go LEFT to find exit!"
+        elif location_name == "Farm":
+            # Farmhouse entrance is around (64, 15)
+            farmhouse_x, farmhouse_y = 64, 15
+            dx = farmhouse_x - player_x
+            dy = farmhouse_y - player_y
+            distance = abs(dx) + abs(dy)
+            if distance > 0:
+                dirs = []
+                if dy < 0:
+                    dirs.append(f"{abs(dy)} UP")
+                elif dy > 0:
+                    dirs.append(f"{abs(dy)} DOWN")
+                if dx < 0:
+                    dirs.append(f"{abs(dx)} LEFT")
+                elif dx > 0:
+                    dirs.append(f"{abs(dx)} RIGHT")
+                location_hint = f"🏠 FARMHOUSE DOOR: {distance} tiles away ({' and '.join(dirs)})"
+
         # Assemble result with explicit tool context always visible
         header_parts = [location_header, tool_info]
+        if location_hint:
+            header_parts.append(location_hint)
         if shipping_info:
             header_parts.append(shipping_info)
         if front_info:
@@ -858,6 +891,9 @@ class ModBridgeController:
 
             elif action_type == "cancel":
                 return self._send_action({"action": "cancel"})
+
+            elif action_type == "sleep" or action_type == "go_to_bed":
+                return self._send_action({"action": "go_to_bed"})
 
             elif action_type in ("toolbar_next", "toolbar_right"):
                 return self._send_action({"action": "toolbar_next"})
