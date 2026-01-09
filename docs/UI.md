@@ -59,6 +59,8 @@ If you wire the agent to the UI, these endpoints are the minimal surface:
 - `GET /api/tasks`: Read the task queue.
 - `POST /api/status`: Update agent runtime state.
 - `GET /api/messages`: Read user + agent chat history (used for prompt context).
+- `GET /api/spatial-map`: Read spatial memory tiles (filters supported).
+- `POST /api/spatial-map`: Update spatial memory tiles.
 - `POST /api/confirm`: Grant one-time execution permission when confirm-before-execute is enabled.
 - `POST /api/action/pending`: Set the next action for approval (`pending_action` fields in status).
 - `POST /api/action/clear`: Clear pending action + reset confirmation.
@@ -183,6 +185,12 @@ Suggested implementation:
 ## Goal Progress Checklist
 
 - Uses `/api/tasks` to show a small checklist with done/total progress.
+
+## Spatial Memory Map
+
+- JSON tile map per location stored in `logs/spatial_map/`.
+- `GET /api/spatial-map?location=Farm&state=tilled&not_planted=true` returns tiles that need planting.
+- `POST /api/spatial-map` updates tiles with `{ location, tiles }`.
 
 ## Crop Status
 

@@ -2,38 +2,13 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-08 Session 15
+**Last Updated:** 2026-01-09 Session 17
 
 ---
 
 ## Active Tasks
 
-### HIGH: Spatial Memory Map
-**Priority:** High
-**Assigned:** 2026-01-08 Session 17
-
-Build a spatial memory system that the agent can update and reference:
-1. Create a simple 2D grid map of the farm (stored in SQLite or JSON)
-2. Track tile states: tilled, planted, watered, crop type, obstacles
-3. API endpoint `/api/spatial-map` to get/update tile info
-4. Agent can query "where are tilled but unplanted tiles?"
-5. Agent can mark tiles as worked
-
-**Why needed:** Agent tills soil but forgets where it is, doesn't plant.
-A persistent map lets it remember locations between turns.
-
-**Files to create/modify:**
-- `src/python-agent/memory/spatial_map.py` - Map storage and queries
-- `src/ui/app.py` - Add `/api/spatial-map` endpoint
-- Optional: UI visualization of the map
-
-**Test command:**
-```python
-from memory.spatial_map import SpatialMap
-farm_map = SpatialMap("Farm")
-farm_map.set_tile(70, 18, {"state": "tilled", "worked_at": "Day 3"})
-tilled = farm_map.find_tiles(state="tilled", not_planted=True)
-```
+None.
 
 ---
 
@@ -49,6 +24,7 @@ tilled = farm_map.find_tiles(state="tilled", not_planted=True)
 
 ## Completed Tasks
 
+- [x] Spatial Memory Map (2026-01-09 Session 17)
 - [x] UI: Bedtime/Sleep Indicator (2026-01-09 Session 15)
 - [x] UI: Day/Season Progress Display (2026-01-09 Session 15)
 - [x] UI: Goal Progress Checklist (2026-01-09 Session 15)

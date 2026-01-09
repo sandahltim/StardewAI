@@ -42,12 +42,14 @@ except ImportError:
 try:
     from memory import get_memory, get_context_for_vlm, should_remember
     from memory.game_knowledge import get_npc_info
+    from memory.spatial_map import SpatialMap
     HAS_MEMORY = True
 except ImportError:
     get_memory = None
     get_context_for_vlm = None
     should_remember = None
     get_npc_info = None
+    SpatialMap = None
     HAS_MEMORY = False
 
 # =============================================================================
@@ -568,9 +570,15 @@ class ModBridgeController:
             else:
                 blocker = info.get("blocker", "obstacle")
                 tiles = info.get("tilesUntilBlocked", 0)
-                desc = f"{direction}: BLOCKED ({blocker}, {tiles} tile{'s' if tiles != 1 else ''})"
+                # Special case: water is not a blocker, it's a resource!
+                if "water" in blocker.lower():
+                    desc = f"{direction}: 💧 WATER ({tiles} tile{'s' if tiles != 1 else ''}) - refill here!"
+                else:
+                    desc = f"{direction}: BLOCKED ({blocker}, {tiles} tile{'s' if tiles != 1 else ''})"
                 if direction == facing_dir:
-                    if blocker in ["Weeds", "Grass"]:
+                    if "water" in blocker.lower():
+                        front_info = f">>> 💧 WATER SOURCE! select_slot 2 (Watering Can), use_tool to REFILL! <<<"
+                    elif blocker in ["Weeds", "Grass"]:
                         front_info = f"IN FRONT OF YOU: {blocker} - use SCYTHE to clear!"
                     elif blocker == "Stone":
                         front_info = f"IN FRONT OF YOU: {blocker} - use PICKAXE to break!"
@@ -581,6 +589,22 @@ class ModBridgeController:
             parts.append(desc)
 
         result = "DIRECTIONS: " + " | ".join(parts)
+
+        # Add hint if surrounded by clearable debris
+        clearable_debris = []
+        for direction in ["up", "down", "left", "right"]:
+            info = dirs.get(direction, {})
+            if not info.get("clear"):
+                blocker = info.get("blocker", "")
+                dist = info.get("tilesUntilBlocked", 0)
+                if dist == 0 and blocker in ["Weeds", "Grass", "Stone", "Twig", "Wood"]:
+                    tool = "SCYTHE" if blocker in ["Weeds", "Grass"] else "PICKAXE" if blocker == "Stone" else "AXE"
+                    clearable_debris.append((direction, blocker, tool))
+
+        if clearable_debris and not front_info:
+            # Pick closest clearable debris
+            d, b, t = clearable_debris[0]
+            front_info = f">>> BLOCKED! Face {d.upper()}, select {t}, use_tool to clear {b}! <<<"
 
         # Add current tile state from game data (more reliable than vision)
         current_tile = data.get("currentTile", {})
@@ -623,16 +647,19 @@ class ModBridgeController:
                         break
 
                 if water_adjacent:
-                    # AT THE WATER - just use_tool to refill!
-                    front_info = f">>> ⚠️ WATERING CAN EMPTY! You're AT the water ({water_adjacent})! Face {water_adjacent} and use_tool to REFILL NOW! <<<"
+                    # AT THE WATER - select watering can, then use_tool to refill!
+                    if "Watering" in current_tool:
+                        front_info = f">>> ⚠️ AT WATER! Face {water_adjacent}, use_tool to REFILL! <<<"
+                    else:
+                        front_info = f">>> ⚠️ AT WATER! select_slot 2 (Watering Can), face {water_adjacent}, use_tool to REFILL! <<<"
                 else:
                     nearest_water = data.get("nearestWater")
                     if nearest_water:
                         water_dir = nearest_water.get("direction", "nearby")
                         water_dist = nearest_water.get("distance", "?")
-                        front_info = f">>> ⚠️ WATERING CAN EMPTY! REFILL FIRST! Water is {water_dist} tiles {water_dir} - go there and use_tool! <<<"
+                        front_info = f">>> ⚠️ WATERING CAN EMPTY! Go {water_dist} tiles {water_dir} to water, select_slot 2, use_tool to REFILL! <<<"
                     else:
-                        front_info = ">>> ⚠️ WATERING CAN EMPTY! REFILL FIRST! Find water (pond/river) and use_tool! <<<"
+                        front_info = ">>> ⚠️ WATERING CAN EMPTY! Find water (pond/river), select_slot 2, use_tool to REFILL! <<<"
             elif crop_here and crop_here.get("isReadyForHarvest"):
                 crop_name = crop_here.get("cropName", "crop")
                 front_info = f">>> 🌾 HARVEST TIME! {crop_name} is READY! use_tool to PICK IT! <<<"
@@ -653,23 +680,28 @@ class ModBridgeController:
                     else:
                         front_info = ">>> TILE: TILLED (empty, no seeds) - All crops watered! <<<"
             elif tile_state == "planted":
-                # Check watering can water level
-                water_left = state.get("player", {}).get("wateringCanWater", 0) if state else 0
-                water_max = state.get("player", {}).get("wateringCanMax", 40) if state else 40
-
-                if water_left <= 0:
-                    # Get nearest water location
-                    nearest_water = data.get("nearestWater")
-                    if nearest_water:
-                        water_dir = nearest_water.get("direction", "nearby")
-                        water_dist = nearest_water.get("distance", "?")
-                        front_info = f">>> WATERING CAN EMPTY! Water is {water_dist} tiles {water_dir} - go there and use_tool to REFILL! <<<"
-                    else:
-                        front_info = ">>> WATERING CAN EMPTY! Find water (pond/river) and use_tool to REFILL! <<<"
-                elif "Watering" in current_tool:
-                    front_info = f">>> TILE: PLANTED - You have {current_tool} ({water_left}/{water_max}), use_tool to WATER! <<<"
+                # CROP PROTECTION: Warn if holding wrong tool
+                dangerous_tools = ["Scythe", "Hoe", "Pickaxe", "Axe"]
+                if any(tool.lower() in current_tool.lower() for tool in dangerous_tools):
+                    front_info = f">>> ⚠️ CROP HERE! DO NOT use {current_tool}! Select WATERING CAN (slot 2) first! <<<"
                 else:
-                    front_info = f">>> TILE: PLANTED - select_slot 2 for WATERING CAN ({water_left}/{water_max}), then use_tool! <<<"
+                    # Check watering can water level
+                    water_left = state.get("player", {}).get("wateringCanWater", 0) if state else 0
+                    water_max = state.get("player", {}).get("wateringCanMax", 40) if state else 40
+
+                    if water_left <= 0:
+                        # Get nearest water location
+                        nearest_water = data.get("nearestWater")
+                        if nearest_water:
+                            water_dir = nearest_water.get("direction", "nearby")
+                            water_dist = nearest_water.get("distance", "?")
+                            front_info = f">>> WATERING CAN EMPTY! Water is {water_dist} tiles {water_dir} - go there and use_tool to REFILL! <<<"
+                        else:
+                            front_info = ">>> WATERING CAN EMPTY! Find water (pond/river) and use_tool to REFILL! <<<"
+                    elif "Watering" in current_tool:
+                        front_info = f">>> TILE: PLANTED - You have {current_tool} ({water_left}/{water_max}), use_tool to WATER! <<<"
+                    else:
+                        front_info = f">>> TILE: PLANTED - select_slot 2 for WATERING CAN ({water_left}/{water_max}), then use_tool! <<<"
             elif tile_state == "watered":
                 # Check if this is wet EMPTY soil (canPlant=true) vs planted+watered (canPlant=false)
                 if can_plant:
@@ -689,8 +721,34 @@ class ModBridgeController:
                         else:
                             front_info = ">>> TILE: WET SOIL (no seeds) - All crops watered! <<<"
                 else:
-                    # Actually planted and watered
-                    front_info = ">>> TILE: WATERED - DONE! Move to next tile. <<<"
+                    # Actually planted and watered - give specific direction to next unwatered crop
+                    crops = state.get("location", {}).get("crops", []) if state else []
+                    # Check both isWatered and watered fields (SMAPI inconsistency)
+                    unwatered_nearby = [c for c in crops if not c.get("isWatered") and not c.get("watered")]
+                    if unwatered_nearby:
+                        player_x = state.get("player", {}).get("tileX", 0) if state else 0
+                        player_y = state.get("player", {}).get("tileY", 0) if state else 0
+                        # Exclude current tile
+                        unwatered_others = [c for c in unwatered_nearby if c["x"] != player_x or c["y"] != player_y]
+                        if unwatered_others:
+                            nearest = min(unwatered_others, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+                            dx = nearest["x"] - player_x
+                            dy = nearest["y"] - player_y
+                            dirs = []
+                            if dy < 0:
+                                dirs.append(f"{abs(dy)} UP")
+                            elif dy > 0:
+                                dirs.append(f"{abs(dy)} DOWN")
+                            if dx < 0:
+                                dirs.append(f"{abs(dx)} LEFT")
+                            elif dx > 0:
+                                dirs.append(f"{abs(dx)} RIGHT")
+                            direction_str = " then ".join(dirs) if dirs else "nearby"
+                            front_info = f">>> TILE: WATERED ✓ - NEXT CROP: move {direction_str}! ({len(unwatered_others)} more to water) <<<"
+                        else:
+                            front_info = self._get_done_farming_hint(state, data)
+                    else:
+                        front_info = self._get_done_farming_hint(state, data)
             elif tile_state == "debris":
                 needed_tool = "Scythe" if tile_obj in ["Weeds", "Grass"] else "Pickaxe" if tile_obj == "Stone" else "Axe"
                 needed_slot = tool_slots.get(needed_tool, 4)
@@ -848,10 +906,67 @@ class ModBridgeController:
             header_parts.append(location_hint)
         if shipping_info:
             header_parts.append(shipping_info)
+
+        # Bedtime hint based on time and energy
+        bedtime_hint = ""
+        if state:
+            hour = state.get("time", {}).get("hour", 6)
+            energy = state.get("player", {}).get("energy", 270)
+            max_energy = state.get("player", {}).get("maxEnergy", 270)
+            energy_pct = (energy / max_energy * 100) if max_energy > 0 else 100
+
+            if hour >= 24 or hour < 2:  # Midnight to 2 AM - critical
+                bedtime_hint = "⚠️ VERY LATE! You'll pass out soon! Consider: go_to_bed"
+            elif hour >= 22:  # 10 PM+
+                bedtime_hint = "🌙 It's late (10PM+). Consider going to bed soon."
+            elif hour >= 20:  # 8 PM+
+                bedtime_hint = "🌆 Evening time. Finish up tasks, bed is an option."
+            elif energy_pct <= 20:
+                bedtime_hint = "😓 Energy very low! Consider resting or going to bed."
+            elif energy_pct <= 35:
+                bedtime_hint = "😐 Energy getting low. Pace yourself."
+
+        if bedtime_hint:
+            header_parts.append(bedtime_hint)
+
         if front_info:
             header_parts.append(front_info)
         header_parts.append(result)
         return "\n".join(header_parts)
+
+    def _get_done_farming_hint(self, state: dict, surroundings: dict) -> str:
+        """Get hint when all crops are watered - suggest clearing debris or bed."""
+        if not state:
+            return ">>> ALL CROPS WATERED! ✓ Go to bed or explore. <<<"
+
+        hour = state.get("time", {}).get("hour", 12)
+        energy = state.get("player", {}).get("energy", 100)
+        energy_pct = (energy / state.get("player", {}).get("maxEnergy", 270) * 100) if state.get("player", {}).get("maxEnergy", 270) > 0 else 100
+        player_x = state.get("player", {}).get("tileX", 0)
+        player_y = state.get("player", {}).get("tileY", 0)
+
+        # Check for nearby debris in surroundings
+        nearby_debris = []
+        if surroundings:
+            for direction, info in surroundings.get("directions", {}).items():
+                blocker = info.get("blockerName", "")
+                if blocker in ["Stone", "Weeds", "Twig", "Wood", "Log", "Stump", "Boulder"]:
+                    dist = info.get("tilesUntilBlocked", 5)
+                    nearby_debris.append((direction, blocker, dist))
+
+        # If it's late or low energy, suggest bed
+        if hour >= 20 or energy_pct <= 30:
+            return ">>> ALL CROPS WATERED! ✓ Use action 'go_to_bed' (auto-warps home + sleeps). <<<"
+
+        # If there's nearby debris and we have energy, suggest clearing
+        if nearby_debris and energy_pct > 40:
+            closest = min(nearby_debris, key=lambda x: x[2])
+            direction, debris_type, dist = closest
+            tool = "SCYTHE" if debris_type in ["Weeds", "Grass"] else "PICKAXE" if debris_type in ["Stone", "Boulder"] else "AXE"
+            return f">>> ALL CROPS WATERED! ✓ Clear {debris_type} {dist} tiles {direction.upper()} with {tool}, or use action 'go_to_bed'. <<<"
+
+        # Default
+        return ">>> ALL CROPS WATERED! ✓ Clear debris to expand farm, or use action 'go_to_bed' (auto-warps + sleeps). <<<"
 
     def execute(self, action: Action) -> bool:
         """Execute an action via SMAPI mod API."""
@@ -1163,6 +1278,9 @@ class StardewAgent:
         self.latency_history: List[float] = []
         self.last_user_message_id = 0
         self.awaiting_user_reply = False
+        self.spatial_map = None
+        self.spatial_location = None
+        self.last_surroundings: Optional[Dict[str, Any]] = None
         self.ui = None
         self.ui_enabled = False
 
@@ -1287,6 +1405,111 @@ class StardewAgent:
             return
         self._ui_safe(self.ui.add_session_event, event_type, data)
 
+    def _ensure_spatial_map(self, location: Optional[str]) -> None:
+        if SpatialMap is None or not location:
+            return
+        if self.spatial_location != location or self.spatial_map is None:
+            self.spatial_location = location
+            self.spatial_map = SpatialMap(location)
+
+    def _update_spatial_map_from_state(self) -> None:
+        if not self.last_state or SpatialMap is None:
+            return
+        location = (self.last_state.get("location") or {}).get("name")
+        self._ensure_spatial_map(location)
+        if not self.spatial_map:
+            return
+        loc = self.last_state.get("location") or {}
+        crops = loc.get("crops") or []
+        objects = loc.get("objects") or []
+        updates: List[Dict[str, Any]] = []
+
+        for crop in crops:
+            x = crop.get("x")
+            y = crop.get("y")
+            if x is None or y is None:
+                continue
+            state = "planted"
+            if crop.get("isReadyForHarvest"):
+                state = "ready"
+            elif crop.get("isWatered"):
+                state = "watered"
+            updates.append({
+                "x": x,
+                "y": y,
+                "state": state,
+                "crop": crop.get("cropName"),
+                "watered": bool(crop.get("isWatered")),
+            })
+
+        for obj in objects:
+            if obj.get("isPassable", True):
+                continue
+            updates.append({
+                "x": obj.get("x"),
+                "y": obj.get("y"),
+                "state": "obstacle",
+                "obstacle": obj.get("name"),
+            })
+
+        if self.last_surroundings:
+            tile = (self.last_surroundings.get("currentTile") or {})
+            player = self.last_state.get("player") or {}
+            x = player.get("tileX")
+            y = player.get("tileY")
+            if x is not None and y is not None and tile:
+                state = tile.get("state")
+                if state:
+                    updates.append({
+                        "x": x,
+                        "y": y,
+                        "state": state,
+                        "obstacle": tile.get("object"),
+                    })
+
+        if updates:
+            self.spatial_map.update_tiles(updates)
+
+    def _mark_current_tile_worked(self) -> None:
+        if not self.spatial_map or not self.last_state:
+            return
+        player = self.last_state.get("player") or {}
+        x = player.get("tileX")
+        y = player.get("tileY")
+        if x is None or y is None:
+            return
+        existing = self.spatial_map.get_tile(x, y) or {}
+        existing["x"] = x
+        existing["y"] = y
+        existing["worked_at"] = datetime.now().isoformat(timespec="seconds")
+        self.spatial_map.set_tile(x, y, existing)
+
+    def _get_spatial_hint(self) -> str:
+        if not self.spatial_map or not self.last_state:
+            return ""
+        player = self.last_state.get("player") or {}
+        px = player.get("tileX")
+        py = player.get("tileY")
+        if px is None or py is None:
+            return ""
+        candidates = self.spatial_map.find_tiles(state="tilled", not_planted=True)
+        if not candidates:
+            return ""
+        nearest = min(candidates, key=lambda t: abs(t.x - px) + abs(t.y - py))
+        dx = nearest.x - px
+        dy = nearest.y - py
+        dirs = []
+        if dy < 0:
+            dirs.append(f"{abs(dy)} UP")
+        elif dy > 0:
+            dirs.append(f"{abs(dy)} DOWN")
+        if dx < 0:
+            dirs.append(f"{abs(dx)} LEFT")
+        elif dx > 0:
+            dirs.append(f"{abs(dx)} RIGHT")
+        direction_str = " and ".join(dirs) if dirs else "here"
+        return f"SPATIAL MAP: TILLED but UNPLANTED tile at {nearest.x},{nearest.y} ({direction_str})."
+
     def _refresh_state_snapshot(self) -> None:
         if not hasattr(self.controller, "get_state"):
             return
@@ -1300,6 +1523,12 @@ class StardewAgent:
             return
         self.last_state_poll = now
         self.last_state = state
+
+        if hasattr(self.controller, "get_surroundings"):
+            try:
+                self.last_surroundings = self.controller.get_surroundings()
+            except Exception:
+                self.last_surroundings = None
 
         player = state.get("player") or {}
         tile_x = player.get("tileX")
@@ -1325,6 +1554,8 @@ class StardewAgent:
         if current_tool:
             self.last_tool = current_tool
 
+        self._update_spatial_map_from_state()
+
     def _record_action_event(self, action: Action, success: bool) -> None:
         self.action_count += 1
         if not success:
@@ -1344,6 +1575,7 @@ class StardewAgent:
                     self.crops_harvested_count += 1
                 elif crop_here and not crop_here.get("isWatered", True) and "Watering" in tool:
                     self.crops_watered_count += 1
+                self._mark_current_tile_worked()
         self._record_session_event("action", {
             "action_type": action.action_type,
             "params": action.params,
@@ -1578,6 +1810,7 @@ class StardewAgent:
 
             self.vlm_status = "Thinking"
             self._send_ui_status()
+            self._refresh_state_snapshot()
 
             # Capture screen (crop for co-op mode)
             crop = self.config.coop_region if self.config.mode == "coop" else None
@@ -1621,6 +1854,9 @@ class StardewAgent:
                 action_context_parts.append(
                     f"USER MESSAGES (respond in reasoning):\n{user_context}"
                 )
+            spatial_hint = self._get_spatial_hint()
+            if spatial_hint:
+                action_context_parts.append(spatial_hint)
             if self.recent_actions:
                 action_history = "\n".join(f"  {i+1}. {a}" for i, a in enumerate(self.recent_actions))
                 # Detect repetition - warn if same action 3+ times in last 5

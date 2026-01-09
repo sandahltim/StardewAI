@@ -10,6 +10,7 @@ from .game_knowledge import (
 )
 from .episodic import EpisodicMemory, get_memory, should_remember
 from .retrieval import get_context_for_vlm, format_memory_for_storage
+from .spatial_map import SpatialMap
 
 __all__ = [
     # Game knowledge (SQLite)
@@ -28,4 +29,5 @@ __all__ = [
     # Combined retrieval
     "get_context_for_vlm",
     "format_memory_for_storage",
+    "SpatialMap",
 ]

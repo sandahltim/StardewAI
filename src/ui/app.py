@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 from typing import Any, Dict, List, Optional
 import hashlib
 import json
@@ -24,6 +25,15 @@ except ImportError:  # pragma: no cover - optional dependency
     Settings = None
 
 from . import storage
+
+AGENT_DIR = (Path(__file__).resolve().parent.parent / "python-agent").resolve()
+if AGENT_DIR.exists() and str(AGENT_DIR) not in sys.path:
+    sys.path.append(str(AGENT_DIR))
+
+try:
+    from memory.spatial_map import SpatialMap
+except Exception:  # pragma: no cover - optional for UI
+    SpatialMap = None
 
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -143,6 +153,22 @@ class TeamMessageCreate(BaseModel):
 class SessionEventCreate(BaseModel):
     event_type: str = Field(description="Event type: position, action, tool_use")
     data: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SpatialTile(BaseModel):
+    x: int
+    y: int
+    state: Optional[str] = None
+    crop: Optional[str] = None
+    watered: Optional[bool] = None
+    obstacle: Optional[str] = None
+    worked_at: Optional[str] = None
+
+
+class SpatialMapUpdate(BaseModel):
+    location: str = Field(default="Farm")
+    tiles: List[SpatialTile] = Field(default_factory=list)
+    tile: Optional[SpatialTile] = None
 
 
 class ConnectionManager:
@@ -612,6 +638,45 @@ async def create_team_message(payload: TeamMessageCreate) -> Dict[str, Any]:
 
 
 # --- Session Memory ---
+
+@app.get("/api/spatial-map")
+def get_spatial_map(
+    location: str = "Farm",
+    state: Optional[str] = None,
+    crop: Optional[str] = None,
+    watered: Optional[bool] = None,
+    not_planted: bool = False,
+    not_worked: bool = False,
+) -> Dict[str, Any]:
+    if SpatialMap is None:
+        raise HTTPException(status_code=503, detail="Spatial map unavailable")
+    spatial_map = SpatialMap(location)
+    tiles = []
+    for entry in spatial_map.find_tiles(
+        state=state,
+        crop=crop,
+        watered=watered,
+        not_planted=not_planted,
+        not_worked=not_worked,
+    ):
+        data = dict(entry.data)
+        data.setdefault("x", entry.x)
+        data.setdefault("y", entry.y)
+        tiles.append(data)
+    return {"location": location, "tiles": tiles}
+
+
+@app.post("/api/spatial-map")
+async def update_spatial_map(payload: SpatialMapUpdate) -> Dict[str, Any]:
+    if SpatialMap is None:
+        raise HTTPException(status_code=503, detail="Spatial map unavailable")
+    spatial_map = SpatialMap(payload.location)
+    tiles = list(payload.tiles)
+    if payload.tile:
+        tiles.append(payload.tile)
+    updated = spatial_map.update_tiles([tile.dict(exclude_none=True) for tile in tiles])
+    await manager.broadcast("spatial_map_updated", {"location": payload.location, "tiles": updated})
+    return {"location": payload.location, "tiles": updated}
 
 @app.get("/api/session-memory")
 def get_session_memory(
