@@ -743,7 +743,33 @@ class ModBridgeController:
                         if unwatered_crops:
                             front_info = ">>> TILE: WET SOIL (no seeds) - Move to find PLANTED crops to water! <<<"
                         else:
-                            front_info = ">>> TILE: WET SOIL (no seeds) - All crops watered! <<<"
+                            # Check for harvestable crops before saying "all done"
+                            crops = state.get("location", {}).get("crops", []) if state else []
+                            harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
+                            if harvestable:
+                                player_x = state.get("player", {}).get("tileX", 0) if state else 0
+                                player_y = state.get("player", {}).get("tileY", 0) if state else 0
+                                nearest = min(harvestable, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+                                dx = nearest["x"] - player_x
+                                dy = nearest["y"] - player_y
+                                dist = abs(dx) + abs(dy)
+                                if dist == 1:
+                                    face_dir = "up" if dy < 0 else "down" if dy > 0 else "left" if dx < 0 else "right"
+                                    front_info = f">>> 🌾 HARVEST 1 tile {face_dir.upper()}! DO: face {face_dir}, interact ({len(harvestable)} ready) <<<"
+                                else:
+                                    dirs = []
+                                    if dy < 0:
+                                        dirs.append(f"{abs(dy)} UP")
+                                    elif dy > 0:
+                                        dirs.append(f"{abs(dy)} DOWN")
+                                    if dx < 0:
+                                        dirs.append(f"{abs(dx)} LEFT")
+                                    elif dx > 0:
+                                        dirs.append(f"{abs(dx)} RIGHT")
+                                    direction_str = " and ".join(dirs) if dirs else "here"
+                                    front_info = f">>> 🌾 {len(harvestable)} READY! Move {direction_str}, then interact to harvest <<<"
+                            else:
+                                front_info = ">>> TILE: WET SOIL (no seeds) - All crops watered! <<<"
                 else:
                     # Actually planted and watered - give specific direction to next unwatered crop
                     crops = state.get("location", {}).get("crops", []) if state else []
@@ -980,7 +1006,7 @@ class ModBridgeController:
         return "\n".join(header_parts)
 
     def _get_done_farming_hint(self, state: dict, surroundings: dict) -> str:
-        """Get hint when all crops are watered - suggest clearing debris or bed."""
+        """Get hint when all crops are watered - check for harvest, then suggest clearing debris or bed."""
         if not state:
             return ">>> ALL CROPS WATERED! ✓ Go to bed or explore. <<<"
 
@@ -989,6 +1015,30 @@ class ModBridgeController:
         energy_pct = (energy / state.get("player", {}).get("maxEnergy", 270) * 100) if state.get("player", {}).get("maxEnergy", 270) > 0 else 100
         player_x = state.get("player", {}).get("tileX", 0)
         player_y = state.get("player", {}).get("tileY", 0)
+
+        # PRIORITY: Check for harvestable crops first!
+        crops = state.get("location", {}).get("crops", [])
+        harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
+        if harvestable:
+            nearest = min(harvestable, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+            dx = nearest["x"] - player_x
+            dy = nearest["y"] - player_y
+            dist = abs(dx) + abs(dy)
+            if dist == 1:
+                face_dir = "up" if dy < 0 else "down" if dy > 0 else "left" if dx < 0 else "right"
+                return f">>> 🌾 HARVEST 1 tile {face_dir.upper()}! DO: face {face_dir}, interact ({len(harvestable)} ready) <<<"
+            else:
+                dirs = []
+                if dy < 0:
+                    dirs.append(f"{abs(dy)} UP")
+                elif dy > 0:
+                    dirs.append(f"{abs(dy)} DOWN")
+                if dx < 0:
+                    dirs.append(f"{abs(dx)} LEFT")
+                elif dx > 0:
+                    dirs.append(f"{abs(dx)} RIGHT")
+                direction_str = " and ".join(dirs) if dirs else "here"
+                return f">>> 🌾 {len(harvestable)} READY TO HARVEST! Move {direction_str}, then interact <<<"
 
         # Check for nearby debris in surroundings
         nearby_debris = []

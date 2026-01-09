@@ -1,67 +1,58 @@
 # Next Session - StardewAI
 
-**Last Updated:** 2026-01-09 Session 21 by Claude
-**Status:** Ready for harvest testing
+**Last Updated:** 2026-01-09 Session 22 by Claude
+**Status:** Harvest working, 3 crops need 1 more day
 
 ---
 
-## Session 21 Results
+## Session 22 Results
 
 ### COMPLETED
 | Feature | Status |
 |---------|--------|
-| Skill Context System | ✅ Codex built `skills/context.py` with hard filters |
-| Skill Integration | ✅ Skills now load in agent, context injected to VLM |
-| Slot 5 Seeds Bug | ✅ Fixed hardcoded "Slot 5: PARSNIP SEEDS" in system prompt |
-| Loader Fixes | ✅ Added `time_management` category, composite skill validation |
-| SMAPI Harvest Fix | ✅ Fixed `isReadyForHarvest` detection (use currentPhase) |
-| Skill Status UI | ✅ Codex added skills count to dashboard |
+| Harvest Testing | ✅ All 4 ready parsnips harvested successfully! |
+| Harvest Hint Fix | ✅ Added harvest check to `_get_done_farming_hint()` |
+| WET SOIL Hint Fix | ✅ WET SOIL branch now checks for harvestable crops |
 
 ### KEY CHANGES
 
-**Skill System Phase 3 (Integration):**
-- Agent now loads 45 skills on startup (📚 Loaded 45 skills)
-- `_get_skill_context()` method formats available skills for VLM
-- SkillContext filters by location/time preconditions
-- VLM sees "AVAILABLE ACTIONS FOR YOUR SITUATION" with relevant skills
+**Harvest Testing (SUCCESS!):**
+- Started with 1 parsnip in inventory
+- Agent harvested all 4 ready parsnips using `interact` action
+- Now have 5 parsnips in inventory
+- VLM correctly uses `interact` instead of `use_tool` for harvesting
 
-**Slot 5 Bug Fix (settings.yaml):**
-- Removed hardcoded "Slot 5: PARSNIP SEEDS" - inventory changes!
-- Updated to "Slots 5-11: Items vary - CHECK what hints tell you!"
-- Planting workflow now says "check hint for slot!"
-- Action rules now reference hints, not hardcoded slots
+**Hint System Fixes:**
+- `_get_done_farming_hint()` now checks harvestable crops FIRST
+- WET SOIL hint branch now shows harvest directions before "All crops watered"
+- Both fixes ensure harvest hints appear in all code paths
 
-**Loader Improvements:**
-- Added `time_management` to ALLOWED_CATEGORIES
-- Composite skills (with `steps`) now validate correctly
-- 45/55 skills load (pure evaluation skills excluded - no actions)
-
-**SMAPI Mod Fix:**
-- `isReadyForHarvest` now uses `crop.currentPhase.Value >= crop.phaseDays.Count - 1`
-- Previously used `crop.fullyGrown.Value` which was unreliable
-- Mod rebuilt and deployed to game mods folder
-
-### Game State (Day 8)
-- Day 8, crops should now show `isReadyForHarvest: true`
-- 4 parsnips visually ready (large sprites)
-- 3 more parsnips 1 day from ready
+### Game State (Day 8, End of Session)
+- 5 parsnips in inventory (started with 1)
+- 3 crops remaining: all need 1 more day (daysUntilHarvest: 1)
+- All crops watered (it's raining)
 
 ---
 
 ## Next Steps (Priority Order)
 
-### HIGH - Test Harvest
-1. **Reload game** - SMAPI mod has been rebuilt
-2. **Test harvest detection** - Check `/state` shows `isReadyForHarvest: true`
-3. **Run agent with harvest goal** - Verify VLM uses `interact` for ready crops
+### HIGH - Continue Game Progress
+1. **Sleep to Day 9** - The 3 remaining parsnips will be ready
+2. **Harvest remaining** - Test full harvest cycle
+3. **Sell parsnips** - Use shipping bin or Pierre's
 
-### MEDIUM - VLM Focus Issues
-4. **Improve goal adherence** - VLM gets distracted by tile hints, ignores goal
-5. **Consider priority in prompts** - GOAL first, then tile hints
+### MEDIUM - Expand Farm
+4. **Clear more debris** - Make room for more crops
+5. **Get more seeds** - Pierre's shop or mixed seeds from weeds
+6. **Plant second batch** - Expand farming area
 
 ### LOW - Future Enhancements
-6. **Skill-based actions** - VLM outputs skill names instead of raw actions
-7. **More skill definitions** - Mining, fishing, social
+7. **Skill-based actions** - VLM outputs skill names instead of raw actions
+8. **Goal priority** - Ensure VLM follows goal over tile hints
+
+---
+
+## Session 21 Results (Previous)
 
 ---
 
