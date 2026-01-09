@@ -259,6 +259,7 @@ function updateStatus(status) {
   const navTarget = document.getElementById("navTarget");
   const navBlocked = document.getElementById("navBlocked");
   const navAttempts = document.getElementById("navAttempts");
+  const skillStatusCount = document.getElementById("skillStatusCount");
   const sessionUptime = document.getElementById("sessionUptime");
   const sessionThinks = document.getElementById("sessionThinks");
   const sessionActions = document.getElementById("sessionActions");
@@ -430,6 +431,10 @@ function updateStatus(status) {
   if (navAttempts) {
     const attempts = Number(status.navigation_attempts || 0);
     navAttempts.textContent = `Move attempts: ${attempts}`;
+  }
+  if (skillStatusCount) {
+    const count = Number(status.available_skills_count || 0);
+    skillStatusCount.textContent = `Skills available: ${count}`;
   }
   if (sessionUptime || sessionThinks || sessionActions || sessionFailures) {
     const startedAt = status.session_started_at ? Date.parse(status.session_started_at) : null;

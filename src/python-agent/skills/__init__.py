@@ -4,6 +4,7 @@ from .models import Skill, SkillAction, SkillPrecondition, PreconditionResult, E
 from .loader import SkillLoader
 from .preconditions import PreconditionChecker
 from .executor import SkillExecutor
+from .context import SkillContext
 
 __all__ = [
     "Skill",
@@ -14,4 +15,5 @@ __all__ = [
     "SkillLoader",
     "PreconditionChecker",
     "SkillExecutor",
+    "SkillContext",
 ]

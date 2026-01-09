@@ -800,6 +800,21 @@ h2 {
   color: var(--muted);
 }
 
+.skill-status-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf8;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.skill-status__count {
+  font-weight: 600;
+  color: #1f2937;
+}
+
 .location-display {
   font-weight: 700;
   font-size: 14px;

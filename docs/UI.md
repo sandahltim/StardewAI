@@ -30,6 +30,7 @@ The UI uses `status_updated` to populate the Rusty Snapshot panel with:
 - `last_tick` (shown as the snapshot timestamp)
 - `vlm_status` (Idle/Thinking/Executing), `last_reasoning`, `last_actions`
 - `vlm_parse_success`, `vlm_parse_fail`, `vlm_errors` (JSON parse debug)
+- `available_skills_count` (Skill context debug)
 - `session_started_at`, `think_count`, `action_count`, `action_fail_count`, `latency_history`
 - `action_type_counts`, `distance_traveled`, `crops_watered_count`, `crops_harvested_count`
 - `player_tile_x`, `player_tile_y`
@@ -192,6 +193,10 @@ Suggested implementation:
 - `GET /api/spatial-map?location=Farm&state=tilled&not_planted=true` returns tiles that need planting.
 - `POST /api/spatial-map` updates tiles with `{ location, tiles }`.
 - UI includes a small spatial map panel centered on the player for debugging.
+
+## Skill Status Panel
+
+- Shows the current `available_skills_count` from agent status updates.
 
 ## Crop Status
 

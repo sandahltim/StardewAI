@@ -2,83 +2,13 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-09 Session 20 (end)
+**Last Updated:** 2026-01-09 Session 21
 
 ---
 
 ## Active Tasks
 
-### MEDIUM: Skill Context System (`src/python-agent/skills/context.py`)
-
-**Context:** Now that skill infrastructure is built, we need a context system to filter which skills are available based on current game state.
-
-```python
-class SkillContext:
-    def __init__(self, loader: SkillLoader, checker: PreconditionChecker):
-        self.loader = loader
-        self.checker = checker
-
-    def get_available_skills(self, state: dict, location: str = None) -> List[Skill]:
-        """Return skills whose preconditions CAN be met in current state."""
-        available = []
-        for skill in self.loader.skills.values():
-            # Filter by location if skill has location requirement
-            # Filter by inventory (has required tools?)
-            # Filter by time (shop hours?)
-            # Check if preconditions are satisfiable (not necessarily met, but possible)
-            result = self.checker.check(skill, state)
-            if result.met or self._preconditions_achievable(skill, state):
-                available.append(skill)
-        return available
-
-    def format_for_prompt(self, skills: List[Skill]) -> str:
-        """Format available skills for VLM prompt."""
-        lines = []
-        for skill in skills:
-            lines.append(f"- {skill.name}: {skill.description}")
-        return "\n".join(lines)
-```
-
-**Key filtering:**
-- `location_is` precondition → only show skill if player at that location
-- `equipped` precondition → only show if player HAS that tool in inventory
-- `time_between` precondition → only show during those hours
-- `has_item` precondition → only show if item in inventory
-
-**Test:**
-```bash
-python -c "
-from skills.loader import SkillLoader
-from skills.preconditions import PreconditionChecker
-from skills.context import SkillContext
-# Test with mock state
-"
-```
-
----
-
-### LOW: Skill Status UI Panel
-
-**Context:** Debug panel showing skill system status.
-
-**Location:** Add to VLM Dashboard area in `src/ui/static/app.js`
-
-**Features:**
-- Last executed skill name
-- Skill precondition status (met/unmet)
-- Available skills count
-- (Optional) List of available skill names
-
-**Data source:** Agent would need to POST skill status to `/api/status`:
-```json
-{
-  "last_skill": "water_crop",
-  "skill_preconditions_met": true,
-  "available_skills_count": 12
-}
-```
-
-**Lower priority** - can wait until skill system is integrated into agent.
+None.
 
 ---
 
@@ -92,6 +22,8 @@ from skills.context import SkillContext
 
 ## Completed Tasks
 
+- [x] UI: Skill Status Panel (2026-01-09 Session 21)
+- [x] Skill Context System (2026-01-09 Session 21 - by Codex)
 - [x] Skill System Infrastructure (2026-01-09 Session 20)
 - [x] Spatial Memory Map (2026-01-09 Session 17)
 - [x] UI: Bedtime/Sleep Indicator (2026-01-09 Session 15)

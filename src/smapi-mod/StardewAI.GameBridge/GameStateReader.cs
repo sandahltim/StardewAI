@@ -457,7 +457,7 @@ public class GameStateReader
                         CropName = GetCropName(crop),
                         DaysUntilHarvest = daysRemaining,
                         IsWatered = dirt.state.Value == HoeDirt.watered,
-                        IsReadyForHarvest = crop.fullyGrown.Value
+                        IsReadyForHarvest = crop.currentPhase.Value >= crop.phaseDays.Count - 1
                     });
                 }
             }

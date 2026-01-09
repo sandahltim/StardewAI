@@ -52,6 +52,14 @@ except ImportError:
     SpatialMap = None
     HAS_MEMORY = False
 
+try:
+    from skills import SkillLoader, SkillContext
+    HAS_SKILLS = True
+except ImportError:
+    SkillLoader = None
+    SkillContext = None
+    HAS_SKILLS = False
+
 # =============================================================================
 # Optional Input Methods
 # =============================================================================
@@ -1345,6 +1353,19 @@ class StardewAgent:
         self.ui = None
         self.ui_enabled = False
 
+        # Skill system (contextual guidance for VLM)
+        self.skill_context = None
+        if HAS_SKILLS and SkillLoader and SkillContext:
+            try:
+                skill_dir = Path(__file__).parent / "skills" / "definitions"
+                loader = SkillLoader()
+                skills_dict = loader.load_skills(str(skill_dir))
+                self.skill_context = SkillContext(skills_dict.values())
+                logging.info(f"📚 Loaded {len(skills_dict)} skills from {skill_dir}")
+            except Exception as e:
+                logging.warning(f"Skill system failed to load: {e}")
+                self.skill_context = None
+
         # Memory trigger tracking
         self.last_location: str = ""
         self.last_nearby_npcs: List[str] = []
@@ -1571,6 +1592,34 @@ class StardewAgent:
         direction_str = " and ".join(dirs) if dirs else "here"
         return f"SPATIAL MAP: TILLED but UNPLANTED tile at {nearest.x},{nearest.y} ({direction_str})."
 
+    def _get_skill_context(self) -> str:
+        """Get available skills for current game state to guide VLM."""
+        if not self.skill_context or not self.last_state:
+            return ""
+        try:
+            available = self.skill_context.get_available_skills(self.last_state)
+            if not available:
+                return ""
+            # Group by category for readability
+            by_category: Dict[str, List[str]] = {}
+            for skill in available:
+                cat = skill.category or "other"
+                if cat not in by_category:
+                    by_category[cat] = []
+                by_category[cat].append(f"{skill.name}: {skill.description}")
+            # Format as compact list
+            lines = ["AVAILABLE ACTIONS FOR YOUR SITUATION:"]
+            for cat, skills in sorted(by_category.items()):
+                lines.append(f"  [{cat.upper()}]")
+                for desc in skills[:5]:  # Limit to 5 per category to avoid flooding
+                    lines.append(f"    - {desc}")
+                if len(skills) > 5:
+                    lines.append(f"    ... and {len(skills) - 5} more")
+            return "\n".join(lines)
+        except Exception as e:
+            logging.debug(f"Skill context failed: {e}")
+            return ""
+
     def _refresh_state_snapshot(self) -> None:
         if not hasattr(self.controller, "get_state"):
             return
@@ -1762,6 +1811,7 @@ class StardewAgent:
             "crops_watered_count": self.crops_watered_count,
             "crops_harvested_count": self.crops_harvested_count,
             "latency_history": list(self.latency_history),
+            "available_skills_count": len(self.skill_context.get_available_skills(self.last_state)) if self.skill_context and self.last_state else 0,
         }
         if result:
             payload.update({
@@ -1918,6 +1968,10 @@ class StardewAgent:
             spatial_hint = self._get_spatial_hint()
             if spatial_hint:
                 action_context_parts.append(spatial_hint)
+            skill_context = self._get_skill_context()
+            if skill_context:
+                action_context_parts.append(skill_context)
+                logging.info(f"   📚 Skill context: {len(self.skill_context.get_available_skills(self.last_state) if self.skill_context and self.last_state else [])} available")
             if self.recent_actions:
                 action_history = "\n".join(f"  {i+1}. {a}" for i, a in enumerate(self.recent_actions))
                 # Detect repetition - warn if same action 3+ times in last 5

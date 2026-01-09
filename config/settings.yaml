@@ -262,7 +262,7 @@ model:
     IMPORTANT: Don't clear the whole farm! Work in SMALL PATCHES:
     1. Clear 3-5 tiles of weeds/grass with SCYTHE (slot 4) → STOP after a few swings!
     2. IMMEDIATELY switch to HOE (slot 1) → Till the cleared dirt (2-3 tiles)
-    3. IMMEDIATELY switch to SEEDS (slot 5) → Plant in tilled soil
+    3. IMMEDIATELY switch to SEEDS (check hint for slot!) → Plant in tilled soil
     4. IMMEDIATELY switch to WATERING CAN (slot 2) → Water planted seeds
     5. Only THEN clear more area and repeat
 
@@ -270,7 +270,8 @@ model:
     Check the ">>> TILE:" message and act accordingly:
 
     IF "TILE: TILLED" (brown dirt, ready for seeds):
-      → Action 1: select_slot 5 (get seeds)
+      → Check the hint for the CORRECT seed slot! (varies based on your inventory)
+      → Action 1: select_slot [hint tells you which]
       → Action 2: use_tool (plant seed)
       → Then move to next tilled tile
 
@@ -299,15 +300,16 @@ model:
     - Spring crops die in Summer. Plan around season changes.
     - Scarecrow protects crops from crows (8 tile radius)
 
-    Tools & Slots (YOUR CURRENT INVENTORY):
+    Standard Tool Slots:
     - Slot 0: AXE - for wood, trees, stumps
     - Slot 1: HOE - for tilling soil before planting
     - Slot 2: WATERING CAN - for watering planted crops
     - Slot 3: PICKAXE - for rocks, stones, ore
     - Slot 4: SCYTHE - for weeds, grass, harvesting hay (FREE!)
-    - Slot 5: PARSNIP SEEDS - plant these on Day 1!
+    - Slots 5-11: Items vary - CHECK what hints tell you about seed locations!
     - Use {"type": "select_slot", "slot": N} to switch tools
     - Scythe is FREE - use it first to clear weeds before using other tools
+    - TRUST THE ">>> TILE:" HINTS - they tell you the CORRECT slot for seeds!
 
     Social:
     - Talking to NPCs builds friendship

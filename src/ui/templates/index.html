@@ -98,6 +98,12 @@
             {% if status.vlm_errors %}{{ status.vlm_errors[-1].raw_response }}{% else %}-{% endif %}
           </div>
         </div>
+        <div class="skill-status-card">
+          <div class="vlm-subhead">Skill Status</div>
+          <div id="skillStatusCount" class="skill-status__count">
+            Skills available: {{ status.available_skills_count or 0 }}
+          </div>
+        </div>
         <div class="session-stats-card">
           <div class="vlm-subhead">Session Stats</div>
           <div class="session-stats__row">

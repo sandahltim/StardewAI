@@ -17,6 +17,7 @@ ALLOWED_CATEGORIES = {
     "crafting",
     "navigation",
     "economy",
+    "time_management",
 }
 
 
@@ -39,7 +40,10 @@ class SkillLoader:
             return False
         if skill.get("category") not in ALLOWED_CATEGORIES:
             return False
-        if "actions" not in skill or not isinstance(skill["actions"], list):
+        # Accept either actions (primitive) or steps (composite)
+        has_actions = "actions" in skill and isinstance(skill["actions"], list)
+        has_steps = "steps" in skill and isinstance(skill["steps"], list)
+        if not has_actions and not has_steps:
             return False
         return True
 

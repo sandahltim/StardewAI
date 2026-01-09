@@ -114,6 +114,7 @@ class StatusUpdate(BaseModel):
     vlm_parse_success: Optional[int] = None
     vlm_parse_fail: Optional[int] = None
     vlm_errors: Optional[List[Dict[str, Any]]] = None
+    available_skills_count: Optional[int] = None
     session_started_at: Optional[str] = None
     think_count: Optional[int] = None
     action_count: Optional[int] = None
@@ -226,6 +227,7 @@ def _default_status() -> Dict[str, Any]:
         "vlm_parse_success": 0,
         "vlm_parse_fail": 0,
         "vlm_errors": [],
+        "available_skills_count": 0,
         "session_started_at": None,
         "think_count": 0,
         "action_count": 0,
