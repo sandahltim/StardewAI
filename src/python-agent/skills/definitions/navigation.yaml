@@ -1,0 +1,417 @@
+# Navigation Skills for StardewAI
+# These skills handle movement and pathfinding
+
+# =============================================================================
+# BASIC MOVEMENT
+# =============================================================================
+
+move_to_adjacent:
+  description: "Move one tile in a direction"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: direction_clear
+        direction: "{direction}"
+
+  actions:
+    - move:
+        direction: "{direction}"
+        tiles: 1
+
+  on_success:
+    message: "Moved {direction}"
+
+  on_failure:
+    blocked:
+      message: "Path blocked by {blocker}"
+      recovery_skill: find_alternate_path
+
+face_direction:
+  description: "Turn to face a direction without moving"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required: []  # Always possible
+
+  actions:
+    - face: "{direction}"
+
+  on_success:
+    message: "Now facing {direction}"
+
+# =============================================================================
+# PATHFINDING TO TARGETS
+# =============================================================================
+
+navigate_to_crop:
+  description: "Walk to the nearest crop (unwatered or ready based on params)"
+  category: navigation
+  energy_cost: 0  # Movement is free
+
+  preconditions:
+    required:
+      - type: crops_exist
+        filter: "{crop_filter}"  # unwatered, ready, any
+
+  actions:
+    - pathfind_to:
+        target: nearest_crop
+        filter: "{crop_filter}"
+        stop_adjacent: true
+
+  on_success:
+    message: "Arrived at crop"
+
+  on_failure:
+    no_crops:
+      message: "No crops matching filter found"
+    path_blocked:
+      message: "Cannot find path to crop"
+      recovery_skill: clear_path_debris
+
+navigate_to_water:
+  description: "Walk to nearest water source for refilling"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_has
+        target: water_source
+
+  actions:
+    - pathfind_to:
+        target: nearest_water
+        stop_adjacent: true
+
+  on_success:
+    message: "Arrived at water source"
+
+  on_failure:
+    no_water:
+      message: "No water source found nearby"
+    path_blocked:
+      message: "Cannot reach water"
+
+navigate_to_shipping_bin:
+  description: "Walk to the farm shipping bin"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Farm
+
+  actions:
+    - pathfind_to:
+        target: shipping_bin
+        stop_adjacent: true
+
+  on_success:
+    message: "Arrived at shipping bin"
+
+  on_failure:
+    wrong_location:
+      message: "Shipping bin is on the Farm"
+      recovery_skill: warp_to_farm
+    path_blocked:
+      message: "Cannot reach shipping bin"
+
+navigate_to_farmable:
+  description: "Find and walk to farmable ground (not decorative lawn)"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Farm
+
+  actions:
+    - pathfind_to:
+        target: tillable_ground
+        stop_on: true  # Stand on the tile, not adjacent
+
+  on_success:
+    message: "Found farmable ground"
+
+  on_failure:
+    on_lawn:
+      message: "On decorative lawn - moving to farm area"
+
+# =============================================================================
+# LOCATION WARPS
+# =============================================================================
+
+warp_to_farm:
+  description: "Teleport to the Farm"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required: []  # Always available
+
+  actions:
+    - warp: Farm
+
+  on_success:
+    message: "Warped to Farm"
+
+warp_to_town:
+  description: "Teleport to Pelican Town"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required: []
+
+  actions:
+    - warp: Town
+
+  on_success:
+    message: "Warped to Town"
+
+warp_to_beach:
+  description: "Teleport to the Beach"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required: []
+
+  actions:
+    - warp: Beach
+
+  on_success:
+    message: "Warped to Beach"
+
+warp_to_mountain:
+  description: "Teleport to the Mountain (near mines)"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required: []
+
+  actions:
+    - warp: Mountain
+
+  on_success:
+    message: "Warped to Mountain"
+
+warp_to_forest:
+  description: "Teleport to Cindersap Forest"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required: []
+
+  actions:
+    - warp: Forest
+
+  on_success:
+    message: "Warped to Forest"
+
+warp_to_mine:
+  description: "Teleport to the Mine entrance"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required: []
+
+  actions:
+    - warp: Mine
+
+  on_success:
+    message: "Warped to Mine entrance"
+
+# =============================================================================
+# BUILDING NAVIGATION
+# =============================================================================
+
+enter_farmhouse:
+  description: "Enter the farmhouse from outside"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Farm
+      - type: adjacent_to
+        target: farmhouse_door
+
+  actions:
+    - face: up
+    - interact
+
+  on_success:
+    message: "Entered farmhouse"
+
+  on_failure:
+    not_adjacent:
+      message: "Not at farmhouse door"
+      recovery_skill: navigate_to_farmhouse
+
+exit_building:
+  description: "Exit current building to outside"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is_interior
+        value: true
+
+  actions:
+    - pathfind_to:
+        target: exit_door
+        stop_adjacent: true
+    - interact
+
+  on_success:
+    message: "Exited building"
+
+go_to_bed:
+  description: "Go to bed to end the day and restore energy"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: FarmHouse
+
+  actions:
+    - pathfind_to:
+        target: bed
+        stop_adjacent: true
+    - face: up
+    - interact
+
+  on_success:
+    message: "Going to sleep - good night!"
+
+  on_failure:
+    wrong_location:
+      message: "Must be in FarmHouse to sleep"
+      recovery_skill: warp_to_farmhouse
+
+# =============================================================================
+# SHOP NAVIGATION
+# =============================================================================
+
+go_to_pierre:
+  description: "Go to Pierre's General Store (for seeds, supplies)"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: time_between
+        start: "9:00"
+        end: "17:00"
+      - type: not_day
+        day: Wednesday  # Pierre's closed Wednesday
+
+  actions:
+    - warp: SeedShop
+
+  on_success:
+    message: "Arrived at Pierre's"
+
+  on_failure:
+    closed:
+      message: "Pierre's is closed (Wednesday or outside 9AM-5PM)"
+
+go_to_blacksmith:
+  description: "Go to Clint's Blacksmith (for tool upgrades, geodes)"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: time_between
+        start: "9:00"
+        end: "16:00"
+
+  actions:
+    - warp: Blacksmith
+
+  on_success:
+    message: "Arrived at Blacksmith"
+
+  on_failure:
+    closed:
+      message: "Blacksmith is closed (outside 9AM-4PM)"
+
+go_to_saloon:
+  description: "Go to the Stardrop Saloon"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: time_between
+        start: "12:00"
+        end: "24:00"
+
+  actions:
+    - warp: Saloon
+
+  on_success:
+    message: "Arrived at Saloon"
+
+# =============================================================================
+# OBSTACLE HANDLING
+# =============================================================================
+
+clear_path_debris:
+  description: "Clear debris blocking the path"
+  category: navigation
+  energy_cost: 2
+
+  preconditions:
+    required:
+      - type: adjacent_to
+        target: debris
+
+  actions:
+    - face: "{blocker_direction}"
+    - select_slot: "{tool_for_debris}"
+    - use_tool
+
+  on_success:
+    message: "Cleared {debris_type}"
+
+  on_failure:
+    wrong_tool:
+      message: "Need different tool for this debris"
+
+find_alternate_path:
+  description: "When blocked, try going around the obstacle"
+  category: navigation
+  energy_cost: 0
+
+  preconditions:
+    required: []
+
+  actions:
+    # Try perpendicular directions
+    - move:
+        direction: "{perpendicular_direction}"
+        tiles: 1
+        fallback: true
+
+  on_success:
+    message: "Found alternate route"
+
+  on_failure:
+    stuck:
+      message: "Completely stuck - may need to warp"

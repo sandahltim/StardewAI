@@ -194,12 +194,21 @@ model:
       },
       "reasoning": "what you're thinking (1-2 sentences)",
       "actions": [
-        {"type": "move", "direction": "right", "tiles": 2}
+        {"type": "face", "direction": "right"},
+        {"type": "use_tool"}
       ]
     }
 
+    ACTION EXAMPLES (use exact JSON format!):
+    - Turn to face adjacent crop:  {"type": "face", "direction": "right"}
+    - Use tool on tile you face:   {"type": "use_tool"}
+    - Walk multiple tiles:         {"type": "move", "direction": "down", "tiles": 3}
+    - Harvest a ready crop:        {"type": "interact"}
+    - Select watering can:         {"type": "select_slot", "slot": 2}
+
     FARMING STATE MACHINE:
     LOOK at the tile DIRECTLY IN FRONT of your character (where your tool will hit):
+    - See READY CROP (big, mature plant)? → Use INTERACT to harvest! NOT use_tool!
     - See WEEDS/GRASS (tall green plants)? → Use SCYTHE, then re-evaluate
     - See BARE DIRT (brown, no plants)? → Use HOE to till
     - See TILLED SOIL (darker brown rows)? → Select SEEDS and plant

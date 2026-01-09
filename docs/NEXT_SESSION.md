@@ -1,113 +1,139 @@
 # Next Session - StardewAI
 
-**Last Updated:** 2026-01-09 Session 19 by Claude
-**Status:** Day 7 - Bug Fixes + Face Action Issue
+**Last Updated:** 2026-01-09 Session 20 by Claude
+**Status:** Skill Architecture Phase 1 Complete
 
 ---
 
-## Session 19 Results
+## Session 20 Results
 
 ### COMPLETED
 | Feature | Status |
 |---------|--------|
-| Seed Slot Detection | ✅ Dynamic - no more hardcoded slot 5 |
-| Face Action Hints | ✅ Added for adjacent crops (1 tile away) |
-| Face vs Move Guidance | ✅ Added to system prompt |
-| UI Restart | ✅ Codex's Spatial Map UI working |
+| Face Action Fix | ✅ VLM now uses `face` for adjacent tiles (tested!) |
+| Harvest Fix | ✅ Uses `interact` not `use_tool` |
+| Skill Architecture | ✅ Design doc + 55 skill definitions |
+| Skill Infrastructure | ✅ Codex built loader, preconditions, executor |
+| Debris Clearing Hints | ✅ Made more actionable with exact action sequence |
 
-### KEY FIXES
+### KEY CHANGES
 
-**Seed Slot Detection (Bug Fix):**
-Agent was hardcoded to use `select_slot 5` for seeds, but Sap was in slot 5.
-- Fix: Now dynamically finds seed slot from inventory
-- Shows actual seed name: `>>> PLANT NOW! DO: select_slot 3 (Parsnip Seeds)...`
+**VLM Prompt Fixes (Tested and Working):**
+- Default JSON example: `face` + `use_tool` (not `move`)
+- Added ACTION EXAMPLES section showing all command formats
+- State machine includes harvest step first
+- Agent now outputs `face` actions (verified in logs!)
 
-**Face Action for Adjacent Tiles:**
-Agent kept using `move` instead of `face` when crop was 1 tile away.
-- Fix: Navigation hints now say `face {direction}, use_tool` for adjacent targets
-- Added "FACE vs MOVE - CRITICAL DISTINCTION" section to system prompt
+**Skill System Phase 1 Complete:**
+```
+src/python-agent/skills/
+├── __init__.py
+├── models.py           # Skill, PreconditionResult, ExecutionResult
+├── loader.py           # Load YAML → Python objects
+├── preconditions.py    # Check skill requirements
+├── executor.py         # Run action sequences
+├── definitions/
+│   ├── farming.yaml      (463 lines - 25 skills)
+│   ├── navigation.yaml   (417 lines - 20 skills)
+│   └── time_management.yaml (216 lines - 10 skills)
+```
 
-### KNOWN ISSUES (Still Open)
-1. **Agent still prefers `move` over `face`** - VLM ignores face hints
-2. **Agent doesn't harvest ready crops** - just waters them
-3. **Desync issues** - commands sent but character doesn't move (requires game restart)
-4. **Some crops died** - 3 of 8 parsnips withered (99999 days = dead)
+**Post-Watering Debris Hints:**
+- Now shows exact action sequence: "DO: select_slot 4, face right, use_tool"
+- Finds closest debris from game state objects
+- Guides agent to clear farm after watering
 
-### Game State (End of Session)
-- **Day:** 7, 12:30 PM
-- **Crops:** 7 total (3 dead, 4 alive)
-- **Watered:** 4/7
-- **Ready to Harvest:** 0 (nearest tomorrow if watered)
-- **Watering Can:** 13/40
-- **Energy:** 252/270
-
----
-
-## Session 18 Results (Previous)
-
-### COMPLETED
-| Feature | Status |
-|---------|--------|
-| Bedtime Hints | ✅ Time-based (8PM, 10PM, midnight) + energy-based |
-| Crop Protection | ✅ Warns "DO NOT use Scythe/Hoe on crop!" |
-| Debris Clearing | ✅ Suggests clearing when farming done |
-| Water = Resource | ✅ Shows "💧 WATER" not "BLOCKED (water)" |
-| Codex Spatial Map | ✅ Verified implementation |
+### Game State (Day 7)
+- All 7 crops watered ✅
+- 1 Parsnip harvested (in inventory)
+- 4 crops dead (99999d), 3 alive (1-2d until harvest)
+- Next: Day 8 should have harvestable crops
 
 ---
 
 ## Quick Start
 
 ```bash
-# 1. Start services (if not running)
+# 1. Start services
 ./scripts/start-llama-server.sh  # Port 8780
-# SMAPI mod runs with game on port 8790
 source venv/bin/activate && python src/ui/app.py &  # Port 9001
 
 # 2. Verify
-curl http://localhost:8780/health     # llama-server
-curl http://localhost:8790/state      # SMAPI mod
-curl http://localhost:9001/api/status # UI server
+curl http://localhost:8780/health
+curl http://localhost:8790/state
+curl http://localhost:9001/api/status
 
 # 3. Run agent
-python src/python-agent/unified_agent.py --ui --goal "Water crops and harvest ready ones"
+python src/python-agent/unified_agent.py --ui --goal "Water crops, harvest ready, clear debris"
 ```
 
 ---
 
 ## Next Steps (Priority Order)
 
-### HIGH - Fix Agent Behavior
-1. **Make agent use `face` action** - currently ignores hints
-2. **Fix harvest behavior** - agent should pick ready crops, not water them
-3. Water remaining 3 crops on Day 7
-4. Sleep to Day 8 and harvest
+### HIGH - Skill System Phase 2
+1. **Codex: Build Context System** - Filter skills by location/inventory/time
+2. **Claude: Integrate skills into agent prompt** - Replace hardcoded hints
+3. **Test skill-based reasoning** - VLM picks skills instead of raw actions
 
-### MEDIUM - Navigation/Desync
-5. Investigate desync issue (commands succeed but no movement)
-6. Faster debris avoidance
-7. Consider alternative to `move` (maybe `move_direction` with tiles?)
+### HIGH - Continue Game Progress
+4. **Sleep to Day 8** - Test harvest with new `interact` logic
+5. **Test debris clearing** - Verify new hints work
+6. **Expand farm area** - Clear more debris, plant more crops
 
-### LOW - Architecture
-8. Tool abstraction layer (user suggestion)
-9. Crop health indicator in UI (dead vs alive)
+### MEDIUM - More Skills
+7. **Mining skills** - For when we enter the mines
+8. **Fishing skills** - Complex minigame handling
+9. **Social skills** - NPC interactions, gifts
 
 ---
 
-## Files Changed (Session 19)
-
-### `src/python-agent/unified_agent.py`
-- **Lines 666-683:** Dynamic seed slot detection (was hardcoded slot 5)
-- **Lines 715-732:** Same fix for wet tilled soil case
-- **Lines 755-770:** Adjacent crop detection - suggest `face` for 1-tile distance
-- **Lines 795-810:** Same fix for unwatered crop navigation
+## Files Changed (Session 20)
 
 ### `config/settings.yaml`
-- **Lines 216:** Enhanced `face` action description
-- **Lines 227-232:** NEW: "FACE vs MOVE - CRITICAL DISTINCTION" section
+- Lines 196-207: JSON example changed to face + use_tool
+- Lines 202-207: Added ACTION EXAMPLES section
+- Lines 209-216: Added harvest to FARMING STATE MACHINE
+
+### `src/python-agent/unified_agent.py`
+- Line 665: Harvest uses `interact` not `use_tool`
+- Lines 843-866: Harvest navigation with face logic
+- Lines 998-1030: Enhanced debris clearing hints with exact actions
+
+### New Files (by Claude)
+- `docs/SKILL_ARCHITECTURE.md` - Full design doc
+- `src/python-agent/skills/definitions/farming.yaml`
+- `src/python-agent/skills/definitions/navigation.yaml`
+- `src/python-agent/skills/definitions/time_management.yaml`
+
+### New Files (by Codex)
+- `src/python-agent/skills/models.py`
+- `src/python-agent/skills/loader.py`
+- `src/python-agent/skills/preconditions.py`
+- `src/python-agent/skills/executor.py`
+- `src/python-agent/skills/__init__.py`
 
 ---
 
-*Session 19: Fixed seed slot bug (was hardcoded), added face action hints for adjacent tiles, but VLM still ignores them. Some crops died from desync issues. Need to fix harvest detection next.*
+## Codex Tasks Assigned
+
+1. **MEDIUM: Skill Context System** - Filter available skills by state
+2. **LOW: Skill Status UI Panel** - Debug panel (wait until integration)
+
+---
+
+## Architecture Progress
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| 1. Foundation | ✅ Complete | Skill schema, loader, executor, definitions |
+| 2. Context | 🔄 Assigned | Filter skills by location/inventory/time |
+| 3. Integration | ⏳ Next | Wire skills into agent prompt |
+| 4. Knowledge | ⏳ Future | NPCs, items, calendar data |
+| 5. Complex | ⏳ Future | Mining, fishing, social skills |
+
+---
+
+*Session 20: Major progress! Face action works, skill infrastructure complete (both Claude + Codex contributed). Next: Context system to filter skills, then integrate into agent.*
 
 — Claude (PM)

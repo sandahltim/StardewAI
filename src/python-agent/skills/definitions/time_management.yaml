@@ -1,0 +1,216 @@
+# Time Management Skills for StardewAI
+# Critical for not passing out and managing the day effectively
+
+# =============================================================================
+# SLEEP / END DAY
+# =============================================================================
+
+go_to_sleep:
+  description: "End the day by going to bed - restores full energy"
+  category: time_management
+  energy_cost: 0
+  priority: critical  # Should interrupt other goals when needed
+
+  preconditions:
+    required: []  # Always available, but may need to get home first
+
+  actions:
+    - warp: FarmHouse
+    - wait: 1.0
+    - pathfind_to:
+        target: bed
+        stop_adjacent: true
+    - face: right
+    - interact
+
+  on_success:
+    message: "Going to sleep - energy will be restored"
+
+  triggers:
+    # Auto-suggest this skill when these conditions are met
+    - condition: time_after
+      value: "22:00"
+      urgency: high
+      message: "It's getting late - consider going to bed"
+    - condition: time_after
+      value: "24:00"
+      urgency: critical
+      message: "Past midnight! Go to bed NOW or pass out!"
+    - condition: energy_below
+      value: 20
+      urgency: high
+      message: "Very low energy - should sleep to restore"
+
+# =============================================================================
+# ENERGY MANAGEMENT
+# =============================================================================
+
+eat_food:
+  description: "Eat food item to restore energy"
+  category: time_management
+  energy_cost: 0  # Actually restores energy!
+
+  preconditions:
+    required:
+      - type: has_item_category
+        category: food
+
+  actions:
+    - menu  # Open inventory
+    - select_item: "{food_item}"
+    - interact  # Eat it
+    - menu  # Close inventory
+
+  on_success:
+    message: "Ate {food_item} - restored energy"
+
+  on_failure:
+    no_food:
+      message: "No food in inventory"
+      suggestion: "Buy food from Saloon or forage"
+
+  triggers:
+    - condition: energy_below
+      value: 50
+      urgency: medium
+      message: "Energy getting low - consider eating"
+    - condition: energy_below
+      value: 20
+      urgency: high
+      message: "Very low energy - eat something!"
+
+# =============================================================================
+# TIME AWARENESS
+# =============================================================================
+
+check_time:
+  description: "Evaluate if there's time for more activities"
+  category: time_management
+  energy_cost: 0
+
+  preconditions:
+    required: []
+
+  # This is a planning skill - no actions, just evaluation
+  evaluation:
+    time_remaining:
+      before_midnight: "{time_until_midnight}"
+      safe_activities: "{activities_possible}"
+    energy_status:
+      current: "{current_energy}"
+      activities_possible: "{energy_activities}"
+
+  recommendations:
+    - if: time_after_22
+      then: "Consider wrapping up and heading home"
+    - if: time_after_midnight
+      then: "GO TO BED IMMEDIATELY"
+    - if: energy_below_20
+      then: "Too tired for heavy work - eat or sleep"
+
+wait_until:
+  description: "Wait until a specific time (for shop openings, events)"
+  category: time_management
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: time_before
+        time: "{target_time}"
+
+  actions:
+    - wait_game_time:
+        until: "{target_time}"
+
+  on_success:
+    message: "Waited until {target_time}"
+
+  on_failure:
+    past_time:
+      message: "Target time has already passed"
+
+# =============================================================================
+# DAILY PLANNING
+# =============================================================================
+
+plan_day:
+  description: "Assess what can be accomplished today"
+  category: time_management
+  energy_cost: 0
+
+  # This is a pure planning skill
+  evaluation:
+    current_state:
+      time: "{current_time}"
+      energy: "{current_energy}"
+      weather: "{weather}"
+    opportunities:
+      - if: weather_rainy
+        then: "No watering needed! Free day for mining/fishing/social"
+      - if: crops_ready
+        then: "Harvest ready crops first"
+      - if: crops_unwatered
+        then: "Must water crops today or they may die"
+    constraints:
+      - shop_hours: "Pierre 9-17 (closed Wed), Blacksmith 9-16"
+      - passing_out: "MUST sleep before 2AM"
+
+morning_routine:
+  description: "Standard morning activities"
+  category: time_management
+  composite: true
+
+  steps:
+    - skill: check_time
+    - skill: harvest_all_ready
+      condition: crops_ready_exist
+    - skill: water_all_crops
+      condition: weather_not_rainy
+    - skill: check_time
+      evaluation: "Assess remaining day"
+
+  on_complete:
+    message: "Morning routine complete - ready for adventures!"
+
+# =============================================================================
+# EMERGENCY SKILLS
+# =============================================================================
+
+emergency_sleep:
+  description: "URGENT: Get to bed immediately to avoid passing out"
+  category: time_management
+  energy_cost: 0
+  priority: emergency
+
+  preconditions:
+    required: []
+
+  actions:
+    - warp: FarmHouse
+    - go_to_bed
+
+  triggers:
+    - condition: time_after
+      value: "01:30"
+      urgency: emergency
+      message: "30 MINUTES TO PASS OUT - SLEEP NOW!"
+
+emergency_eat:
+  description: "URGENT: Eat anything to avoid exhaustion collapse"
+  category: time_management
+  energy_cost: 0
+  priority: emergency
+
+  preconditions:
+    required:
+      - type: has_item_category
+        category: edible  # Includes foraged items, not just food
+
+  actions:
+    - eat_food
+
+  triggers:
+    - condition: energy_below
+      value: 10
+      urgency: emergency
+      message: "About to collapse from exhaustion!"

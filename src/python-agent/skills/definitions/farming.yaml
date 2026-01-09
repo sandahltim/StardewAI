@@ -1,0 +1,463 @@
+# Farming Skills for StardewAI
+# These skills handle crop management on the farm
+
+# =============================================================================
+# WATERING
+# =============================================================================
+
+water_crop:
+  description: "Water an unwatered planted crop"
+  category: farming
+  energy_cost: 2
+
+  preconditions:
+    required:
+      - type: adjacent_to
+        target: unwatered_crop
+      - type: equipped
+        item: Watering Can
+      - type: resource_above
+        resource: watering_can_water
+        minimum: 1
+
+  actions:
+    - face: "{target_direction}"
+    - use_tool
+
+  on_success:
+    message: "Watered the crop"
+    updates:
+      - crop.isWatered: true
+
+  on_failure:
+    not_adjacent:
+      message: "Not adjacent to an unwatered crop"
+      recovery_skill: navigate_to_crop
+    wrong_tool:
+      message: "Watering Can not equipped"
+      recovery_skill: equip_watering_can
+    can_empty:
+      message: "Watering can is empty"
+      recovery_skill: refill_watering_can
+
+refill_watering_can:
+  description: "Refill watering can at a water source (pond, river, well)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: adjacent_to
+        target: water_source
+      - type: equipped
+        item: Watering Can
+
+  actions:
+    - face: "{target_direction}"
+    - use_tool
+
+  on_success:
+    message: "Refilled watering can"
+
+  on_failure:
+    not_adjacent:
+      message: "Not adjacent to water"
+      recovery_skill: navigate_to_water
+    wrong_tool:
+      message: "Watering Can not equipped"
+      recovery_skill: equip_watering_can
+
+equip_watering_can:
+  description: "Select the watering can from toolbar"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Watering Can
+
+  actions:
+    - select_slot: 2  # Watering Can is typically slot 2
+
+  on_success:
+    message: "Equipped Watering Can"
+
+  on_failure:
+    no_item:
+      message: "No Watering Can in inventory"
+
+# =============================================================================
+# HARVESTING
+# =============================================================================
+
+harvest_crop:
+  description: "Pick a mature crop that is ready for harvest"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: adjacent_to
+        target: ready_crop
+
+  actions:
+    - face: "{target_direction}"
+    - interact
+
+  on_success:
+    message: "Harvested {crop_name}"
+    updates:
+      - inventory: add {crop_yield}
+
+  on_failure:
+    not_adjacent:
+      message: "Not adjacent to a ready crop"
+      recovery_skill: navigate_to_crop
+    not_ready:
+      message: "Crop is not ready for harvest yet"
+
+# =============================================================================
+# PLANTING
+# =============================================================================
+
+plant_seed:
+  description: "Plant seeds on tilled soil"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: standing_on
+        target: tilled_soil
+      - type: equipped_category
+        category: seeds
+
+  actions:
+    - use_tool
+
+  on_success:
+    message: "Planted {seed_name}"
+    updates:
+      - tile.state: planted
+
+  on_failure:
+    wrong_tile:
+      message: "Not standing on tilled soil"
+      recovery_skill: till_soil
+    no_seeds:
+      message: "No seeds equipped"
+      recovery_skill: equip_seeds
+
+equip_seeds:
+  description: "Select seeds from inventory"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item_category
+        category: seeds
+
+  actions:
+    - select_slot: "{seed_slot}"
+
+  on_success:
+    message: "Equipped {seed_name}"
+
+  on_failure:
+    no_seeds:
+      message: "No seeds in inventory - buy from Pierre's"
+
+# =============================================================================
+# SOIL PREPARATION
+# =============================================================================
+
+till_soil:
+  description: "Use hoe to till clear ground for planting"
+  category: farming
+  energy_cost: 2
+
+  preconditions:
+    required:
+      - type: standing_on
+        target: tillable_ground
+      - type: equipped
+        item: Hoe
+
+  actions:
+    - use_tool
+
+  on_success:
+    message: "Tilled the soil"
+    updates:
+      - tile.state: tilled
+
+  on_failure:
+    wrong_tile:
+      message: "Cannot till this ground (decorative lawn or blocked)"
+      recovery_skill: navigate_to_farmable
+    wrong_tool:
+      message: "Hoe not equipped"
+      recovery_skill: equip_hoe
+
+equip_hoe:
+  description: "Select the hoe from toolbar"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Hoe
+
+  actions:
+    - select_slot: 1  # Hoe is typically slot 1
+
+  on_success:
+    message: "Equipped Hoe"
+
+# =============================================================================
+# DEBRIS CLEARING
+# =============================================================================
+
+clear_weeds:
+  description: "Cut weeds or grass with scythe (free - no energy cost!)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: adjacent_to
+        target: weeds
+      - type: equipped
+        item: Scythe
+
+  actions:
+    - face: "{target_direction}"
+    - use_tool
+
+  on_success:
+    message: "Cleared weeds"
+    drops: [Mixed Seeds, Fiber]
+
+  on_failure:
+    not_adjacent:
+      message: "Not adjacent to weeds"
+    wrong_tool:
+      message: "Scythe not equipped"
+      recovery_skill: equip_scythe
+
+equip_scythe:
+  description: "Select the scythe from toolbar"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Scythe
+
+  actions:
+    - select_slot: 4  # Scythe is typically slot 4
+
+  on_success:
+    message: "Equipped Scythe"
+
+clear_stone:
+  description: "Break small stones with pickaxe"
+  category: farming
+  energy_cost: 2
+
+  preconditions:
+    required:
+      - type: adjacent_to
+        target: stone
+      - type: equipped
+        item: Pickaxe
+
+  actions:
+    - face: "{target_direction}"
+    - use_tool
+
+  on_success:
+    message: "Cleared stone"
+    drops: [Stone]
+
+  on_failure:
+    not_adjacent:
+      message: "Not adjacent to stone"
+    wrong_tool:
+      message: "Pickaxe not equipped"
+      recovery_skill: equip_pickaxe
+
+equip_pickaxe:
+  description: "Select the pickaxe from toolbar"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Pickaxe
+
+  actions:
+    - select_slot: 3  # Pickaxe is typically slot 3
+
+  on_success:
+    message: "Equipped Pickaxe"
+
+clear_wood:
+  description: "Chop branches or twigs with axe"
+  category: farming
+  energy_cost: 2
+
+  preconditions:
+    required:
+      - type: adjacent_to
+        target: wood
+      - type: equipped
+        item: Axe
+
+  actions:
+    - face: "{target_direction}"
+    - use_tool
+
+  on_success:
+    message: "Cleared wood"
+    drops: [Wood]
+
+  on_failure:
+    not_adjacent:
+      message: "Not adjacent to wood"
+    wrong_tool:
+      message: "Axe not equipped"
+      recovery_skill: equip_axe
+
+equip_axe:
+  description: "Select the axe from toolbar"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Axe
+
+  actions:
+    - select_slot: 0  # Axe is typically slot 0
+
+  on_success:
+    message: "Equipped Axe"
+
+chop_tree:
+  description: "Chop down a tree (multiple hits required)"
+  category: farming
+  energy_cost: 10  # Trees take ~10 hits
+
+  preconditions:
+    required:
+      - type: adjacent_to
+        target: tree
+      - type: equipped
+        item: Axe
+
+  actions:
+    - face: "{target_direction}"
+    - use_tool
+    - use_tool
+    - use_tool
+    - use_tool
+    - use_tool
+    - use_tool
+    - use_tool
+    - use_tool
+    - use_tool
+    - use_tool
+
+  on_success:
+    message: "Chopped down tree"
+    drops: [Wood, Tree Seeds]
+
+  on_failure:
+    not_adjacent:
+      message: "Not adjacent to tree"
+    wrong_tool:
+      message: "Axe not equipped"
+      recovery_skill: equip_axe
+
+# =============================================================================
+# SHIPPING / SELLING
+# =============================================================================
+
+ship_item:
+  description: "Put item in shipping bin to sell overnight"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: adjacent_to
+        target: shipping_bin
+      - type: has_item_category
+        category: sellable
+
+  actions:
+    - face: "{target_direction}"
+    - interact
+
+  on_success:
+    message: "Shipped {item_name} - will sell overnight"
+
+  on_failure:
+    not_adjacent:
+      message: "Not adjacent to shipping bin"
+      recovery_skill: navigate_to_shipping_bin
+    no_items:
+      message: "No sellable items in inventory"
+
+# =============================================================================
+# COMPOSITE SKILLS (higher-level workflows)
+# =============================================================================
+
+water_all_crops:
+  description: "Water all unwatered crops on the farm"
+  category: farming
+  composite: true
+
+  steps:
+    - skill: navigate_to_crop
+      params: {target: nearest_unwatered}
+    - skill: water_crop
+      repeat_until: no_unwatered_crops
+
+  on_complete:
+    message: "All crops watered!"
+
+harvest_all_ready:
+  description: "Harvest all crops that are ready"
+  category: farming
+  composite: true
+
+  steps:
+    - skill: navigate_to_crop
+      params: {target: nearest_ready}
+    - skill: harvest_crop
+      repeat_until: no_ready_crops
+
+  on_complete:
+    message: "All ready crops harvested!"
+
+morning_farm_routine:
+  description: "Complete morning farming chores: water crops, harvest ready, check animals"
+  category: farming
+  composite: true
+
+  steps:
+    - skill: harvest_all_ready
+    - skill: water_all_crops
+    - skill: ship_item
+      condition: inventory_has_sellables
+
+  on_complete:
+    message: "Morning farm routine complete!"

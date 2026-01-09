@@ -662,7 +662,7 @@ class ModBridgeController:
                         front_info = ">>> ⚠️ WATERING CAN EMPTY! Find water (pond/river), select_slot 2, use_tool to REFILL! <<<"
             elif crop_here and crop_here.get("isReadyForHarvest"):
                 crop_name = crop_here.get("cropName", "crop")
-                front_info = f">>> 🌾 HARVEST TIME! {crop_name} is READY! use_tool to PICK IT! <<<"
+                front_info = f">>> 🌾 HARVEST TIME! {crop_name} is READY! DO: interact (NOT use_tool!) <<<"
             elif tile_state == "tilled":
                 # Check if player has seeds before showing plant message
                 inventory = state.get("inventory", []) if state else []
@@ -846,17 +846,24 @@ class ModBridgeController:
                         nearest_h = min(harvestable, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
                         dx = nearest_h["x"] - player_x
                         dy = nearest_h["y"] - player_y
-                        dirs = []
-                        if dy < 0:
-                            dirs.append(f"{abs(dy)} UP")
-                        elif dy > 0:
-                            dirs.append(f"{abs(dy)} DOWN")
-                        if dx < 0:
-                            dirs.append(f"{abs(dx)} LEFT")
-                        elif dx > 0:
-                            dirs.append(f"{abs(dx)} RIGHT")
-                        direction_str = " and ".join(dirs) if dirs else "here"
-                        front_info = f">>> 🌾 {len(harvestable)} CROPS READY TO HARVEST! Nearest: {direction_str}. GO PICK THEM! <<<"
+                        dist = abs(dx) + abs(dy)
+
+                        # If harvestable crop is exactly 1 tile away, use FACE + interact
+                        if dist == 1:
+                            face_dir = "up" if dy < 0 else "down" if dy > 0 else "left" if dx < 0 else "right"
+                            front_info = f">>> 🌾 HARVEST 1 tile {face_dir.upper()}! DO: face {face_dir}, interact ({len(harvestable)} ready) <<<"
+                        else:
+                            dirs = []
+                            if dy < 0:
+                                dirs.append(f"{abs(dy)} UP")
+                            elif dy > 0:
+                                dirs.append(f"{abs(dy)} DOWN")
+                            if dx < 0:
+                                dirs.append(f"{abs(dx)} LEFT")
+                            elif dx > 0:
+                                dirs.append(f"{abs(dx)} RIGHT")
+                            direction_str = " and ".join(dirs) if dirs else "here"
+                            front_info = f">>> 🌾 {len(harvestable)} READY! Nearest: move {direction_str}, then interact to harvest <<<"
                     elif crops:
                         front_info = ">>> TILE: NOT FARMABLE - All crops watered, none ready to harvest. <<<"
                     else:
@@ -993,10 +1000,34 @@ class ModBridgeController:
             closest = min(nearby_debris, key=lambda x: x[2])
             direction, debris_type, dist = closest
             tool = "SCYTHE" if debris_type in ["Weeds", "Grass"] else "PICKAXE" if debris_type in ["Stone", "Boulder"] else "AXE"
-            return f">>> ALL CROPS WATERED! ✓ Clear {debris_type} {dist} tiles {direction.upper()} with {tool}, or use action 'go_to_bed'. <<<"
+            tool_slot = {"SCYTHE": 4, "PICKAXE": 3, "AXE": 0}.get(tool, 4)
+            if dist == 1:
+                return f">>> ✅ WATERING DONE! NOW CLEAR DEBRIS: {debris_type} 1 tile {direction.upper()}. DO: select_slot {tool_slot}, face {direction}, use_tool <<<"
+            else:
+                return f">>> ✅ WATERING DONE! NOW CLEAR DEBRIS: {debris_type} {dist} tiles {direction.upper()}. DO: move {direction}, select_slot {tool_slot}, use_tool <<<"
 
-        # Default
-        return ">>> ALL CROPS WATERED! ✓ Clear debris to expand farm, or use action 'go_to_bed' (auto-warps + sleeps). <<<"
+        # Default - find debris on farm
+        objects = state.get("location", {}).get("objects", []) if state else []
+        debris_types = ["Weeds", "Stone", "Twig", "Wood"]
+        debris_nearby = [o for o in objects if o.get("name") in debris_types]
+        if debris_nearby:
+            # Find closest debris
+            closest = min(debris_nearby, key=lambda o: abs(o["x"] - player_x) + abs(o["y"] - player_y))
+            dx = closest["x"] - player_x
+            dy = closest["y"] - player_y
+            dist = abs(dx) + abs(dy)
+            debris_name = closest["name"]
+            tool = "SCYTHE" if debris_name == "Weeds" else "PICKAXE" if debris_name == "Stone" else "AXE"
+            tool_slot = {"SCYTHE": 4, "PICKAXE": 3, "AXE": 0}.get(tool, 4)
+            dirs = []
+            if dy < 0: dirs.append(f"{abs(dy)} UP")
+            elif dy > 0: dirs.append(f"{abs(dy)} DOWN")
+            if dx < 0: dirs.append(f"{abs(dx)} LEFT")
+            elif dx > 0: dirs.append(f"{abs(dx)} RIGHT")
+            direction_str = " then ".join(dirs) if dirs else "nearby"
+            return f">>> ✅ WATERING DONE! NOW CLEAR DEBRIS: {debris_name} {direction_str}. DO: move there, select_slot {tool_slot}, use_tool <<<"
+
+        return ">>> ✅ ALL FARMING DONE! Use action 'go_to_bed' to end day. <<<"
 
     def execute(self, action: Action) -> bool:
         """Execute an action via SMAPI mod API."""

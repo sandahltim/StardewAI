@@ -2,28 +2,97 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-09 Session 17
+**Last Updated:** 2026-01-09 Session 20 (end)
 
 ---
 
 ## Active Tasks
 
-None.
+### MEDIUM: Skill Context System (`src/python-agent/skills/context.py`)
+
+**Context:** Now that skill infrastructure is built, we need a context system to filter which skills are available based on current game state.
+
+```python
+class SkillContext:
+    def __init__(self, loader: SkillLoader, checker: PreconditionChecker):
+        self.loader = loader
+        self.checker = checker
+
+    def get_available_skills(self, state: dict, location: str = None) -> List[Skill]:
+        """Return skills whose preconditions CAN be met in current state."""
+        available = []
+        for skill in self.loader.skills.values():
+            # Filter by location if skill has location requirement
+            # Filter by inventory (has required tools?)
+            # Filter by time (shop hours?)
+            # Check if preconditions are satisfiable (not necessarily met, but possible)
+            result = self.checker.check(skill, state)
+            if result.met or self._preconditions_achievable(skill, state):
+                available.append(skill)
+        return available
+
+    def format_for_prompt(self, skills: List[Skill]) -> str:
+        """Format available skills for VLM prompt."""
+        lines = []
+        for skill in skills:
+            lines.append(f"- {skill.name}: {skill.description}")
+        return "\n".join(lines)
+```
+
+**Key filtering:**
+- `location_is` precondition → only show skill if player at that location
+- `equipped` precondition → only show if player HAS that tool in inventory
+- `time_between` precondition → only show during those hours
+- `has_item` precondition → only show if item in inventory
+
+**Test:**
+```bash
+python -c "
+from skills.loader import SkillLoader
+from skills.preconditions import PreconditionChecker
+from skills.context import SkillContext
+# Test with mock state
+"
+```
+
+---
+
+### LOW: Skill Status UI Panel
+
+**Context:** Debug panel showing skill system status.
+
+**Location:** Add to VLM Dashboard area in `src/ui/static/app.js`
+
+**Features:**
+- Last executed skill name
+- Skill precondition status (met/unmet)
+- Available skills count
+- (Optional) List of available skill names
+
+**Data source:** Agent would need to POST skill status to `/api/status`:
+```json
+{
+  "last_skill": "water_crop",
+  "skill_preconditions_met": true,
+  "available_skills_count": 12
+}
+```
+
+**Lower priority** - can wait until skill system is integrated into agent.
 
 ---
 
 ## Future Task Ideas (Not Assigned)
 
-- Location minimap showing player position on farm
-- NPC relationship tracker with gift suggestions
-- Seasonal calendar with upcoming events
-- Goal progress tracker with checkboxes
-- Daily earnings/shipping summary
+- Knowledge base loader (NPCs, items, locations from YAML)
+- Skill history/analytics panel
+- Mining skill definitions (when we get to mines)
 
 ---
 
 ## Completed Tasks
 
+- [x] Skill System Infrastructure (2026-01-09 Session 20)
 - [x] Spatial Memory Map (2026-01-09 Session 17)
 - [x] UI: Bedtime/Sleep Indicator (2026-01-09 Session 15)
 - [x] UI: Day/Season Progress Display (2026-01-09 Session 15)
@@ -42,32 +111,7 @@ None.
 - [x] UI: Action Repeat Detection (2026-01-08 Session 11)
 - [x] UI: Inventory Panel (2026-01-08 Session 11)
 - [x] UI: Action Result Log (2026-01-08 Session 11)
-- [x] UI: Agent Stuck Indicator (2026-01-08)
-- [x] UI: Water Source Indicator (2026-01-08)
-- [x] UI: Shipping Bin Indicator (2026-01-08)
-- [x] UI: Crop Growth Progress (2026-01-08)
-- [x] UI: Watering Can Level Display (2026-01-08)
-- [x] UI: Current Instruction Display (2026-01-08)
-- [x] UI: Tile State Display (2026-01-08)
-- [x] UI: Farming Progress Bar (2026-01-08)
-- [x] Game Knowledge DB - Calendar table + helpers (2026-01-08)
-- [x] Game Knowledge DB - NPC schedule notes (2026-01-08)
-- [x] UI: Memory Viewer Panel (2026-01-08)
-- [x] Game Knowledge DB - Items table (2026-01-08)
-- [x] Game Knowledge DB - Locations table + helpers (2026-01-08)
-- [x] Game Knowledge Database - NPCs and Crops (2026-01-08)
-- [x] SMAPI Mod: Better blocker names (2026-01-08)
-- [x] Memory System: /api/session-memory endpoint (2026-01-08)
-- [x] UI: Movement History Panel (2026-01-08)
-- [x] SMAPI Mod: /surroundings endpoint (2026-01-08)
-- [x] SMAPI Mod: toggle_menu, cancel, toolbar actions (2026-01-08)
-- [x] UI: VLM Dashboard Panel (2026-01-08)
-- [x] FastAPI UI server (app.py)
-- [x] SQLite storage layer (storage.py)
-- [x] WebSocket broadcast infrastructure
-- [x] TTS integration (Piper)
-- [x] Status/goals/tasks API
-- [x] Team Chat frontend
+- [x] Other historical tasks...
 
 ---
 
@@ -76,12 +120,11 @@ None.
 ### For Status Updates
 Post to team chat: `./scripts/team_chat.py post codex "your message"`
 
-### For Task Completion
-1. Post to team chat: "Completed: [task name]"
-2. Update this doc or Claude will
+### For Questions
+Post to team chat - Claude monitors it each session.
 
 ---
 
-*Session 14: Great work completing VLM error display, nav intent, and chat integration! New tasks: session stats panel, latency graph, crop countdown.*
+*Session 20: Great work on skill infrastructure! Next: Context system to filter available skills. This enables VLM to see only relevant skills for current situation.*
 
 — Claude (PM)
