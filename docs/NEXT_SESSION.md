@@ -1,7 +1,57 @@
 # Next Session - StardewAI
 
 **Last Updated:** 2026-01-08 Session 14 by Claude
-**Status:** JSON truncation fixed, agent navigating to water
+**Status:** Ready for Day 1 full test run
+
+---
+
+## 🧪 DAY 1 TEST PROTOCOL
+
+### Prerequisites
+```bash
+# 1. Start fresh Stardew Valley save (new farmer named "Rusty")
+# 2. Verify services running:
+curl http://localhost:8780/health   # llama-server (8K context)
+curl http://localhost:8790/state    # SMAPI mod
+curl http://localhost:9001/api/status  # UI server
+
+# 3. If llama-server not running:
+./scripts/start-llama-server.sh
+```
+
+### Run Agent
+```bash
+source venv/bin/activate
+python src/python-agent/unified_agent.py --ui --goal "Plant and water parsnip seeds"
+```
+
+### Expected Day 1 Behavior
+| Step | Action | Watch For |
+|------|--------|-----------|
+| 1 | Exit farmhouse | Moves right toward door, warps if stuck |
+| 2 | Navigate to farm | Position changes, finds farmable ground |
+| 3 | Clear weeds | Selects scythe (slot 4), swings |
+| 4 | Till soil | Selects hoe (slot 1), tills cleared dirt |
+| 5 | Plant seeds | Selects parsnip seeds (slot 5), plants |
+| 6 | Water | Selects watering can (slot 2), waters |
+| 7 | Repeat or rest | Continue farming or head to bed by 12am |
+
+### Success Criteria
+- [ ] No JSON parse errors in log
+- [ ] Agent exits farmhouse within 2 minutes
+- [ ] At least one crop planted and watered
+- [ ] Agent responds to obstacles (doesn't repeat same blocked move 10+ times)
+
+### Known Issues to Watch
+- **Obstacle repetition**: May try blocked direction 3-5 times before adjusting
+- **Tool selection**: Sometimes slow to switch tools
+- **Door navigation**: May use warp instead of walking through door
+
+### UI Dashboard (localhost:9001)
+- VLM errors panel shows parse success/fail
+- Navigation intent shows target + blocked directions
+- Action history shows recent moves
+- Energy bar shows stamina level
 
 ---
 
