@@ -1,7 +1,7 @@
-# Session 38: Lesson Recording & Rusty Memory
+# Session 38: Rusty Memory Persistence
 
 **Last Updated:** 2026-01-10 Session 37 by Claude
-**Status:** VLM Debug pipeline complete, SMAPI indicators done
+**Status:** UI integration complete, Rusty memory is next priority
 
 ---
 
@@ -94,30 +94,57 @@ UI server: running on 9001                           ✅
 
 ## Next Session Priorities
 
-### ~~Priority 1: Lesson Recording to UI (Claude)~~ ✅ DONE
+### Priority 1: Rusty Memory Persistence (Claude) ← START HERE
 
-Completed in Session 37:
-- LessonMemory now POSTs to `/api/lessons/update`
-- UI endpoint broadcasts via WebSocket
+Make Rusty remember between sessions. Currently Rusty has personality but no continuity.
 
-### Priority 2: Rusty Memory Persistence (Claude)
+**What exists:**
+- `memory/game_knowledge.py` - ChromaDB for game facts
+- `memory/lessons.py` - LessonMemory for failures
+- `commentary/personalities.py` - 4 personality templates
 
-Make Rusty remember between sessions:
-- Save episodic memories to file/Chroma
-- Track NPC relationships
-- Character state persistence
-- Could use existing ChromaDB infrastructure
+**What's needed:**
+1. **Episodic Memory** - Remember what happened last session
+   - "Yesterday I planted 8 parsnips"
+   - "I met Abigail near the community center"
 
-### Priority 3: Full Farm Cycle Test (Claude)
+2. **Character State** - Track Rusty's mood/development
+   - Confidence level (increases with successes)
+   - Favorite activities discovered
+   - Current concerns/goals
 
-Test end-to-end with real game:
+3. **NPC Relationships** - Different voice for different people
+   - Track who Rusty has met
+   - Remember past conversations
+   - Adjust commentary tone per NPC
+
+**Implementation approach:**
+```python
+# New file: memory/rusty_memory.py
+class RustyMemory:
+    def __init__(self, persist_path="logs/rusty_state.json"):
+        self.episodic = []  # Recent events
+        self.relationships = {}  # NPC -> relationship data
+        self.character_state = {
+            "confidence": 0.5,
+            "mood": "neutral",
+            "days_farming": 0
+        }
+```
+
+### Priority 2: Full Farm Cycle Test (Claude)
+
+Test end-to-end with real game after memory is working:
 - Clear→Till→Plant→Water sequence
 - Verify VLM debug panel shows data
 - Verify lessons panel populates on failures
 
-### ~~Priority 4: SMAPI Status Indicators (Codex)~~ ✅ DONE
+### ~~Completed in Session 37~~ ✅
 
-Completed in Session 37 by Codex.
+- VLM Debug Pipeline (agent sends observation/validation/execution to UI)
+- Lesson Recording to UI (agent POSTs lessons, WebSocket broadcast)
+- SMAPI Status Indicators (Codex)
+- Empty State Messages (Codex)
 
 ---
 
@@ -158,10 +185,17 @@ Completed in Session 37 by Codex.
 
 ## Key Insight from Session 37
 
-**Agent→UI pipeline complete. VLM debug panel now shows live data.**
+**UI integration is 100% complete. Agent sends all data to UI in real-time.**
 
-- VLM observation, proposed action, validation status, execution outcome all sent to UI
-- Codex completed SMAPI status indicators + empty states
-- Next: Wire lesson recording to UI, then Rusty memory
+Session 37 completed both HIGH priority items:
+1. VLM Debug Pipeline - observation, validation, execution all visible
+2. Lesson Recording - failures POST to UI with WebSocket broadcast
+
+**Next session focus: Give Rusty a memory.**
+
+Rusty has personality but forgets everything between sessions. The memory system should:
+- Remember what happened (episodic)
+- Track character growth (state)
+- Adjust voice per NPC (relationships)
 
 *— Claude (PM), Session 37*
