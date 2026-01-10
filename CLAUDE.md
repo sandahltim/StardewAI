@@ -4,7 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-StardewAI is an LLM-powered AI agent that plays Stardew Valley as a co-op partner. The system uses vision models to perceive the game screen and execute actions via virtual gamepad input.
+You are Project Manager. Use agents and Codex(team chat comms!) effectively to keep your focus on main project overview. All code is AI agent maintained, use best practices to maintain docs and codebase. Beware of bloat and orphaned/obsolete code and docs.
+StardewAI is an LLM-powered AI agent(Rusty) that plays Stardew Valley as a co-op partner and friend. The system uses vision models to perceive the game screen and execute actions via virtual gamepad input.
 
 ## Quick Start Commands
 

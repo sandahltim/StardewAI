@@ -2049,8 +2049,15 @@ class StardewAgent:
             volume=volume,
         )
 
-        # TTS: Read commentary every 4 actions (prevents queue backup)
-        if tts_enabled and self.commentary_tts and self._commentary_count % 4 == 0:
+        # TTS: Read commentary every 4 actions with time throttle (prevents doubling)
+        if not hasattr(self, '_last_tts_time'):
+            self._last_tts_time = 0
+        import time
+        current_time = time.time()
+        tts_cooldown = 8.0  # Minimum seconds between TTS
+        time_ok = (current_time - self._last_tts_time) >= tts_cooldown
+
+        if tts_enabled and self.commentary_tts and self._commentary_count % 4 == 0 and time_ok:
             try:
                 # Clean text for TTS - remove special chars that get read aloud
                 import re
@@ -2058,6 +2065,7 @@ class StardewAgent:
                 tts_text = re.sub(r'["\'\*\_\#\`\[\]\(\)\{\}]', '', tts_text)  # Remove quotes, markdown
                 tts_text = re.sub(r'\s+', ' ', tts_text).strip()  # Normalize whitespace
                 self.commentary_tts.speak(tts_text)
+                self._last_tts_time = current_time
             except Exception:
                 pass
 

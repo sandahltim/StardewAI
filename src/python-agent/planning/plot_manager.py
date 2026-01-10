@@ -317,23 +317,30 @@ class PlotManager:
         target_state = state.phase_target_state()
         done_count = sum(
             1 for x, y in plot.all_tiles()
-            if state.get_tile_state(x, y).value >= target_state.value
+            if state.get_tile_state(x, y).order() >= target_state.order()
         )
 
-        # Action hint based on phase
+        # Action hint based on phase - be VERY specific about tools
         action_hints = {
-            "clear": "select SCYTHE/PICKAXE/AXE depending on debris, use_tool",
-            "till": "select HOE (slot 1), use_tool",
-            "plant": "select SEEDS, use_tool",
-            "water": "select WATERING CAN (slot 2), use_tool",
+            "clear": "WEEDS=Scythe(slot 4), STONE=Pickaxe(slot 3), TWIG/WOOD=Axe(slot 0). Check debris type FIRST, then select_slot, then use_tool",
+            "till": "select_slot 1 (Hoe), face tile, use_tool",
+            "plant": "select_slot 5 or 6 (Seeds), face tilled tile, use_tool",
+            "water": "select_slot 2 (Watering Can), face planted tile, use_tool",
         }
         action_hint = action_hints.get(action, "use appropriate tool")
+
+        # Add navigation instruction if far from target
+        if dist > 2:
+            nav_instr = f">>> NAVIGATE FIRST! Go {direction} to reach target tile, THEN work. <<<"
+        else:
+            nav_instr = ">>> IN POSITION - do the action below. <<<"
 
         # Emphatic prompt
         return f""">>> FARM PLAN ACTIVE <<<
 📋 Plot: {plot.id} ({plot.width}x{plot.height}) at ({plot.origin_x},{plot.origin_y})
 🔄 Phase: {state.phase.value.upper()} ({done_count}/{total_tiles} tiles)
 🎯 Target: ({target_x},{target_y}) - {direction} from you (dist={dist})
+{nav_instr}
 ✅ Action: {action.upper()} - {action_hint}
 >>> WORK THIS TILE, STAY IN PLOT, SYSTEMATIC! <<<"""
 

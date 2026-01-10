@@ -28,6 +28,19 @@ class TileState(Enum):
     WATERED = "watered"     # Watered, growing
     GROWN = "grown"         # Ready to harvest
 
+    def order(self) -> int:
+        """Numeric ordering for state progression."""
+        ordering = {
+            "unknown": 0,
+            "debris": 1,
+            "cleared": 2,
+            "tilled": 3,
+            "planted": 4,
+            "watered": 5,
+            "grown": 6,
+        }
+        return ordering.get(self.value, 0)
+
 
 class PlotPhase(Enum):
     """Current work phase for a plot."""

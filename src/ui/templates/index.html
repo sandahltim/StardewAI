@@ -246,6 +246,28 @@
           <div id="spatialMapGrid" class="spatial-map-grid"></div>
           <p id="spatialMapNote" class="spatial-map-note">Waiting for map data...</p>
         </div>
+        <div class="farm-plan-card">
+          <div class="vlm-subhead">Farm Plan</div>
+          <div id="farmPlanMeta" class="farm-plan-meta">Waiting for plan...</div>
+          <div id="farmPlanWorkflow" class="farm-plan-workflow">
+            <span data-step="clear">CLEAR</span>
+            <span data-step="till">TILL</span>
+            <span data-step="plant">PLANT</span>
+            <span data-step="water">WATER</span>
+          </div>
+          <div class="farm-plan-bar">
+            <div id="farmPlanBarFill" class="farm-plan-bar__fill"></div>
+          </div>
+          <div id="farmPlanPercent" class="farm-plan-percent">0% complete</div>
+          <div id="farmPlanGrid" class="farm-plan-grid"></div>
+          <ol id="farmPlanRows" class="farm-plan-rows"></ol>
+          <div class="farm-plan-legend">
+            <span class="legend-item"><i class="legend-swatch farm-plan-done"></i> Done</span>
+            <span class="legend-item"><i class="legend-swatch farm-plan-pending"></i> Pending</span>
+            <span class="legend-item"><i class="legend-swatch farm-plan-current"></i> Current</span>
+            <span class="legend-item"><i class="legend-swatch farm-plan-blocked"></i> Blocked</span>
+          </div>
+        </div>
         <div class="water-card">
           <div class="vlm-subhead">Watering Can</div>
           <div class="water-status" id="waterStatus">Waiting for state...</div>

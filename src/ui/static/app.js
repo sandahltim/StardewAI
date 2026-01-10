@@ -327,6 +327,12 @@ function updateStatus(status) {
   const goalProgressList = document.getElementById("goalProgressList");
   const spatialMapGrid = document.getElementById("spatialMapGrid");
   const spatialMapNote = document.getElementById("spatialMapNote");
+  const farmPlanMeta = document.getElementById("farmPlanMeta");
+  const farmPlanWorkflow = document.getElementById("farmPlanWorkflow");
+  const farmPlanBarFill = document.getElementById("farmPlanBarFill");
+  const farmPlanPercent = document.getElementById("farmPlanPercent");
+  const farmPlanGrid = document.getElementById("farmPlanGrid");
+  const farmPlanRows = document.getElementById("farmPlanRows");
 
   const formatDuration = (seconds) => {
     if (!Number.isFinite(seconds) || seconds <= 0) return "-";
@@ -1089,6 +1095,97 @@ function init() {
     }
   };
 
+  const updateFarmPlan = (plan) => {
+    if (!farmPlanMeta || !farmPlanGrid || !farmPlanRows) return;
+    farmPlanGrid.innerHTML = "";
+    farmPlanRows.innerHTML = "";
+    if (!plan || !plan.active || !Array.isArray(plan.plots) || !plan.plots.length) {
+      farmPlanMeta.textContent = "No active farm plan.";
+      if (farmPlanPercent) farmPlanPercent.textContent = "0% complete";
+      if (farmPlanBarFill) farmPlanBarFill.style.width = "0%";
+      if (farmPlanWorkflow) {
+        farmPlanWorkflow.querySelectorAll("span").forEach((span) => {
+          span.classList.remove("done", "active");
+        });
+      }
+      return;
+    }
+
+    const activeId = plan.active_plot_id;
+    const plot = plan.plots.find((entry) => entry.id === activeId) || plan.plots[0];
+    const width = Number(plot.width || 0);
+    const height = Number(plot.height || 0);
+    const originX = Number(plot.origin_x || 0);
+    const originY = Number(plot.origin_y || 0);
+    const phase = String(plot.phase || "unknown").toUpperCase();
+    if (!width || !height) {
+      farmPlanMeta.textContent = "Invalid plot definition.";
+      return;
+    }
+
+    const current = plan.current_tile || null;
+    const next = plan.next_tile || null;
+    const currentLabel =
+      current && Number.isFinite(current.x) && Number.isFinite(current.y)
+        ? `Current ${current.x},${current.y}`
+        : "Current -";
+    const nextLabel =
+      next && Number.isFinite(next.x) && Number.isFinite(next.y) ? `Next ${next.x},${next.y}` : "Next -";
+    farmPlanMeta.textContent = `${plot.id || "Plot"} (${width}x${height}) @ ${originX},${originY} · ${currentLabel} · ${nextLabel} · Phase ${phase}`;
+
+    const stepOrder = ["clear", "till", "plant", "water"];
+    const phaseKey = String(plot.phase || "").toLowerCase();
+    const activeIdx = stepOrder.findIndex((step) => phaseKey.includes(step));
+    if (farmPlanWorkflow) {
+      farmPlanWorkflow.querySelectorAll("span").forEach((span, idx) => {
+        span.classList.toggle("done", activeIdx > -1 && idx < activeIdx);
+        span.classList.toggle("active", idx === activeIdx);
+      });
+    }
+
+    farmPlanGrid.style.gridTemplateColumns = `repeat(${width}, 14px)`;
+    farmPlanGrid.style.gridAutoRows = "14px";
+    const tiles = plot.tiles || {};
+    const doneStates = new Set(["cleared", "tilled", "planted", "watered", "done", "ready"]);
+    const blockedStates = new Set(["debris", "blocked", "obstacle"]);
+    let doneCount = 0;
+    const total = width * height;
+
+    for (let row = 0; row < height; row += 1) {
+      let rowDone = 0;
+      for (let col = 0; col < width; col += 1) {
+        const x = originX + col;
+        const y = originY + row;
+        const key = `${x},${y}`;
+        const state = tiles[key];
+        const cell = document.createElement("div");
+        cell.className = "farm-plan-cell";
+        if (doneStates.has(state)) {
+          cell.classList.add("done");
+          doneCount += 1;
+          rowDone += 1;
+        } else if (blockedStates.has(state)) {
+          cell.classList.add("blocked");
+        }
+        if (current && current.x === x && current.y === y) {
+          cell.classList.add("current");
+          cell.textContent = "●";
+        } else if (next && next.x === x && next.y === y) {
+          cell.classList.add("next");
+        }
+        cell.title = `${key} ${state || "pending"}`;
+        farmPlanGrid.append(cell);
+      }
+      const rowEntry = document.createElement("li");
+      rowEntry.textContent = `Row ${row}: ${rowDone}/${width}`;
+      farmPlanRows.append(rowEntry);
+    }
+
+    const percent = total ? Math.round((doneCount / total) * 100) : 0;
+    if (farmPlanPercent) farmPlanPercent.textContent = `${doneCount}/${total} tiles (${percent}%)`;
+    if (farmPlanBarFill) farmPlanBarFill.style.width = `${percent}%`;
+  };
+
   const updateCropStatus = (crops) => {
     if (!cropStatus || !cropStatusNote) return;
     cropStatus.classList.remove("ok", "warn");
@@ -1661,6 +1758,8 @@ function init() {
       appendTeamMessage(data.payload);
     } else if (data.type === "commentary_updated") {
       updateCommentary(data.payload);
+    } else if (data.type === "farm_plan_updated") {
+      updateFarmPlan(data.payload);
     }
   };
 
@@ -1743,6 +1842,15 @@ function init() {
         updateSkillStats(stats);
       })
       .catch(() => {});
+
+    fetch("/api/farm-plan")
+      .then((res) => res.json())
+      .then((plan) => {
+        updateFarmPlan(plan);
+      })
+      .catch(() => {
+        updateFarmPlan(null);
+      });
 
     const smapiBase = `${window.location.protocol}//${window.location.hostname}:8790`;
     fetch(`${smapiBase}/surroundings`)

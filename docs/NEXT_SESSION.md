@@ -1,132 +1,127 @@
 # Next Session - StardewAI
 
-**Last Updated:** 2026-01-10 Session 31 by Claude
-**Status:** Crop protection fix + Planned farming system implemented!
+**Last Updated:** 2026-01-10 Session 32 by Claude
+**Status:** Farm planning system tested end-to-end! UI visualizer verified!
 
 ---
 
-## Session 31 Results
+## Session 32 Results
 
 ### Completed This Session
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Crop protection for watered tiles | ✅ Fixed | Agent was hoeing planted crops - now warns on watered tiles |
-| Farm planning module | ✅ Done | New `src/python-agent/planning/` module |
-| Plot-based systematic farming | ✅ Done | Define plots, work row-by-row through phases |
-| CLI arguments for plots | ✅ Done | `--plot x,y,w,h` and `--clear-plan` |
-| Codex UI task assigned | ✅ Assigned | Farm Plan Visualizer in CODEX_TASKS.md |
+| Codex Farm Plan Visualizer UI | ✅ Verified | API endpoints, grid visualizer, WebSocket updates all working |
+| Progress calculation bug | ✅ Fixed | String comparison → numeric ordering for TileState |
+| TTS doubling issue | ✅ Fixed | Was caused by duplicate agent processes |
+| TTS time cooldown | ✅ Added | 8-second minimum between TTS calls |
+| Tool guidance improvement | ✅ Done | Specific tool slots for each debris type |
+| Navigation priority | ✅ Done | "NAVIGATE FIRST!" instruction when far from target |
+| End-to-end test | ✅ Working | Agent cleared 7/12 tiles in test plot |
 
-### Key Implementations
+### Key Fixes
 
-**1. Crop Protection Fix (unified_agent.py:825-827)**
+**1. TileState Ordering (models.py:31-42)**
 ```python
-# In tile_state == "watered" branch, now checks:
-dangerous_tools = ["Scythe", "Hoe", "Pickaxe", "Axe"]
-if tile_obj == "crop" and any(tool.lower() in current_tool.lower() for tool in dangerous_tools):
-    front_info = f">>> ⚠️ WATERED CROP HERE! DO NOT use {current_tool}! ..."
+def order(self) -> int:
+    """Numeric ordering for state progression."""
+    ordering = {"unknown": 0, "debris": 1, "cleared": 2, "tilled": 3, ...}
+    return ordering.get(self.value, 0)
 ```
-- Bug: Agent was hoeing watered crops (state="watered" not "planted")
-- Fix: Now checks `tile_obj == "crop"` regardless of state
+- Bug: String comparison `"unknown" >= "cleared"` was True (lexicographic)
+- Fix: Added `.order()` method for proper numeric comparison
 
-**2. Farm Planning Module (`src/python-agent/planning/`)**
+**2. TTS Time Cooldown (unified_agent.py:2052-2068)**
+```python
+tts_cooldown = 8.0  # Minimum seconds between TTS
+time_ok = (current_time - self._last_tts_time) >= tts_cooldown
 ```
-planning/
-├── __init__.py      # Exports PlotManager, PlotDefinition, etc.
-├── models.py        # Dataclasses: PlotDefinition, PlotState, FarmPlan, TileState, PlotPhase
-└── plot_manager.py  # PlotManager class with serpentine traversal, phase tracking
+- Prevents TTS from firing too rapidly even with throttling
+
+**3. Improved Tool Guidance (plot_manager.py:324-329)**
+```python
+"clear": "WEEDS=Scythe(slot 4), STONE=Pickaxe(slot 3), TWIG/WOOD=Axe(slot 0). Check debris type FIRST..."
 ```
 
-**3. Systematic Farming Features**
-- Define rectangular plots: `--plot 30,20,5,3` (5x3 plot at tile 30,20)
-- Serpentine row traversal for efficient pathing
-- Phase machine: CLEARING → TILLING → PLANTING → WATERING → DONE
-- JSON persistence: `logs/farm_plans/current.json`
-- VLM prompt context injection with target tile and action
-
-**4. CLI Arguments**
-```bash
---plot x,y,w,h     # Define farm plot at x,y with width w, height h
---clear-plan       # Clear existing farm plan
+**4. Navigation Priority (plot_manager.py:332-336)**
+```python
+if dist > 2:
+    nav_instr = f">>> NAVIGATE FIRST! Go {direction} to reach target tile, THEN work. <<<"
 ```
 
 ---
 
 ## Current State
 
-- **Day 3, Spring Year 1** - rainy day
-- **Farm plan active** with 2 test plots
-- **Crop protection** working
-- **Codex assigned** Farm Plan Visualizer UI task
-
----
-
-## Codex Task: Farm Plan Visualizer UI
-
-See `docs/CODEX_TASKS.md` for full requirements:
-- API endpoint: `GET /api/farm-plan`
-- Grid visualizer showing plot progress
-- Phase progress bar
-- WebSocket real-time updates
+- **Day 3, Spring Year 1** - sunny
+- **Active farm plan** with 4x3 plot at (56, 18)
+- **7/12 tiles cleared** in CLEARING phase
+- **UI visualizer working** at http://localhost:9001
 
 ---
 
 ## Next Session Priorities
 
-### 1. Test Planned Farming End-to-End
-- Clear the test plans: `--clear-plan`
-- Define a fresh plot near player
-- Watch agent work systematically through phases
+### 1. Continue Farm Plan Testing
+- Watch agent complete CLEARING phase
+- Test transition to TILLING phase
+- Verify serpentine traversal order
 
-### 2. Polish Farm Planning
-- Verify tile state sync from game data
-- Test phase advancement (clearing → tilling → planting → watering)
-- Ensure VLM follows plot targets vs random wandering
+### 2. Commentary and Personalities
+- User noted: "work on commentary and personalities"
+- Improve personality variety
+- Add more contextual commentary
 
-### 3. Codex Follow-up
-- Review UI implementation when complete
-- Integrate with agent if needed
-
-### Potential Improvements
-- Auto-detect good plot locations from game terrain
-- Multiple concurrent plots with priority
-- Seed type selection for plots
+### 3. Potential Improvements
+- Auto-detect debris type in prompt (not just from game state)
+- Better handling of watering can empty state
+- Consider pathfinding to avoid obstacles
 
 ---
 
 ## Test Commands
 
 ```bash
-# 1. Clear any existing plan
+# 1. Verify services
+curl http://localhost:8780/health
+curl http://localhost:8790/health
+curl http://localhost:9001/api/farm-plan
+
+# 2. Run agent with existing plot
+source venv/bin/activate
+python src/python-agent/unified_agent.py --ui --goal "Work farm plot systematically"
+
+# 3. Start fresh plot
 python src/python-agent/unified_agent.py --clear-plan --observe
+python src/python-agent/unified_agent.py --plot "56,18,4,3" --ui --goal "Clear and plant the farm plot"
 
-# 2. Define a 5x3 plot and run
-python src/python-agent/unified_agent.py --plot "62,18,5,3" --ui --goal "Work the farm plot systematically"
-
-# 3. Check persisted plan
-cat logs/farm_plans/current.json | python3 -m json.tool
+# 4. Watch UI at http://localhost:9001
 ```
 
 ---
 
-## Files Changed (Session 31)
-
-### New Files
-- `src/python-agent/planning/__init__.py`
-- `src/python-agent/planning/models.py`
-- `src/python-agent/planning/plot_manager.py`
+## Files Changed (Session 32)
 
 ### Modified Files
+- `src/python-agent/planning/models.py`
+  - Added `TileState.order()` method for proper ordering
+- `src/python-agent/planning/plot_manager.py`
+  - Fixed progress calculation to use `.order()`
+  - Improved tool guidance with specific slots
+  - Added navigation priority instructions
 - `src/python-agent/unified_agent.py`
-  - Line 75-80: Import planning module
-  - Lines 1555-1566: Initialize PlotManager in StardewAgent.__init__
-  - Lines 2410-2424: Add farm plan context to VLM prompt
-  - Lines 825-827: Fix crop protection for watered tiles
-  - Lines 2596-2613: Add --plot and --clear-plan CLI arguments
-- `docs/CODEX_TASKS.md` - Assigned Farm Plan Visualizer UI task
-
-### Persistence
-- `logs/farm_plans/current.json` - Active farm plan state
+  - Added TTS time-based cooldown (8 seconds)
+- `docs/CODEX_TASKS.md`
+  - Marked Farm Plan Visualizer as complete
+- `src/ui/app.py` (by Codex)
+  - Farm plan API endpoints
+  - WebSocket file watcher
+- `src/ui/templates/index.html` (by Codex)
+  - Farm Plan panel HTML
+- `src/ui/static/app.js` (by Codex)
+  - Grid visualization JavaScript
+- `src/ui/static/app.css` (by Codex)
+  - Farm plan styling
 
 ---
 
@@ -140,25 +135,6 @@ cat logs/farm_plans/current.json | python3 -m json.tool
 
 ---
 
-## Quick Start Next Session
-
-```bash
-# 1. Verify services
-curl http://localhost:8780/health
-curl http://localhost:8790/health
-
-# 2. Clear old plans and create fresh plot
-source venv/bin/activate
-python src/python-agent/unified_agent.py --clear-plan --observe
-
-# 3. Run with new plot
-python src/python-agent/unified_agent.py --plot "62,18,5,3" --ui --goal "Farm the plot systematically"
-
-# 4. Watch UI at http://localhost:9001
-```
-
----
-
-*Session 31: Fixed crop protection bug, implemented planned farming system with systematic plot-based work. Codex assigned UI visualizer. Ready for end-to-end testing!*
+*Session 32: Verified Codex's UI work, fixed several bugs (progress calculation, TTS doubling), improved farm plan guidance. Agent successfully cleared 7/12 tiles in test plot. Ready for continued testing and commentary improvements!*
 
 *— Claude (PM)*

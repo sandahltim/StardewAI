@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional
+import asyncio
 import hashlib
 import json
 import os
@@ -42,6 +43,7 @@ BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 STATUS_PATH = Path("/home/tim/StardewAI/logs/ui/status.json")
+FARM_PLAN_PATH = Path("/home/tim/StardewAI/logs/farm_plans/current.json")
 GAME_KNOWLEDGE_DB = BASE_DIR.parents[1] / "data" / "game_knowledge.db"
 CHROMA_DIR = BASE_DIR.parents[1] / "data" / "chromadb"
 CHROMA_COLLECTION = "rusty_memories"
@@ -209,6 +211,14 @@ class SpatialMapUpdate(BaseModel):
     tile: Optional[SpatialTile] = None
 
 
+class FarmPlotCreate(BaseModel):
+    origin_x: int
+    origin_y: int
+    width: int
+    height: int
+    crop_type: Optional[str] = None
+
+
 class ConnectionManager:
     def __init__(self) -> None:
         self.active_connections: List[WebSocket] = []
@@ -310,6 +320,64 @@ def _write_status(update: Dict[str, Any], allow_none_keys: Optional[List[str]] =
     STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
     STATUS_PATH.write_text(json.dumps(status, indent=2))
     return status
+
+
+def _default_farm_plan() -> Dict[str, Any]:
+    return {
+        "active": False,
+        "plots": [],
+        "current_tile": None,
+        "next_tile": None,
+        "active_plot_id": None,
+    }
+
+
+def _read_farm_plan() -> Dict[str, Any]:
+    defaults = _default_farm_plan()
+    if not FARM_PLAN_PATH.exists():
+        return defaults
+    try:
+        data = json.loads(FARM_PLAN_PATH.read_text())
+    except json.JSONDecodeError:
+        defaults["active"] = False
+        return defaults
+    if not isinstance(data, dict):
+        return defaults
+    defaults.update(data)
+    if not isinstance(defaults.get("plots"), list):
+        defaults["plots"] = []
+    return defaults
+
+
+def _write_farm_plan(plan: Dict[str, Any]) -> Dict[str, Any]:
+    FARM_PLAN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    FARM_PLAN_PATH.write_text(json.dumps(plan, indent=2))
+    return plan
+
+
+def _next_plot_id(plots: List[Dict[str, Any]]) -> str:
+    max_id = 0
+    for plot in plots:
+        plot_id = str(plot.get("id", ""))
+        if plot_id.startswith("plot_"):
+            suffix = plot_id.replace("plot_", "")
+            if suffix.isdigit():
+                max_id = max(max_id, int(suffix))
+    return f"plot_{max_id + 1}"
+
+
+async def _watch_farm_plan() -> None:
+    last_mtime = None
+    while True:
+        try:
+            if FARM_PLAN_PATH.exists():
+                mtime = FARM_PLAN_PATH.stat().st_mtime
+                if last_mtime is None or mtime > last_mtime:
+                    await manager.broadcast("farm_plan_updated", _read_farm_plan())
+                    last_mtime = mtime
+        except Exception:
+            pass
+        await asyncio.sleep(1.0)
 
 
 def _resolve_tts_model(voice: str) -> Dict[str, Optional[Path]]:
@@ -477,9 +545,10 @@ def _speak_text(text: str, voice: str) -> Dict[str, Any]:
 
 
 @app.on_event("startup")
-def on_startup() -> None:
+async def on_startup() -> None:
     storage.init_db()
     _write_status({})
+    asyncio.create_task(_watch_farm_plan())
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -773,6 +842,46 @@ async def create_team_message(payload: TeamMessageCreate) -> Dict[str, Any]:
 
 # --- Session Memory ---
 
+@app.get("/api/farm-plan")
+def get_farm_plan() -> Dict[str, Any]:
+    return _read_farm_plan()
+
+
+@app.post("/api/farm-plan/plot")
+async def update_farm_plan_plot(payload: FarmPlotCreate) -> Dict[str, Any]:
+    plan = _read_farm_plan()
+    plots = plan.get("plots", [])
+    target = None
+    for plot in plots:
+        if (
+            plot.get("origin_x") == payload.origin_x
+            and plot.get("origin_y") == payload.origin_y
+            and plot.get("width") == payload.width
+            and plot.get("height") == payload.height
+        ):
+            target = plot
+            break
+    if target is None:
+        target = {
+            "id": _next_plot_id(plots),
+            "origin_x": payload.origin_x,
+            "origin_y": payload.origin_y,
+            "width": payload.width,
+            "height": payload.height,
+            "phase": "clearing",
+            "tiles": {},
+        }
+        plots.append(target)
+    if payload.crop_type:
+        target["crop_type"] = payload.crop_type
+    plan["plots"] = plots
+    plan["active"] = True
+    plan.setdefault("active_plot_id", target.get("id"))
+    updated = _write_farm_plan(plan)
+    await manager.broadcast("farm_plan_updated", updated)
+    return updated
+
+
 @app.get("/api/spatial-map")
 def get_spatial_map(
     location: str = "Farm",
@@ -841,4 +950,3 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9001)
-

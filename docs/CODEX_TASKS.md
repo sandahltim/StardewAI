@@ -12,7 +12,7 @@
 
 **Priority:** High
 **Assigned:** 2026-01-10 Session 31
-**Status:** Assigned
+**Status:** ✅ Complete (verified Session 32)
 
 #### Background
 We're implementing a "planned farming" system so Rusty farms systematically instead of chaotically. Claude is building the core planning module (`src/python-agent/planning/`). Codex builds the UI visualization.
@@ -135,6 +135,7 @@ Update this file marking task complete, then post to team chat.
 
 ## Completed Tasks
 
+- [x] Farm Plan Visualizer UI (2026-01-10 Session 32)
 - [x] Agent Commentary System with Personalities (2026-01-09 Session 27)
 - [x] Landmark-Relative Directions (2026-01-09 Session 25)
 - [x] Update Agent for Cardinal Directions (2026-01-09 Session 24)
