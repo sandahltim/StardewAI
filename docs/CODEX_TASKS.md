@@ -113,12 +113,19 @@ Update these panels with helpful empty state messages:
 
 **Priority:** HIGH (for character development)
 **Owner:** Claude
-**Status:** Planned
+**Status:** ✅ Complete (Session 38)
 
-Rusty currently has no memory between sessions. Need:
-- Episodic memory persistence
-- Character state that evolves
-- NPC relationship tracking
+Created `memory/rusty_memory.py` with:
+- Episodic memory (events with type, description, outcome, importance)
+- Character state (mood, confidence 0.1-0.95, days farming, favorites)
+- NPC relationships (first_met, interaction counts, friendship levels)
+- JSON persistence to `logs/rusty_state.json`
+
+Integrated into `unified_agent.py`:
+- Session tracking from SMAPI day/season
+- Event recording after action execution
+- NPC meeting events on first encounter
+- Character context added to VLM prompt
 
 ### TASK: Agent VLM Debug Population (Claude)
 

@@ -43,6 +43,7 @@ try:
     from memory import get_memory, get_context_for_vlm, should_remember, get_lesson_memory
     from memory.game_knowledge import get_npc_info
     from memory.spatial_map import SpatialMap
+    from memory.rusty_memory import get_rusty_memory
     HAS_MEMORY = True
 except ImportError:
     get_memory = None
@@ -51,6 +52,7 @@ except ImportError:
     get_lesson_memory = None
     get_npc_info = None
     SpatialMap = None
+    get_rusty_memory = None
     HAS_MEMORY = False
 
 try:
@@ -1767,6 +1769,20 @@ class StardewAgent:
             except Exception as e:
                 logging.warning(f"Lesson memory failed to load: {e}")
 
+        # Rusty memory (character persistence across sessions)
+        self.rusty_memory = None
+        if HAS_MEMORY and get_rusty_memory:
+            try:
+                self.rusty_memory = get_rusty_memory()
+                state = self.rusty_memory.character_state
+                logging.info(
+                    f"🤖 Rusty memory loaded: {state['mood']} mood, "
+                    f"{self.rusty_memory.get_confidence_level()} confidence, "
+                    f"{len(self.rusty_memory.relationships)} NPCs known"
+                )
+            except Exception as e:
+                logging.warning(f"Rusty memory failed to load: {e}")
+
         # Memory trigger tracking
         self.last_location: str = ""
         self.last_nearby_npcs: List[str] = []
@@ -2202,6 +2218,14 @@ class StardewAgent:
         self.last_state_poll = now
         self.last_state = state
 
+        # Update Rusty memory with current day/season (if available)
+        if self.rusty_memory:
+            time_data = state.get("time", {})
+            day = time_data.get("day", 0)
+            season = time_data.get("season", "spring")
+            if day > 0 and (day != self.rusty_memory.current_day or season != self.rusty_memory.current_season):
+                self.rusty_memory.start_session(day, season)
+
         if hasattr(self.controller, "get_surroundings"):
             try:
                 self.last_surroundings = self.controller.get_surroundings()
@@ -2267,6 +2291,39 @@ class StardewAgent:
                 "action_type": action.action_type,
                 "params": action.params,
             })
+
+        # Record to Rusty memory for character persistence
+        if self.rusty_memory:
+            description = action.description or f"{action.action_type}"
+            outcome = "success" if success else "failure"
+            location = None
+            if self.last_state:
+                loc_data = self.last_state.get("location", {})
+                location = loc_data.get("name")
+
+            # Determine event type and importance
+            event_type = "action"
+            importance = 1  # Routine
+            if action.action_type in ("harvest", "plant_seeds"):
+                event_type = "farming"
+                importance = 2
+            elif action.action_type == "use_tool":
+                tool = action.params.get("tool", "").lower()
+                if "hoe" in tool:
+                    event_type = "farming"
+                elif "watering" in tool:
+                    event_type = "farming"
+            elif not success:
+                importance = 2  # Failures are more memorable
+
+            self.rusty_memory.record_event(
+                event_type=event_type,
+                description=description,
+                outcome=outcome,
+                importance=importance,
+                location=location,
+            )
+
         self._send_commentary(action, success)
 
     def _send_commentary(self, action: Action, success: bool) -> None:
@@ -2393,6 +2450,17 @@ class StardewAgent:
                     outcome="positive"
                 )
                 logging.info(f"   💾 Memory stored: Met {npc_name}")
+
+                # Also record in Rusty memory for character persistence
+                if self.rusty_memory:
+                    self.rusty_memory.record_event(
+                        event_type="meeting",
+                        description=f"First time meeting {npc_name}",
+                        outcome="success",
+                        importance=3,  # Meeting NPCs is moderately important
+                        location=current_location,
+                        npc=npc_name,
+                    )
 
         # Trigger 4: VLM reasoning suggests importance
         if result.reasoning and should_remember:
@@ -2782,6 +2850,12 @@ Recent: {recent}"""
         dynamic_hints = self._build_dynamic_hints()
         if dynamic_hints:
             result += f"\n\n--- HINTS ---\n{dynamic_hints}"
+
+        # Add Rusty's character context (for personality continuity)
+        if self.rusty_memory:
+            rusty_context = self.rusty_memory.get_context_for_prompt()
+            if rusty_context:
+                result += f"\n\n--- RUSTY ---\n{rusty_context}"
 
         return result
 

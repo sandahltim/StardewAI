@@ -1,7 +1,31 @@
-# Session 38: Rusty Memory Persistence
+# Session 39: Full Farm Cycle Test
 
-**Last Updated:** 2026-01-10 Session 37 by Claude
-**Status:** UI integration complete, Rusty memory is next priority
+**Last Updated:** 2026-01-10 Session 38 by Claude
+**Status:** Rusty Memory implemented, ready for integration testing
+
+---
+
+## Session 38 Summary
+
+### What Was Completed
+
+1. **Rusty Memory System** ✅
+   - Created `memory/rusty_memory.py` with full persistence
+   - Episodic memory: Records events with type, description, outcome, importance
+   - Character state: Tracks mood, confidence (0.1-0.95), days farming, favorites
+   - NPC relationships: First met, interaction counts, friendship levels (stranger → close_friend)
+   - Persists to `logs/rusty_state.json`
+
+2. **Agent Integration** ✅
+   - Added import and initialization in `unified_agent.py`
+   - `start_session()` called when day/season changes (from SMAPI state)
+   - `record_event()` called after action execution
+   - NPC meeting events recorded when new NPCs encountered
+   - `get_context_for_prompt()` added to VLM context
+
+3. **VLM Context** ✅
+   - Added `--- RUSTY ---` section to light context
+   - Includes: mood, confidence level, recent memories, concerns, favorites
 
 ---
 
@@ -10,141 +34,111 @@
 ### What Was Completed
 
 1. **Agent → UI Data Pipeline** ✅
-   - Added VLM debug state tracking to `unified_agent.py`
-   - Sends: `vlm_observation`, `proposed_action`, `validation_status`, `validation_reason`, `executed_action`, `executed_outcome`
-   - Updates at 3 key points: after VLM thinking, during validation, after execution
+   - VLM debug state tracking in `unified_agent.py`
+   - Sends: `vlm_observation`, `proposed_action`, `validation_status`, etc.
 
 2. **Lesson Recording to UI** ✅
-   - LessonMemory now persists on `record_failure()` (was only on recovery)
-   - Added `_notify_ui()` method to POST lessons to UI server
-   - Added `/api/lessons/update` endpoint to UI for WebSocket broadcast
+   - LessonMemory persists on `record_failure()`
+   - POSTs to `/api/lessons/update` endpoint
 
 3. **SMAPI Status Indicators** ✅ (Codex)
-   - Added SMAPI online/offline row with last-seen time
-   - Tracked SMAPI health in app.js polling
-   - Applied offline empty-state messaging
-   - Status styling for connected/disconnected states
 
 4. **Empty State Messages** ✅ (Codex)
-   - Better "no data" messages for panels without data yet
 
 ---
 
-## Session 36 Summary
+## RustyMemory Details
 
-### What Was Completed
+### What It Tracks
 
-1. **Dynamic Hints Integration**
-   - Built `_build_dynamic_hints()` method (~140 lines)
-   - Integrated into vision-first light context
-   - Fixed skill parameter normalization
-   - Skills working: clear_weeds, till_soil
+```python
+# Episodic Memory (what happened)
+event = {
+    "type": "farming",  # action, farming, meeting, discovery, failure
+    "description": "Planted 5 parsnips",
+    "outcome": "success",  # success, failure, neutral
+    "importance": 2,  # 1-5 (5 = memorable)
+    "location": "Farm",
+    "npc": None,  # NPC name if interaction
+    "day": 5,
+    "season": "spring",
+}
 
-2. **Project Review (3 parallel agents)**
-   - UI review: 70% functional, 30% placeholder/SMAPI-dependent
-   - Rusty personality: Framework exists, character depth missing
-   - Connectivity: Core is solid, ~1500 lines orphaned code
+# Character State (mood/growth)
+character_state = {
+    "confidence": 0.62,  # Increases with success, decreases with failure
+    "mood": "neutral",  # neutral, content, frustrated, tired, proud, curious, anxious
+    "days_farming": 5,
+    "total_harvests": 0,
+    "total_failures": 0,
+    "favorite_activities": [],
+    "current_concerns": [],
+    "memorable_moments": [],  # High importance events (>=4)
+}
 
-3. **Cleanup**
-   - Archived orphaned code to `src/python-agent/archive/`:
-     - `agent.py` (old dual-model agent)
-     - `manual_controller.py`, `controller_gui.py`, `test_gamepad.py`
-     - `knowledge/` folder (redundant with memory/)
-   - Updated CODEX_TASKS.md with new tasks
-
----
-
-## Project Review Findings
-
-### UI: Mostly Functional Now
-
-| Component | Status | Issue |
-|-----------|--------|-------|
-| Chat, Team Chat, Goals, Tasks | ✅ 100% | Working |
-| Skill tracking, Shipping | ✅ 90% | Working |
-| VLM Debug Panel | ✅ 100% | Agent sends all data |
-| Lessons Panel | ✅ 100% | Agent POSTs + WebSocket broadcast |
-| Memory Search | ❌ Empty | Chroma not populated |
-| SMAPI Panels | ✅ 100% | Shows online/offline status with fallback |
-
-### Rusty: Flavor Without Depth
-
-| Aspect | Status |
-|--------|--------|
-| Personality templates | ✅ 4 personalities, 7-8 contexts each |
-| System prompt identity | ✅ "Self-aware AI farmer with dry wit" |
-| Commentary integration | ✅ Working |
-| Memory/continuity | ❌ None - forgets each session |
-| Character arc | ❌ None - doesn't grow |
-| NPC relationships | ❌ None - same voice for everyone |
-| Decision influence | ❌ Personality is cosmetic only |
-
-### Connectivity: Solid Core
-
-```
-unified_agent.py → VLM (8780) → SMAPI (8790) → Game  ✅
-Skills system: loaded and executable                  ✅
-Memory systems: integrated and queried               ✅
-UI server: running on 9001                           ✅
+# NPC Relationships
+relationship = {
+    "first_met": {"day": 5, "season": "spring"},
+    "interaction_count": 1,
+    "positive_interactions": 1,
+    "negative_interactions": 0,
+    "friendship_level": "stranger",  # → acquaintance → friend → close_friend
+    "notes": [],
+}
 ```
 
-**Archived (orphaned):** ~1500 lines in `src/python-agent/archive/`
+### Key Methods
+
+| Method | Purpose |
+|--------|---------|
+| `record_event()` | Log what happened (auto-updates confidence/mood) |
+| `record_npc_interaction()` | Track relationship with NPC |
+| `update_mood()` | Set current mood with reason |
+| `start_session()` | Called with day/season when game state received |
+| `get_context_for_prompt()` | Generate VLM context string |
+| `get_npc_context()` | Get relationship context for specific NPC |
+
+### Auto-Adjustments
+
+- **Confidence**: +0.02 per success × importance, -0.03 per failure × importance
+- **Friendship**: Progresses based on interaction count and positive ratio
+- **Memorable Moments**: Events with importance ≥4 are auto-saved
 
 ---
 
 ## Next Session Priorities
 
-### Priority 1: Rusty Memory Persistence (Claude) ← START HERE
+### Priority 1: Full Farm Cycle Test (Claude)
 
-Make Rusty remember between sessions. Currently Rusty has personality but no continuity.
+Test end-to-end with real game now that memory is working:
+1. Start game in co-op mode
+2. Run agent with `--goal "Clear and plant some parsnips"`
+3. Verify:
+   - VLM debug panel shows data
+   - Lessons panel populates on failures
+   - Rusty memory persists events
+   - Character context appears in VLM prompt
 
-**What exists:**
-- `memory/game_knowledge.py` - ChromaDB for game facts
-- `memory/lessons.py` - LessonMemory for failures
-- `commentary/personalities.py` - 4 personality templates
-
-**What's needed:**
-1. **Episodic Memory** - Remember what happened last session
-   - "Yesterday I planted 8 parsnips"
-   - "I met Abigail near the community center"
-
-2. **Character State** - Track Rusty's mood/development
-   - Confidence level (increases with successes)
-   - Favorite activities discovered
-   - Current concerns/goals
-
-3. **NPC Relationships** - Different voice for different people
-   - Track who Rusty has met
-   - Remember past conversations
-   - Adjust commentary tone per NPC
-
-**Implementation approach:**
-```python
-# New file: memory/rusty_memory.py
-class RustyMemory:
-    def __init__(self, persist_path="logs/rusty_state.json"):
-        self.episodic = []  # Recent events
-        self.relationships = {}  # NPC -> relationship data
-        self.character_state = {
-            "confidence": 0.5,
-            "mood": "neutral",
-            "days_farming": 0
-        }
+**Test command:**
+```bash
+cd src/python-agent
+source ../../venv/bin/activate
+python unified_agent.py --mode coop --goal "Clear some weeds and plant parsnips"
 ```
 
-### Priority 2: Full Farm Cycle Test (Claude)
+### Priority 2: Rusty Memory UI Panel (Claude/Codex)
 
-Test end-to-end with real game after memory is working:
-- Clear→Till→Plant→Water sequence
-- Verify VLM debug panel shows data
-- Verify lessons panel populates on failures
+The memory system is complete but has no UI panel yet. Could add:
+- Character state display (mood, confidence bar)
+- Recent events list
+- Known NPCs with friendship levels
 
-### ~~Completed in Session 37~~ ✅
+### Priority 3: Character Bible (Future)
 
-- VLM Debug Pipeline (agent sends observation/validation/execution to UI)
-- Lesson Recording to UI (agent POSTs lessons, WebSocket broadcast)
-- SMAPI Status Indicators (Codex)
-- Empty State Messages (Codex)
+If memory works well, define Rusty's character more deeply:
+- Backstory snippets
+- Relationship preferences (which NPCs does Rusty click with?)
+- Growth milestones ("Day 30: Finally feels confident as a farmer")
 
 ---
 
@@ -154,18 +148,13 @@ Test end-to-end with real game after memory is working:
 
 | Task | Priority | Status |
 |------|----------|--------|
-| ~~Agent VLM debug data~~ | ~~HIGH~~ | ✅ Done Session 37 |
-| ~~Lesson recording to UI~~ | ~~HIGH~~ | ✅ Done Session 37 |
-| Rusty memory persistence | HIGH | Next up |
-| Test full farm cycle | MEDIUM | After memory |
-| Rusty character bible | LOW | Future |
+| Full farm cycle test | HIGH | Next up |
+| Rusty memory UI panel | MEDIUM | After testing |
+| Character bible | LOW | Future |
 
-### Codex (Completed Session 37)
+### Codex (No Active Tasks)
 
-| Task | Status |
-|------|--------|
-| SMAPI status indicators | ✅ Done |
-| Empty state messages | ✅ Done |
+Session 37 completed all Codex tasks. Next UI work depends on testing results.
 
 ---
 
@@ -173,29 +162,24 @@ Test end-to-end with real game after memory is working:
 
 | Feature | File | Notes |
 |---------|------|-------|
-| Dynamic hints | unified_agent.py:2500 | `_build_dynamic_hints()` |
-| Light context | unified_agent.py:2670 | `_build_light_context()` |
-| Skill execution | unified_agent.py:2130 | `execute_skill()` |
-| UI status | unified_agent.py:2429 | `_send_ui_status()` |
-| VLM debug state | unified_agent.py:1722 | Instance vars in `__init__` |
-| Lesson memory | memory/lessons.py | `LessonMemory` class |
-| Archived code | archive/README.md | Old agent, debug tools |
+| Rusty Memory | memory/rusty_memory.py | Complete memory system |
+| Agent integration | unified_agent.py:1772 | `__init__` initialization |
+| Session start | unified_agent.py:2221 | Updates day/season from SMAPI |
+| Event recording | unified_agent.py:2295 | Records after action execution |
+| NPC meetings | unified_agent.py:2454 | Records when new NPCs met |
+| VLM context | unified_agent.py:2843 | Adds `--- RUSTY ---` section |
 
 ---
 
-## Key Insight from Session 37
+## Key Insight from Session 38
 
-**UI integration is 100% complete. Agent sends all data to UI in real-time.**
+**Rusty now has a memory.** Between sessions, Rusty will remember:
+- What happened (episodic)
+- How confident they feel (character state)
+- Who they've met and their relationship (NPC tracking)
 
-Session 37 completed both HIGH priority items:
-1. VLM Debug Pipeline - observation, validation, execution all visible
-2. Lesson Recording - failures POST to UI with WebSocket broadcast
+The memory auto-adjusts confidence based on outcomes and tracks friendship progression through interaction counts. This gives Rusty continuity - they're no longer starting fresh each session.
 
-**Next session focus: Give Rusty a memory.**
+**Next step: Test it with the real game.**
 
-Rusty has personality but forgets everything between sessions. The memory system should:
-- Remember what happened (episodic)
-- Track character growth (state)
-- Adjust voice per NPC (relationships)
-
-*— Claude (PM), Session 37*
+*— Claude (PM), Session 38*
