@@ -1,100 +1,85 @@
-# Session 40: Multi-Day Farming
+# Session 41: Multi-Day Farming Test
 
-**Last Updated:** 2026-01-10 Session 39 by Claude
-**Status:** Full farming cycle verified, ready for multi-day testing
+**Last Updated:** 2026-01-10 Session 40 by Claude
+**Status:** Farming cycle fixed, ready for multi-day test
 
 ---
 
-## Session 39 Summary
+## Session 40 Summary
 
 ### What Was Completed
 
-1. **Mode Refactoring** ✅
-   - Renamed `coop` → `splitscreen` (Player 2 right half screen)
-   - Default mode now `single` (full screen capture)
-   - Updated unified_agent.py, config/settings.yaml, CLAUDE.md
+1. **Fixed plant_seed Skill** ✅
+   - Bug: skill only ran `use_tool` without selecting seeds
+   - Fix: Added `select_item_type: seed` action to executor
+   - Dynamically finds seed slot by searching inventory for `type: "seed"`
+   - No more hardcoded slot numbers
 
-2. **Full Farming Cycle Verified** ✅
-   - `clear_weeds` (scythe) - working
-   - `clear_stone` (pickaxe) - working
-   - `clear_wood` (axe) - working
-   - `till_soil` (hoe) - working
-   - `plant_seed` - working
-   - `water_crop` - working
+2. **Vision-First Prompt Update** ✅
+   - Bug: VLM ignored SMAPI hints, kept exploring instead of acting
+   - Fix: Changed prompt from "hints are confirmation" to ">>> hints are COMMANDS"
+   - Added priority order: hint actions > standing actions > movement
+   - VLM now acts immediately on "PLANT NOW!" type hints
 
-3. **Rusty Memory UI Panel** ✅ (Codex)
-   - Added `/api/rusty/memory` endpoint
-   - UI panel shows mood, confidence bar, recent events
+3. **Multi-Day Progress Panel** ✅ (Codex)
+   - UI panel showing day/weather, crop progress, daily tasks
+   - Tracks farming cycle across multiple days
 
-### Key Discovery: Goal Phrasing
+### Verified Working
 
-**Problem:** VLM gets stuck in one phase with vague goals like "clear weeds and plant"
+| Action | Status | Notes |
+|--------|--------|-------|
+| till_soil | ✅ | Auto-equips hoe |
+| plant_seed | ✅ | Dynamic seed slot lookup |
+| water_crop | ✅ | Auto-equips can |
+| clear_weeds | ✅ | Scythe |
+| clear_stone | ✅ | Pickaxe |
+| clear_wood | ✅ | Axe |
 
-**Solution:** Explicit goals with phases and constraints:
-```
-"Find a small clear area (avoid trees). Clear weeds/stones/branches,
-till the soil, plant parsnip seeds, and water them."
-```
+### Test Results
 
-The "avoid trees" constraint is critical - Day 1 farms have many trees that take too long to chop.
-
----
-
-## Session 38 Summary
-
-1. **Rusty Memory System** ✅
-   - `memory/rusty_memory.py` with episodic memory, character state, NPC relationships
-   - Persists to `logs/rusty_state.json`
-   - Integrated into unified_agent.py
+Session 40 farming test:
+- 5+ parsnips planted
+- 10+ watering actions
+- 6+ tilling actions
+- Full cycle working correctly
 
 ---
 
 ## Next Session Priorities
 
-### Priority 1: Multi-Day Cycle (Claude)
+### Priority 1: Multi-Day Test
 
-Now that single-day farming works, test multi-day:
-1. Plant crops on Day 1
-2. Sleep (go_to_bed skill)
-3. Wake up Day 2 and water crops
-4. Repeat until harvest ready (parsnips = 4 days)
+Now that single-day farming works reliably, test the full multi-day cycle:
+
+1. Fresh Day 1 save
+2. Plant parsnips (done in a few minutes)
+3. Go to bed (test bedtime logic)
+4. Wake Day 2, water crops
+5. Repeat until Day 4 harvest
 
 **Test command:**
 ```bash
-cd src/python-agent
+cd /home/tim/StardewAI/src/python-agent
 source ../../venv/bin/activate
 python unified_agent.py --config ../../config/settings.yaml --ui \
-  --goal "Day 1: Find a clear 2x2 area, clear debris, till, plant parsnips, water. Then go to bed when tired or after 6pm."
+  --goal "Farm parsnips. Till, plant, water. Go to bed when tired or after 6pm."
 ```
 
-### Priority 2: Bedtime Logic
+### Priority 2: Sleep/Wake Cycle
 
-Verify the time management system:
-- `go_to_bed` skill exists
-- Agent should sleep before 2am (passing out = bad)
-- Test that agent finds bed and sleeps
+Verify:
+- `go_to_bed` skill triggers correctly
+- Agent finds bed or uses warp
+- Day transition works
+- Wake up routine starts watering
 
-### Priority 3: Watering Routine
+### Priority 3: Harvest Test
 
-Day 2+ goal:
-```
-"Water all planted crops. If watering can is empty, refill at pond."
-```
-
----
-
-## Completion Checklist Update
-
-| Action | Status | Session |
-|--------|--------|---------|
-| clear_weeds (scythe) | ✅ Verified | 39 |
-| clear_stone (pickaxe) | ✅ Verified | 39 |
-| clear_wood (axe) | ✅ Verified | 39 |
-| till_soil | ✅ Verified | 39 |
-| plant_seed | ✅ Verified | 39 |
-| water_crop | ✅ Verified | 39 |
-| go_to_bed | Needs test | 40 |
-| harvest | Previously verified | 25 |
+On Day 4+:
+- Agent should recognize mature crops
+- Use `harvest_crop` skill
+- Verify items collected
 
 ---
 
@@ -102,13 +87,19 @@ Day 2+ goal:
 
 | Feature | File | Notes |
 |---------|------|-------|
-| Mode config | unified_agent.py:155 | `mode: str = "single"` |
-| Splitscreen region | unified_agent.py:157 | `splitscreen_region` |
-| Skill definitions | skills/definitions/farming.yaml | All debris/farming skills |
-| Rusty Memory API | src/ui/app.py | `/api/rusty/memory` endpoint |
+| select_item_type action | skills/executor.py:51-57 | Finds slot by item type |
+| _find_slot_by_type | skills/executor.py:67-75 | Inventory lookup helper |
+| plant_seed skill | skills/definitions/farming.yaml:126-128 | Uses select_item_type: seed |
+| Vision-first prompt | config/settings.yaml:410-444 | Emphasizes >>> hints |
 
 ---
 
-*Session 39: Full farming cycle verified. Goal phrasing is critical for VLM behavior.*
+## Known Issues
 
-*— Claude (PM), Session 39*
+None blocking. Ready for multi-day testing.
+
+---
+
+*Session 40: Fixed plant_seed + prompt emphasis. Farming cycle verified working.*
+
+*— Claude (PM), Session 40*
