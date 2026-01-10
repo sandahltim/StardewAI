@@ -31,7 +31,7 @@ A full project review identified these gaps:
 
 **Priority:** MEDIUM
 **Assigned:** 2026-01-10 Session 36
-**Status:** 🔴 Not Started
+**Status:** ✅ Complete
 
 #### Background
 Many UI panels depend on SMAPI running (Compass, Tile State, Crops, Inventory, etc.). When SMAPI is unavailable, they show "Waiting for..." indefinitely. Users need clear feedback.
@@ -86,7 +86,7 @@ When SMAPI is unavailable, show explicit message instead of "Waiting...":
 
 **Priority:** LOW
 **Assigned:** 2026-01-10 Session 36
-**Status:** 🔴 Not Started
+**Status:** ✅ Complete (Session 37)
 
 #### Background
 Several panels show "None" or "Waiting..." when data hasn't been populated yet. Better UX to show contextual empty states.
@@ -124,16 +124,17 @@ Rusty currently has no memory between sessions. Need:
 
 **Priority:** HIGH
 **Owner:** Claude
-**Status:** Planned
+**Status:** ✅ Complete (Session 37)
 
-The VLM Debug panel exists but unified_agent.py doesn't send:
-- `vlm_observation`
-- `proposed_action`
-- `validation_status`
-- `executed_action`
-- `executed_outcome`
+Added VLM debug state tracking to unified_agent.py:
+- `vlm_observation` - from VLM result
+- `proposed_action` - first action from VLM
+- `validation_status` - "passed", "blocked"
+- `validation_reason` - blocker name if any
+- `executed_action` - what was executed
+- `executed_outcome` - "success", "failed", or "blocked"
 
-Need to add these to `/api/status` POST calls in unified_agent.py.
+Updates sent via `_send_ui_status()` at key points in `_tick()`.
 
 ### TASK: Lesson Recording to UI (Claude)
 
@@ -160,6 +161,7 @@ Update this file marking task complete, then post to team chat.
 
 ## Completed Tasks
 
+- [x] UI: SMAPI Status Indicators + Empty States (2026-01-10 Session 36)
 - [x] Vision Debug View (2026-01-10 Session 35)
 - [x] Lessons Panel (2026-01-10 Session 35)
 - [x] Commentary & Personality Improvements (2026-01-10 Session 35)

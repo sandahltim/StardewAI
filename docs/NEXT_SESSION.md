@@ -1,7 +1,27 @@
-# Session 37: Integration Gaps & Rusty Character
+# Session 38: Lesson Recording & Rusty Memory
 
-**Last Updated:** 2026-01-10 Session 36 by Claude
-**Status:** Project review complete, integration gaps identified
+**Last Updated:** 2026-01-10 Session 37 by Claude
+**Status:** VLM Debug pipeline complete, SMAPI indicators done
+
+---
+
+## Session 37 Summary
+
+### What Was Completed
+
+1. **Agent → UI Data Pipeline** ✅
+   - Added VLM debug state tracking to `unified_agent.py`
+   - Sends: `vlm_observation`, `proposed_action`, `validation_status`, `validation_reason`, `executed_action`, `executed_outcome`
+   - Updates at 3 key points: after VLM thinking, during validation, after execution
+
+2. **SMAPI Status Indicators** ✅ (Codex)
+   - Added SMAPI online/offline row with last-seen time
+   - Tracked SMAPI health in app.js polling
+   - Applied offline empty-state messaging
+   - Status styling for connected/disconnected states
+
+3. **Empty State Messages** ✅ (Codex)
+   - Better "no data" messages for panels without data yet
 
 ---
 
@@ -31,16 +51,16 @@
 
 ## Project Review Findings
 
-### UI: Ready for Data, Agent Doesn't Populate
+### UI: Mostly Functional Now
 
 | Component | Status | Issue |
 |-----------|--------|-------|
 | Chat, Team Chat, Goals, Tasks | ✅ 100% | Working |
 | Skill tracking, Shipping | ✅ 90% | Working |
-| VLM Debug Panel | ❌ Stub | Agent doesn't send data |
-| Lessons Panel | ❌ Stub | Agent doesn't populate |
+| VLM Debug Panel | ✅ 100% | Agent sends all data |
+| Lessons Panel | ⚠️ 50% | UI ready, agent doesn't POST lessons |
 | Memory Search | ❌ Empty | Chroma not populated |
-| Compass, Tile, Crops | ⚠️ SMAPI | No fallback when SMAPI unavailable |
+| SMAPI Panels | ✅ 100% | Shows online/offline status with fallback |
 
 ### Rusty: Flavor Without Depth
 
@@ -69,37 +89,34 @@ UI server: running on 9001                           ✅
 
 ## Next Session Priorities
 
-### Priority 1: Agent → UI Data Pipeline (Claude)
+### Priority 1: Lesson Recording to UI (Claude) ← NEXT
 
-The UI panels exist but agent doesn't send data. Fix in unified_agent.py:
-
-```python
-# Add to _send_ui_status():
-"vlm_observation": result.observation,
-"proposed_action": {"type": action.action_type, "params": action.params},
-"validation_status": "passed" if clear else "blocked",
-"executed_action": self._format_action(action),
-"executed_outcome": "success" if success else "failed"
-```
-
-### Priority 2: Lesson Recording to UI (Claude)
-
-LessonMemory class exists but doesn't notify UI:
+LessonMemory class exists but doesn't notify UI when lessons are recorded:
 ```python
 # In lesson_memory.record_failure():
 requests.post("http://localhost:9001/api/lessons", json=lesson)
 ```
 
-### Priority 3: Rusty Memory Persistence (Claude)
+Also need to ensure lessons are visible in UI panel (already wired by Codex in Session 35).
+
+### Priority 2: Rusty Memory Persistence (Claude)
 
 Make Rusty remember between sessions:
 - Save episodic memories to file/Chroma
 - Track NPC relationships
 - Character state persistence
+- Could use existing ChromaDB infrastructure
 
-### Priority 4: SMAPI Status Indicators (Codex)
+### Priority 3: Full Farm Cycle Test (Claude)
 
-When SMAPI unavailable, show "⚠️ SMAPI unavailable" instead of "Waiting..."
+Test end-to-end with real game:
+- Clear→Till→Plant→Water sequence
+- Verify VLM debug panel shows data
+- Verify lessons panel populates on failures
+
+### ~~Priority 4: SMAPI Status Indicators (Codex)~~ ✅ DONE
+
+Completed in Session 37 by Codex.
 
 ---
 
@@ -107,20 +124,20 @@ When SMAPI unavailable, show "⚠️ SMAPI unavailable" instead of "Waiting..."
 
 ### Claude (Future Sessions)
 
-| Task | Priority | Description |
-|------|----------|-------------|
-| Agent VLM debug data | HIGH | Send observation/validation/outcome to UI |
-| Lesson recording to UI | HIGH | POST lessons to /api/lessons endpoint |
-| Rusty memory persistence | HIGH | Episodic memory that persists |
-| Test full farm cycle | MEDIUM | Clear→Till→Plant→Water with real game |
-| Rusty character bible | LOW | Document personality for consistency |
+| Task | Priority | Status |
+|------|----------|--------|
+| ~~Agent VLM debug data~~ | ~~HIGH~~ | ✅ Done Session 37 |
+| Lesson recording to UI | HIGH | Next up |
+| Rusty memory persistence | HIGH | After lessons |
+| Test full farm cycle | MEDIUM | After memory |
+| Rusty character bible | LOW | Future |
 
-### Codex (Assigned)
+### Codex (Completed Session 37)
 
-| Task | Priority | Description |
-|------|----------|-------------|
-| SMAPI status indicators | MEDIUM | Show connection status, fallback messages |
-| Empty state messages | LOW | Better "no data" messages |
+| Task | Status |
+|------|--------|
+| SMAPI status indicators | ✅ Done |
+| Empty state messages | ✅ Done |
 
 ---
 
@@ -128,23 +145,22 @@ When SMAPI unavailable, show "⚠️ SMAPI unavailable" instead of "Waiting..."
 
 | Feature | File | Notes |
 |---------|------|-------|
-| Dynamic hints | unified_agent.py:2492 | `_build_dynamic_hints()` |
-| Light context | unified_agent.py:2654 | `_build_light_context()` |
-| Skill execution | unified_agent.py:2126 | `execute_skill()` |
-| UI status | unified_agent.py:2421 | `_send_ui_status()` |
+| Dynamic hints | unified_agent.py:2500 | `_build_dynamic_hints()` |
+| Light context | unified_agent.py:2670 | `_build_light_context()` |
+| Skill execution | unified_agent.py:2130 | `execute_skill()` |
+| UI status | unified_agent.py:2429 | `_send_ui_status()` |
+| VLM debug state | unified_agent.py:1722 | Instance vars in `__init__` |
 | Lesson memory | memory/lessons.py | `LessonMemory` class |
 | Archived code | archive/README.md | Old agent, debug tools |
 
 ---
 
-## Key Insight from Session 36
+## Key Insight from Session 37
 
-**The infrastructure is solid. The gaps are integration points.**
+**Agent→UI pipeline complete. VLM debug panel now shows live data.**
 
-- UI is 95% ready, just needs agent to send data
-- Rusty personality works, just needs memory for depth
-- Core loop works, just needs debug visibility
+- VLM observation, proposed action, validation status, execution outcome all sent to UI
+- Codex completed SMAPI status indicators + empty states
+- Next: Wire lesson recording to UI, then Rusty memory
 
-*Fix the agent→UI pipeline first, then Rusty's character.*
-
-*— Claude (PM), Session 36*
+*— Claude (PM), Session 37*

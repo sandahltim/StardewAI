@@ -1719,6 +1719,14 @@ class StardewAgent:
         self.commentary_tts = PiperTTS() if HAS_COMMENTARY and PiperTTS else None
         self.last_mood: str = ""
 
+        # VLM Debug state (for UI panel)
+        self.vlm_observation: Optional[str] = None
+        self.proposed_action: Optional[Dict[str, Any]] = None
+        self.validation_status: Optional[str] = None
+        self.validation_reason: Optional[str] = None
+        self.executed_action: Optional[Dict[str, Any]] = None
+        self.executed_outcome: Optional[str] = None
+
         # Skill system (contextual guidance + execution)
         self.skill_context = None
         self.skills_dict: Dict[str, Any] = {}
@@ -2446,6 +2454,13 @@ class StardewAgent:
             "crops_harvested_count": self.crops_harvested_count,
             "latency_history": list(self.latency_history),
             "available_skills_count": len(self.skill_context.get_available_skills(self.last_state)) if self.skill_context and self.last_state else 0,
+            # VLM Debug panel fields
+            "vlm_observation": self.vlm_observation,
+            "proposed_action": self.proposed_action,
+            "validation_status": self.validation_status,
+            "validation_reason": self.validation_reason,
+            "executed_action": self.executed_action,
+            "executed_outcome": self.executed_outcome,
         }
         if result:
             self.last_mood = result.mood or self.last_mood
@@ -2845,6 +2860,11 @@ Recent: {recent}"""
                             self.action_queue = clear_actions + self.action_queue
                             self.recent_actions.append(f"CLEARING: {blocker} to {direction}")
                             self.recent_actions = self.recent_actions[-10:]
+                            # Update validation status - blocked but auto-clearing
+                            self.validation_status = "blocked"
+                            self.validation_reason = f"{blocker} (auto-clearing)"
+                            self.executed_action = {"type": action.action_type, "params": action.params}
+                            self.executed_outcome = "blocked"
                             self._send_ui_status()
                             return  # Will execute select_slot next tick
 
@@ -2876,9 +2896,17 @@ Recent: {recent}"""
                         self.recent_actions = self.recent_actions[-10:]
                         self.movement_attempts += 1
                         self.last_blocked_direction = f"{direction} ({blocker})"
+                        # Update validation status - blocked, cannot clear
+                        self.validation_status = "blocked"
+                        self.validation_reason = blocker
+                        self.executed_action = {"type": action.action_type, "params": action.params}
+                        self.executed_outcome = "blocked"
                         self._send_ui_status()
                         return
 
+            # Validation passed - action will be executed
+            self.validation_status = "passed"
+            self.validation_reason = None
             self.vlm_status = "Executing"
             if action.action_type == "move":
                 self.movement_attempts += 1
@@ -2894,6 +2922,9 @@ Recent: {recent}"""
                 success = self.controller.execute(action)
 
             self._record_action_event(action, success)
+            # Update execution outcome for UI debug panel
+            self.executed_action = {"type": action.action_type, "params": action.params}
+            self.executed_outcome = "success" if success else "failed"
             await asyncio.sleep(self.config.action_delay)
             self._send_ui_status()
             return
@@ -3067,6 +3098,19 @@ Recent: {recent}"""
                 self.latency_history.append(result.latency_ms)
                 self.latency_history = self.latency_history[-60:]
             self._track_vlm_parse(result)
+
+            # Update VLM debug state for UI panel
+            self.vlm_observation = result.observation if result.observation else (result.reasoning[:200] if result.reasoning else None)
+            if result.actions:
+                first_action = result.actions[0]
+                self.proposed_action = {"type": first_action.action_type, "params": first_action.params}
+            else:
+                self.proposed_action = None
+            # Reset validation/execution for new thinking cycle
+            self.validation_status = None
+            self.validation_reason = None
+            self.executed_action = None
+            self.executed_outcome = None
 
             # Override VLM's tool perception with actual game state (VLM often hallucinates tools)
             if self.last_state:

@@ -861,6 +861,24 @@ h2 {
   font-weight: 600;
 }
 
+.smapi-status {
+  font-weight: 600;
+}
+
+.smapi-status.online {
+  color: #166534;
+}
+
+.smapi-status.offline {
+  color: #b91c1c;
+}
+
+.smapi-last-seen {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .lessons-card {
   border: 1px solid var(--border);
   border-radius: 16px;

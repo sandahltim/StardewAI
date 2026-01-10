@@ -338,6 +338,8 @@ function updateStatus(status) {
   const vlmValidation = document.getElementById("vlmValidation");
   const vlmExecuted = document.getElementById("vlmExecuted");
   const vlmOutcome = document.getElementById("vlmOutcome");
+  const smapiStatus = document.getElementById("smapiStatus");
+  const smapiLastSeen = document.getElementById("smapiLastSeen");
   const lessonsList = document.getElementById("lessonsList");
   const lessonsCount = document.getElementById("lessonsCount");
   const lessonsReset = document.getElementById("lessonsReset");
@@ -369,6 +371,45 @@ function updateStatus(status) {
       latencyGraph.append(bar);
     });
     latencyStats.textContent = `Avg ${Math.round(avg)}ms | Max ${Math.round(max)}ms`;
+  };
+
+  let smapiOnline = false;
+  let smapiLastOk = null;
+
+  const updateSmapiStatus = (online, note) => {
+    if (typeof online === "boolean") {
+      smapiOnline = online;
+      if (online) smapiLastOk = new Date();
+    }
+    if (smapiStatus) {
+      smapiStatus.textContent = smapiOnline ? "Online" : "Offline";
+      smapiStatus.classList.toggle("offline", !smapiOnline);
+      smapiStatus.classList.toggle("online", smapiOnline);
+      if (note) smapiStatus.textContent = note;
+    }
+    if (smapiLastSeen) {
+      if (!smapiLastOk) {
+        smapiLastSeen.textContent = "";
+      } else {
+        const time = smapiLastOk.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        smapiLastSeen.textContent = `(${time})`;
+      }
+    }
+  };
+
+  const applySmapiEmptyState = () => {
+    if (compassNote) compassNote.textContent = "SMAPI offline";
+    if (tileStatus) tileStatus.textContent = "No tile data";
+    if (tileNote) tileNote.textContent = "SMAPI offline";
+    if (waterStatus) waterStatus.textContent = "No state data";
+    if (waterSourceStatus) waterSourceStatus.textContent = "No surroundings data";
+    if (waterSourceNote) waterSourceNote.textContent = "SMAPI offline";
+    if (shippingStatus) shippingStatus.textContent = "No state data";
+    if (cropStatus) cropStatus.textContent = "No crop data";
+    if (cropStatusNote) cropStatusNote.textContent = "SMAPI offline";
+    if (harvestStatus) harvestStatus.textContent = "No crop data";
+    if (harvestNote) harvestNote.textContent = "SMAPI offline";
+    if (staminaStatus) staminaStatus.textContent = "No state data";
   };
 
   const formatAction = (value) => {
@@ -1842,6 +1883,14 @@ function init() {
 
   const pollIntervalMs = 5000;
   setInterval(() => {
+    let smapiChecks = 0;
+    let smapiOk = false;
+    const finalizeSmapi = () => {
+      smapiChecks += 1;
+      if (smapiChecks < 2) return;
+      updateSmapiStatus(smapiOk);
+      if (!smapiOk) applySmapiEmptyState();
+    };
     const lastChatId = Math.max(...seenChatMessages, 0);
     fetch(`/api/messages?limit=50&since_id=${lastChatId}`)
       .then((res) => res.json())
@@ -1945,16 +1994,20 @@ function init() {
         if (!payload || !payload.success) {
           if (compassNote) compassNote.textContent = "SMAPI unavailable";
           updateTileState(null);
+          finalizeSmapi();
           return;
         }
+        smapiOk = true;
         updateCompass(payload.data);
         updateTileState(payload.data.currentTile);
         updateWaterSource(payload.data.nearestWater, latestPlayer);
+        finalizeSmapi();
       })
       .catch(() => {
         if (compassNote) compassNote.textContent = "SMAPI unavailable";
         updateTileState(null);
         updateWaterSource(null, null);
+        finalizeSmapi();
       });
 
     fetch(`${smapiBase}/state`)
@@ -1965,8 +2018,10 @@ function init() {
           updateShippingBin(null);
           updateCropProgress(null);
           updateCropCountdown(null);
+          finalizeSmapi();
           return;
         }
+        smapiOk = true;
         latestState = payload.data || null;
         latestPlayer = payload.data?.player || null;
         updateWateringCan(latestPlayer);
@@ -2015,6 +2070,7 @@ function init() {
               updateSpatialMap(null, { x: latestPlayer.tileX, y: latestPlayer.tileY });
             });
         }
+        finalizeSmapi();
       })
       .catch(() => {
         updateWateringCan(null);
@@ -2026,6 +2082,7 @@ function init() {
         updateShippingHistory(null, null);
         if (spatialMapGrid) spatialMapGrid.innerHTML = "";
         if (spatialMapNote) spatialMapNote.textContent = "Spatial map unavailable";
+        finalizeSmapi();
       });
   }, pollIntervalMs);
 

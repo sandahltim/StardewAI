@@ -78,6 +78,13 @@
               {{ status.location or "-" }} | {{ status.time_of_day or "-" }} | Energy {{ status.energy or "-" }} | Holding {{ status.holding or "-" }}
             </span>
           </div>
+          <div class="vlm-row">
+            <span class="vlm-label">SMAPI</span>
+            <span class="vlm-value">
+              <span id="smapiStatus" class="smapi-status">Checking...</span>
+              <span id="smapiLastSeen" class="smapi-last-seen"></span>
+            </span>
+          </div>
         </div>
         <div class="vlm-reasoning">
           <div class="vlm-subhead">Last Reasoning</div>
