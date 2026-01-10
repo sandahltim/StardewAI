@@ -352,6 +352,13 @@ function updateStatus(status) {
   const rustyNpcCount = document.getElementById("rustyNpcCount");
   const rustyMemoryEmpty = document.getElementById("rustyMemoryEmpty");
   const rustyMemoryPanel = document.getElementById("rustyMemoryPanel");
+  const farmingCycleDay = document.getElementById("farmingCycleDay");
+  const farmingCycleWeather = document.getElementById("farmingCycleWeather");
+  const farmingCycleCrop = document.getElementById("farmingCycleCrop");
+  const farmingCycleFill = document.getElementById("farmingCycleFill");
+  const farmingCycleProgress = document.getElementById("farmingCycleProgress");
+  const farmingCycleTasks = document.getElementById("farmingCycleTasks");
+  const farmingCycleHistory = document.getElementById("farmingCycleHistory");
 
   const formatDuration = (seconds) => {
     if (!Number.isFinite(seconds) || seconds <= 0) return "-";
@@ -384,6 +391,7 @@ function updateStatus(status) {
 
   let smapiOnline = false;
   let smapiLastOk = null;
+  let lastRustyMemory = null;
 
   const updateSmapiStatus = (online, note) => {
     if (typeof online === "boolean") {
@@ -1306,6 +1314,7 @@ function init() {
   };
 
   const updateRustyMemory = (payload) => {
+    lastRustyMemory = payload || null;
     if (!rustyMemoryEmpty || !rustyMemoryPanel) return;
     const character = payload?.character_state || null;
     if (!character) {
@@ -1375,6 +1384,113 @@ function init() {
           }
           rustyNpcs.append(item);
         });
+      }
+    }
+  };
+
+  const updateFarmingCycle = (state, memory) => {
+    if (!farmingCycleDay || !farmingCycleWeather || !farmingCycleCrop) return;
+    if (!state || !state.time) {
+      farmingCycleDay.textContent = "Day -";
+      farmingCycleWeather.textContent = "Weather: -";
+      farmingCycleCrop.textContent = "No crop data";
+      if (farmingCycleProgress) farmingCycleProgress.textContent = "-";
+      if (farmingCycleFill) farmingCycleFill.style.width = "0%";
+      if (farmingCycleTasks) {
+        farmingCycleTasks.innerHTML = "<li>Waiting for data...</li>";
+      }
+      if (farmingCycleHistory) {
+        farmingCycleHistory.innerHTML = "<li>No history yet.</li>";
+      }
+      return;
+    }
+
+    const time = state.time || {};
+    const day = time.day ?? time.Day ?? "-";
+    const season = time.season ?? time.Season ?? "-";
+    const year = time.year ?? time.Year ?? "-";
+    farmingCycleDay.textContent = `Day ${day}, ${season} Year ${year}`;
+
+    const weatherRaw = (time.weather || state.weather || "").toString().toLowerCase();
+    const weatherIcon = weatherRaw.includes("rain") ? "🌧️" : weatherRaw.includes("storm") ? "⛈️" : "☀️";
+    const weatherLabel = weatherRaw ? weatherRaw.charAt(0).toUpperCase() + weatherRaw.slice(1) : "-";
+    farmingCycleWeather.textContent = `Weather: ${weatherIcon} ${weatherLabel}`;
+
+    const crops = state.location?.crops || [];
+    if (!Array.isArray(crops) || crops.length === 0) {
+      farmingCycleCrop.textContent = "No crops detected";
+      if (farmingCycleProgress) farmingCycleProgress.textContent = "Plant crops to start a cycle.";
+      if (farmingCycleFill) farmingCycleFill.style.width = "0%";
+      if (farmingCycleTasks) {
+        farmingCycleTasks.innerHTML = "<li>Plant crops</li>";
+      }
+    } else {
+      const cropCounts = {};
+      crops.forEach((crop) => {
+        const name = crop.cropName || "Crop";
+        cropCounts[name] = (cropCounts[name] || 0) + 1;
+      });
+      const [primaryCrop] = Object.entries(cropCounts).sort((a, b) => b[1] - a[1])[0] || ["Crop"];
+      const daysUntil = Math.max(...crops.map((crop) => Number(crop.daysUntilHarvest ?? 0)));
+      const growthDaysByCrop = {
+        parsnip: 4,
+        cauliflower: 12,
+        potato: 6,
+      };
+      const totalDays =
+        growthDaysByCrop[String(primaryCrop).toLowerCase()] || Math.max(daysUntil + 1, 1);
+      const dayIndex = Math.min(totalDays, Math.max(0, totalDays - daysUntil));
+      const percent = totalDays ? Math.round((dayIndex / totalDays) * 100) : 0;
+      farmingCycleCrop.textContent = `${primaryCrop} progress (${totalDays}-day crop)`;
+      if (farmingCycleFill) farmingCycleFill.style.width = `${percent}%`;
+      const ready = crops.some((crop) => crop.isReadyForHarvest);
+      const needsWater = crops.some((crop) => !crop.isWatered);
+      if (farmingCycleProgress) {
+        if (ready) {
+          farmingCycleProgress.textContent = "Ready to harvest!";
+        } else if (daysUntil <= 0) {
+          farmingCycleProgress.textContent = "Harvestable today!";
+        } else {
+          farmingCycleProgress.textContent = `Day ${dayIndex}/${totalDays} - ${needsWater ? "Water today!" : "Growing"}`;
+        }
+      }
+      if (farmingCycleTasks) {
+        const tasks = [];
+        if (needsWater) tasks.push("Water all crops");
+        if (ready) tasks.push("Harvest ready crops");
+        if (!needsWater && !ready) tasks.push("Check for harvestables");
+        farmingCycleTasks.innerHTML = "";
+        tasks.forEach((task) => {
+          const item = document.createElement("li");
+          item.textContent = task;
+          farmingCycleTasks.append(item);
+        });
+      }
+    }
+
+    if (farmingCycleHistory) {
+      farmingCycleHistory.innerHTML = "";
+      const events = Array.isArray(memory?.recent_events) ? memory.recent_events.slice(-10) : [];
+      if (!events.length) {
+        const item = document.createElement("li");
+        item.textContent = "No history yet.";
+        farmingCycleHistory.append(item);
+      } else {
+        const grouped = {};
+        events.forEach((event) => {
+          const key = event.day ? `Day ${event.day}` : "Day ?";
+          if (!grouped[key]) grouped[key] = [];
+          if (event.description) grouped[key].push(event.description);
+        });
+        Object.entries(grouped)
+          .slice(-4)
+          .reverse()
+          .forEach(([label, entries]) => {
+            const item = document.createElement("li");
+            const summary = entries.slice(-2).join(" · ");
+            item.textContent = `${label}: ${summary || "No events"}`;
+            farmingCycleHistory.append(item);
+          });
       }
     }
   };
@@ -1963,6 +2079,7 @@ function init() {
       updateLessons(data.payload);
     } else if (data.type === "rusty_memory_updated") {
       updateRustyMemory(data.payload);
+      updateFarmingCycle(latestState, data.payload);
     }
   };
 
@@ -2067,6 +2184,7 @@ function init() {
       .then((res) => res.json())
       .then((payload) => {
         updateRustyMemory(payload);
+        updateFarmingCycle(latestState, payload);
       })
       .catch(() => {
         updateRustyMemory(null);
@@ -2128,6 +2246,7 @@ function init() {
         updateStamina(latestPlayer);
         updateBedtime(latestState?.time, latestPlayer);
         updateDaySeason(latestState?.time);
+        updateFarmingCycle(latestState, lastRustyMemory);
         const gameDay = latestState?.time?.day ?? latestState?.time?.Day ?? null;
         if (shippingList && shippingTotal) {
           const params = new URLSearchParams();

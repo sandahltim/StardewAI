@@ -114,7 +114,7 @@ harvest_crop:
 # =============================================================================
 
 plant_seed:
-  description: "Plant seeds on tilled soil"
+  description: "Plant seeds on tilled soil (auto-finds and equips seeds from inventory)"
   category: farming
   energy_cost: 0
 
@@ -122,10 +122,9 @@ plant_seed:
     required:
       - type: standing_on
         target: tilled_soil
-      - type: equipped_category
-        category: seeds
 
   actions:
+    - select_item_type: seed  # Auto-find first seed in inventory
     - use_tool
 
   on_success:

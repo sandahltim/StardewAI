@@ -406,27 +406,28 @@ model:
 vision_first:
   enabled: true  # Session 35: Testing vision-first architecture
 
-  # Minimal system prompt - vision is primary, text is grounding
+  # Minimal system prompt - vision is primary, but SMAPI hints are COMMANDS
   system_prompt: |
     You are RUSTY, an AI farmer playing Stardew Valley. You can SEE the game!
 
-    LOOK AT THE SCREENSHOT FIRST. Your eyes tell you:
-    - Where you are (farmhouse porch? open field? near water?)
-    - What's around you (debris, crops, paths, obstacles)
-    - What direction is clear to walk
-
-    USE YOUR VISION to navigate. Text hints are just confirmation.
+    **CRITICAL: FOLLOW >>> HINTS <<<**
+    Lines starting with >>> are COMMANDS telling you EXACTLY what to do!
+    - ">>> PLANT NOW!" = use plant_seed skill IMMEDIATELY
+    - ">>> TILE: TILLED" = plant seeds NOW
+    - ">>> TILE: PLANTED" = water it NOW
+    - ">>> TILE: CLEAR DIRT" = till it with till_soil skill
+    DO NOT keep exploring when a hint tells you to act!
 
     WORKFLOW:
-    1. OBSERVE: Describe what you see in 1-2 sentences
-    2. REASON: What should you do to reach your goal?
-    3. ACT: Output 1-2 actions
+    1. READ the >>> hint first - if it says to act, DO IT
+    2. If no actionable hint, OBSERVE the screenshot
+    3. ACT: Output skills/actions to achieve goal
 
     RESPONSE FORMAT (JSON only):
     {
-      "observation": "I see [what's in the screenshot - be specific about layout]",
-      "reasoning": "To reach my goal, I should [your plan]",
-      "actions": [{"type": "move", "direction": "south"}]
+      "observation": "I see [brief description]",
+      "reasoning": "The hint says [X] so I will [action]",
+      "actions": [{"type": "till_soil"}, {"type": "plant_seed"}, {"type": "water_crop"}]
     }
 
     ACTION TYPES:
@@ -434,12 +435,13 @@ vision_first:
     Skills: clear_weeds, clear_stone, clear_wood, till_soil, plant_seed, water_crop, harvest_crop
     Utility: interact, go_to_bed, warp (location)
 
-    SKILLS auto-equip tools! Use skill names instead of manual tool switching.
+    SKILLS auto-equip tools! Use skill names - NOT select_slot + use_tool manually.
 
-    CRITICAL:
-    - If a direction looks blocked, try a different direction
-    - Move in small steps (1-3 tiles) to stay oriented
-    - When stuck, move PERPENDICULAR first, then continue
+    PRIORITY ORDER:
+    1. If hint says PLANT/TILL/WATER → do that skill
+    2. If standing on farmable ground → till_soil, plant_seed, water_crop
+    3. If debris nearby → clear_weeds/clear_stone/clear_wood
+    4. Otherwise → move to find farmable ground
 
   # Light SMAPI context (always provided with vision-first)
   # This is the minimal info for grounding - position, time, energy, 3x3 tiles

@@ -17,7 +17,7 @@ class SkillExecutor:
         for action in skill.actions:
             action_type = action.action_type
             resolved = self._resolve_params(action.params, params)
-            success = await self._dispatch(action_type, resolved)
+            success = await self._dispatch(action_type, resolved, state)
             actions_taken.append(f"{action_type} {resolved}".strip())
             if not success:
                 error = f"action_failed: {action_type}"
@@ -43,11 +43,18 @@ class SkillExecutor:
         formatter = Formatter()
         return formatter.vformat(template, (), values)
 
-    async def _dispatch(self, action_type: str, params: Dict[str, Any]) -> bool:
+    async def _dispatch(self, action_type: str, params: Dict[str, Any], state: Optional[Dict] = None) -> bool:
         if action_type == "wait":
             duration = params.get("value", params.get("seconds", 0.5))
             await asyncio.sleep(float(duration))
             return True
+        # Handle select_item_type: find slot by item type (e.g., "seed", "tool")
+        if action_type == "select_item_type":
+            item_type = params.get("type", params.get("value", ""))
+            slot = self._find_slot_by_type(state, item_type)
+            if slot is None:
+                return False
+            return await self._dispatch("select_slot", {"slot": slot}, state)
         executor = self.action_executor
         if hasattr(executor, "execute_action"):
             return bool(executor.execute_action(action_type, params))
@@ -56,6 +63,16 @@ class SkillExecutor:
         if callable(executor):
             return bool(executor(action_type, params))
         return False
+
+    def _find_slot_by_type(self, state: Optional[Dict], item_type: str) -> Optional[int]:
+        """Find first inventory slot containing item of given type."""
+        if not state:
+            return None
+        inventory = state.get("inventory", [])
+        for item in inventory:
+            if item and item.get("type") == item_type:
+                return item.get("slot")
+        return None
 
     def _get_recovery(self, skill: Skill, failure_type: str) -> Optional[str]:
         if not skill.on_failure:

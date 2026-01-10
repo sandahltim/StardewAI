@@ -2,7 +2,7 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-10 Session 39
+**Last Updated:** 2026-01-10 Session 40
 
 ---
 
@@ -26,6 +26,82 @@ A full project review identified these gaps:
 ---
 
 ## Active Tasks
+
+### TASK: Multi-Day Progress Panel (NEW - Session 40)
+
+**Priority:** HIGH
+**Assigned:** 2026-01-10 Session 40
+**Status:** ✅ Complete
+
+#### Background
+
+Session 40 is testing multi-day farming cycles:
+- Day 1: Plant parsnips
+- Days 2-3: Water daily
+- Day 4: Harvest
+
+We need a UI panel to track this cycle visually. Currently there's no way to see at a glance where we are in the multi-day farming loop.
+
+#### Requirements
+
+**1. Add Multi-Day Tracker Panel**
+
+New panel in the UI that shows:
+```
+┌──────────────────────────────────────┐
+│ 🌱 FARMING CYCLE                     │
+├──────────────────────────────────────┤
+│ Day 5, Spring Year 1                 │
+│ Weather: ☀️ Sunny                    │
+├──────────────────────────────────────┤
+│ PARSNIP PROGRESS (4 day crop)        │
+│ [██████░░] Day 3/4 - Water today!    │
+├──────────────────────────────────────┤
+│ TODAY'S TASKS:                       │
+│ ☐ Water all crops                    │
+│ ☐ Check for harvestables             │
+├──────────────────────────────────────┤
+│ RECENT DAYS:                         │
+│ Day 4: Watered 4 crops               │
+│ Day 3: Watered 4 crops               │
+│ Day 2: Watered 4 crops               │
+│ Day 1: Planted 4 parsnips            │
+└──────────────────────────────────────┘
+```
+
+**2. Data Sources**
+
+Pull from existing endpoints:
+- `/state` → `day`, `season`, `year`, `weather`
+- `/surroundings` → crop data (growth stage)
+- Rusty Memory → recent events for daily log
+
+**3. Crop Growth Tracking**
+
+Calculate days until harvest based on crop type:
+- Parsnip: 4 days
+- Cauliflower: 12 days
+- Potato: 6 days
+(Can hardcode common crops or pull from knowledge base)
+
+**4. Visual Progress Bar**
+
+Show growth progress as:
+- Empty: ░ (not planted)
+- Growing: █ (each day of growth)
+- Ready: 🌾 (harvestable)
+
+#### Files to Modify
+- `src/ui/templates/index.html` - Add panel section
+- `src/ui/static/app.js` - Add render function, poll data
+- `src/ui/static/app.css` - Style progress bars
+
+#### Reference
+
+Knowledge base for crop data: `src/python-agent/knowledge/items.yaml`
+SMAPI state endpoint already provides day/season/weather.
+
+---
 
 ### TASK: Rusty Memory UI Panel (NEW - Session 39)
 
@@ -271,6 +347,7 @@ Update this file marking task complete, then post to team chat.
 
 ## Completed Tasks
 
+- [x] UI: Multi-Day Progress Panel (2026-01-10 Session 40)
 - [x] UI: Rusty Memory Panel (2026-01-10 Session 39)
 - [x] UI: SMAPI Status Indicators + Empty States (2026-01-10 Session 36)
 - [x] Vision Debug View (2026-01-10 Session 35)

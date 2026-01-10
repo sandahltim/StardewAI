@@ -158,6 +158,63 @@ h2 {
   width: 100%;
 }
 
+.farming-cycle-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf8;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.farming-cycle__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.farming-cycle__crop {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.farming-cycle__bar {
+  width: 100%;
+  height: 8px;
+  background: #f3f4f6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.farming-cycle__fill {
+  height: 100%;
+  width: 0%;
+  background: #22c55e;
+  transition: width 0.2s ease;
+}
+
+.farming-cycle__progress {
+  color: #374151;
+  font-weight: 600;
+}
+
+.farming-cycle__section {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.farming-cycle__list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
 .snapshot__label {
   text-transform: uppercase;
   letter-spacing: 0.08em;
