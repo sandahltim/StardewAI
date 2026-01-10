@@ -1,162 +1,100 @@
-# Session 39: Full Farm Cycle Test
+# Session 40: Multi-Day Farming
 
-**Last Updated:** 2026-01-10 Session 38 by Claude
-**Status:** Rusty Memory implemented, ready for integration testing
+**Last Updated:** 2026-01-10 Session 39 by Claude
+**Status:** Full farming cycle verified, ready for multi-day testing
+
+---
+
+## Session 39 Summary
+
+### What Was Completed
+
+1. **Mode Refactoring** ✅
+   - Renamed `coop` → `splitscreen` (Player 2 right half screen)
+   - Default mode now `single` (full screen capture)
+   - Updated unified_agent.py, config/settings.yaml, CLAUDE.md
+
+2. **Full Farming Cycle Verified** ✅
+   - `clear_weeds` (scythe) - working
+   - `clear_stone` (pickaxe) - working
+   - `clear_wood` (axe) - working
+   - `till_soil` (hoe) - working
+   - `plant_seed` - working
+   - `water_crop` - working
+
+3. **Rusty Memory UI Panel** ✅ (Codex)
+   - Added `/api/rusty/memory` endpoint
+   - UI panel shows mood, confidence bar, recent events
+
+### Key Discovery: Goal Phrasing
+
+**Problem:** VLM gets stuck in one phase with vague goals like "clear weeds and plant"
+
+**Solution:** Explicit goals with phases and constraints:
+```
+"Find a small clear area (avoid trees). Clear weeds/stones/branches,
+till the soil, plant parsnip seeds, and water them."
+```
+
+The "avoid trees" constraint is critical - Day 1 farms have many trees that take too long to chop.
 
 ---
 
 ## Session 38 Summary
 
-### What Was Completed
-
 1. **Rusty Memory System** ✅
-   - Created `memory/rusty_memory.py` with full persistence
-   - Episodic memory: Records events with type, description, outcome, importance
-   - Character state: Tracks mood, confidence (0.1-0.95), days farming, favorites
-   - NPC relationships: First met, interaction counts, friendship levels (stranger → close_friend)
+   - `memory/rusty_memory.py` with episodic memory, character state, NPC relationships
    - Persists to `logs/rusty_state.json`
-
-2. **Agent Integration** ✅
-   - Added import and initialization in `unified_agent.py`
-   - `start_session()` called when day/season changes (from SMAPI state)
-   - `record_event()` called after action execution
-   - NPC meeting events recorded when new NPCs encountered
-   - `get_context_for_prompt()` added to VLM context
-
-3. **VLM Context** ✅
-   - Added `--- RUSTY ---` section to light context
-   - Includes: mood, confidence level, recent memories, concerns, favorites
-
----
-
-## Session 37 Summary
-
-### What Was Completed
-
-1. **Agent → UI Data Pipeline** ✅
-   - VLM debug state tracking in `unified_agent.py`
-   - Sends: `vlm_observation`, `proposed_action`, `validation_status`, etc.
-
-2. **Lesson Recording to UI** ✅
-   - LessonMemory persists on `record_failure()`
-   - POSTs to `/api/lessons/update` endpoint
-
-3. **SMAPI Status Indicators** ✅ (Codex)
-
-4. **Empty State Messages** ✅ (Codex)
-
----
-
-## RustyMemory Details
-
-### What It Tracks
-
-```python
-# Episodic Memory (what happened)
-event = {
-    "type": "farming",  # action, farming, meeting, discovery, failure
-    "description": "Planted 5 parsnips",
-    "outcome": "success",  # success, failure, neutral
-    "importance": 2,  # 1-5 (5 = memorable)
-    "location": "Farm",
-    "npc": None,  # NPC name if interaction
-    "day": 5,
-    "season": "spring",
-}
-
-# Character State (mood/growth)
-character_state = {
-    "confidence": 0.62,  # Increases with success, decreases with failure
-    "mood": "neutral",  # neutral, content, frustrated, tired, proud, curious, anxious
-    "days_farming": 5,
-    "total_harvests": 0,
-    "total_failures": 0,
-    "favorite_activities": [],
-    "current_concerns": [],
-    "memorable_moments": [],  # High importance events (>=4)
-}
-
-# NPC Relationships
-relationship = {
-    "first_met": {"day": 5, "season": "spring"},
-    "interaction_count": 1,
-    "positive_interactions": 1,
-    "negative_interactions": 0,
-    "friendship_level": "stranger",  # → acquaintance → friend → close_friend
-    "notes": [],
-}
-```
-
-### Key Methods
-
-| Method | Purpose |
-|--------|---------|
-| `record_event()` | Log what happened (auto-updates confidence/mood) |
-| `record_npc_interaction()` | Track relationship with NPC |
-| `update_mood()` | Set current mood with reason |
-| `start_session()` | Called with day/season when game state received |
-| `get_context_for_prompt()` | Generate VLM context string |
-| `get_npc_context()` | Get relationship context for specific NPC |
-
-### Auto-Adjustments
-
-- **Confidence**: +0.02 per success × importance, -0.03 per failure × importance
-- **Friendship**: Progresses based on interaction count and positive ratio
-- **Memorable Moments**: Events with importance ≥4 are auto-saved
+   - Integrated into unified_agent.py
 
 ---
 
 ## Next Session Priorities
 
-### Priority 1: Full Farm Cycle Test (Claude)
+### Priority 1: Multi-Day Cycle (Claude)
 
-Test end-to-end with real game now that memory is working:
-1. Start game in single player mode
-2. Run agent with `--goal "Clear and plant some parsnips"`
-3. Verify:
-   - VLM debug panel shows data
-   - Lessons panel populates on failures
-   - Rusty memory persists events
-   - Character context appears in VLM prompt
+Now that single-day farming works, test multi-day:
+1. Plant crops on Day 1
+2. Sleep (go_to_bed skill)
+3. Wake up Day 2 and water crops
+4. Repeat until harvest ready (parsnips = 4 days)
 
 **Test command:**
 ```bash
 cd src/python-agent
 source ../../venv/bin/activate
-python unified_agent.py --goal "Clear some weeds and plant parsnips"
+python unified_agent.py --config ../../config/settings.yaml --ui \
+  --goal "Day 1: Find a clear 2x2 area, clear debris, till, plant parsnips, water. Then go to bed when tired or after 6pm."
 ```
 
-**Note:** Single player mode is now default (`--mode single`). Full screen capture.
+### Priority 2: Bedtime Logic
 
-### Priority 2: Rusty Memory UI Panel (Claude/Codex)
+Verify the time management system:
+- `go_to_bed` skill exists
+- Agent should sleep before 2am (passing out = bad)
+- Test that agent finds bed and sleeps
 
-The memory system is complete but has no UI panel yet. Could add:
-- Character state display (mood, confidence bar)
-- Recent events list
-- Known NPCs with friendship levels
+### Priority 3: Watering Routine
 
-### Priority 3: Character Bible (Future)
-
-If memory works well, define Rusty's character more deeply:
-- Backstory snippets
-- Relationship preferences (which NPCs does Rusty click with?)
-- Growth milestones ("Day 30: Finally feels confident as a farmer")
+Day 2+ goal:
+```
+"Water all planted crops. If watering can is empty, refill at pond."
+```
 
 ---
 
-## Tasks by Owner
+## Completion Checklist Update
 
-### Claude (Future Sessions)
-
-| Task | Priority | Status |
-|------|----------|--------|
-| Full farm cycle test | HIGH | Next up |
-| Rusty memory UI panel | MEDIUM | After testing |
-| Character bible | LOW | Future |
-
-### Codex (No Active Tasks)
-
-Session 37 completed all Codex tasks. Next UI work depends on testing results.
+| Action | Status | Session |
+|--------|--------|---------|
+| clear_weeds (scythe) | ✅ Verified | 39 |
+| clear_stone (pickaxe) | ✅ Verified | 39 |
+| clear_wood (axe) | ✅ Verified | 39 |
+| till_soil | ✅ Verified | 39 |
+| plant_seed | ✅ Verified | 39 |
+| water_crop | ✅ Verified | 39 |
+| go_to_bed | Needs test | 40 |
+| harvest | Previously verified | 25 |
 
 ---
 
@@ -164,24 +102,13 @@ Session 37 completed all Codex tasks. Next UI work depends on testing results.
 
 | Feature | File | Notes |
 |---------|------|-------|
-| Rusty Memory | memory/rusty_memory.py | Complete memory system |
-| Agent integration | unified_agent.py:1772 | `__init__` initialization |
-| Session start | unified_agent.py:2221 | Updates day/season from SMAPI |
-| Event recording | unified_agent.py:2295 | Records after action execution |
-| NPC meetings | unified_agent.py:2454 | Records when new NPCs met |
-| VLM context | unified_agent.py:2843 | Adds `--- RUSTY ---` section |
+| Mode config | unified_agent.py:155 | `mode: str = "single"` |
+| Splitscreen region | unified_agent.py:157 | `splitscreen_region` |
+| Skill definitions | skills/definitions/farming.yaml | All debris/farming skills |
+| Rusty Memory API | src/ui/app.py | `/api/rusty/memory` endpoint |
 
 ---
 
-## Key Insight from Session 38
+*Session 39: Full farming cycle verified. Goal phrasing is critical for VLM behavior.*
 
-**Rusty now has a memory.** Between sessions, Rusty will remember:
-- What happened (episodic)
-- How confident they feel (character state)
-- Who they've met and their relationship (NPC tracking)
-
-The memory auto-adjusts confidence based on outcomes and tracks friendship progression through interaction counts. This gives Rusty continuity - they're no longer starting fresh each session.
-
-**Next step: Test it with the real game.**
-
-*— Claude (PM), Session 38*
+*— Claude (PM), Session 39*
