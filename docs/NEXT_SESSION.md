@@ -1,7 +1,7 @@
-# Session 37: Farm Cycle Testing & Polish
+# Session 37: Integration Gaps & Rusty Character
 
 **Last Updated:** 2026-01-10 Session 36 by Claude
-**Status:** Dynamic hints integrated, skills working, ready for farm cycle testing
+**Status:** Project review complete, integration gaps identified
 
 ---
 
@@ -9,140 +9,142 @@
 
 ### What Was Completed
 
-1. **`_build_dynamic_hints()` method** (~140 lines)
-   - Extracts critical hints from SMAPI state
-   - Priority-based: empty can > tile state > crop status > time/energy warnings
-   - Returns 3-5 condensed hints (vs 500 lines in old prompt)
+1. **Dynamic Hints Integration**
+   - Built `_build_dynamic_hints()` method (~140 lines)
+   - Integrated into vision-first light context
+   - Fixed skill parameter normalization
+   - Skills working: clear_weeds, till_soil
 
-2. **Integrated into light context**
-   - Added `--- HINTS ---` section to `_build_light_context()`
-   - Total light context is now ~15 lines vs 400+ line old prompt
+2. **Project Review (3 parallel agents)**
+   - UI review: 70% functional, 30% placeholder/SMAPI-dependent
+   - Rusty personality: Framework exists, character depth missing
+   - Connectivity: Core is solid, ~1500 lines orphaned code
 
-3. **Fixed skill parameter normalization**
-   - VLM outputs `direction`, skills expect `target_direction`
-   - Added automatic mapping in `execute_skill()`
-   - Added fallback: uses facing direction or last blocked direction if VLM omits param
-
-4. **Verified hint generation**
-   ```
-   📍 CLEAR - 2 crops need water, move there first!
-   💧 2 unwatered - nearest 1 tile EAST
-   🌾 1 harvestable - nearest 1S+1E
-   🌙 LATE (10PM+) - consider bed
-   ```
-
-### Skills Working
-- `till_soil` - Successfully tills ground
-- `clear_weeds` - Equips scythe, faces direction, clears
-- Movement + skill chains working
-
-### Not Yet Tested
-- Full farm cycle with planted crops
-- Water refill hints (need empty can scenario)
-- Harvest workflow
-- Bedtime/energy warnings in practice
+3. **Cleanup**
+   - Archived orphaned code to `src/python-agent/archive/`:
+     - `agent.py` (old dual-model agent)
+     - `manual_controller.py`, `controller_gui.py`, `test_gamepad.py`
+     - `knowledge/` folder (redundant with memory/)
+   - Updated CODEX_TASKS.md with new tasks
 
 ---
 
-## Next Session: Farm Cycle Testing
+## Project Review Findings
 
-### Goal
-Test complete farming workflow with hints:
-1. Clear debris around farmhouse
-2. Till soil
-3. Plant parsnip seeds
-4. Water crops
-5. (Skip days or wait for growth)
-6. Harvest ready crops
-7. Ship items
+### UI: Ready for Data, Agent Doesn't Populate
 
-### Test Scenarios
+| Component | Status | Issue |
+|-----------|--------|-------|
+| Chat, Team Chat, Goals, Tasks | ✅ 100% | Working |
+| Skill tracking, Shipping | ✅ 90% | Working |
+| VLM Debug Panel | ❌ Stub | Agent doesn't send data |
+| Lessons Panel | ❌ Stub | Agent doesn't populate |
+| Memory Search | ❌ Empty | Chroma not populated |
+| Compass, Tile, Crops | ⚠️ SMAPI | No fallback when SMAPI unavailable |
 
-| Scenario | Tests | How to Trigger |
-|----------|-------|----------------|
-| Empty watering can | Refill hint priority | Water 40+ times |
-| Planted crops need water | Direction to nearest | After planting |
-| Crops ready to harvest | Harvest hint + count | Wait for growth |
-| Late night | Bedtime warning | Play until 10pm+ |
-| Low energy | Energy warning | Use tools repeatedly |
+### Rusty: Flavor Without Depth
 
-### Commands
+| Aspect | Status |
+|--------|--------|
+| Personality templates | ✅ 4 personalities, 7-8 contexts each |
+| System prompt identity | ✅ "Self-aware AI farmer with dry wit" |
+| Commentary integration | ✅ Working |
+| Memory/continuity | ❌ None - forgets each session |
+| Character arc | ❌ None - doesn't grow |
+| NPC relationships | ❌ None - same voice for everyone |
+| Decision influence | ❌ Personality is cosmetic only |
 
-```bash
-# Full farming cycle test
-python src/python-agent/unified_agent.py --goal "Farm: clear debris, till, plant, water crops"
+### Connectivity: Solid Core
 
-# Test with debug logging for hints
-LOG_LEVEL=DEBUG python src/python-agent/unified_agent.py --goal "Water all crops"
-
-# Check hint output
-python -c "
-import sys; sys.path.insert(0, 'src/python-agent')
-from unified_agent import StardewAgent, Config
-# ... (see test code from Session 36)
-"
+```
+unified_agent.py → VLM (8780) → SMAPI (8790) → Game  ✅
+Skills system: loaded and executable                  ✅
+Memory systems: integrated and queried               ✅
+UI server: running on 9001                           ✅
 ```
 
+**Archived (orphaned):** ~1500 lines in `src/python-agent/archive/`
+
 ---
 
-## Implementation Tasks (Session 37)
+## Next Session Priorities
 
-### Claude
+### Priority 1: Agent → UI Data Pipeline (Claude)
+
+The UI panels exist but agent doesn't send data. Fix in unified_agent.py:
+
+```python
+# Add to _send_ui_status():
+"vlm_observation": result.observation,
+"proposed_action": {"type": action.action_type, "params": action.params},
+"validation_status": "passed" if clear else "blocked",
+"executed_action": self._format_action(action),
+"executed_outcome": "success" if success else "failed"
+```
+
+### Priority 2: Lesson Recording to UI (Claude)
+
+LessonMemory class exists but doesn't notify UI:
+```python
+# In lesson_memory.record_failure():
+requests.post("http://localhost:9001/api/lessons", json=lesson)
+```
+
+### Priority 3: Rusty Memory Persistence (Claude)
+
+Make Rusty remember between sessions:
+- Save episodic memories to file/Chroma
+- Track NPC relationships
+- Character state persistence
+
+### Priority 4: SMAPI Status Indicators (Codex)
+
+When SMAPI unavailable, show "⚠️ SMAPI unavailable" instead of "Waiting..."
+
+---
+
+## Tasks by Owner
+
+### Claude (Future Sessions)
 
 | Task | Priority | Description |
 |------|----------|-------------|
-| Test full farm cycle | HIGH | Clear→Till→Plant→Water with real game |
-| Fix any hint edge cases | HIGH | Missing hints, wrong directions |
-| Add harvest workflow test | MEDIUM | Verify harvest hints work |
-| Test bedtime/energy warnings | LOW | Verify late-game hints |
+| Agent VLM debug data | HIGH | Send observation/validation/outcome to UI |
+| Lesson recording to UI | HIGH | POST lessons to /api/lessons endpoint |
+| Rusty memory persistence | HIGH | Episodic memory that persists |
+| Test full farm cycle | MEDIUM | Clear→Till→Plant→Water with real game |
+| Rusty character bible | LOW | Document personality for consistency |
 
-### Codex
+### Codex (Assigned)
 
 | Task | Priority | Description |
 |------|----------|-------------|
-| Show hints in UI | LOW | Display current hints in dashboard |
-| None currently blocking | - | Await farm cycle test results |
+| SMAPI status indicators | MEDIUM | Show connection status, fallback messages |
+| Empty state messages | LOW | Better "no data" messages |
 
 ---
 
-## Files Modified (Session 36)
+## Code Reference
 
-- `src/python-agent/unified_agent.py`:
-  - Added `_build_dynamic_hints()` method (~140 lines)
-  - Modified `_build_light_context()` to include hints
-  - Added skill parameter normalization (`direction` → `target_direction`)
-  - Added direction fallback for skills
-
----
-
-## Code Location Reference
-
-| Feature | File | Method |
-|---------|------|--------|
-| Dynamic hints | unified_agent.py | `_build_dynamic_hints()` |
-| Light context | unified_agent.py | `_build_light_context()` |
-| Vision-first think | unified_agent.py | `think_vision_first()` |
-| Skill execution | unified_agent.py | `execute_skill()` |
-| Skill definitions | skills/definitions/farming.yaml | - |
+| Feature | File | Notes |
+|---------|------|-------|
+| Dynamic hints | unified_agent.py:2492 | `_build_dynamic_hints()` |
+| Light context | unified_agent.py:2654 | `_build_light_context()` |
+| Skill execution | unified_agent.py:2126 | `execute_skill()` |
+| UI status | unified_agent.py:2421 | `_send_ui_status()` |
+| Lesson memory | memory/lessons.py | `LessonMemory` class |
+| Archived code | archive/README.md | Old agent, debug tools |
 
 ---
 
 ## Key Insight from Session 36
 
-**Condensed hints work! The light context approach is viable.**
+**The infrastructure is solid. The gaps are integration points.**
 
-The 140-line `_build_dynamic_hints()` extracts the essential information from the 500-line `format_surroundings()`:
-- Tile state + action recommendation
-- Crop counts + nearest direction
-- Tool warnings (don't destroy crops!)
-- Time/energy warnings
+- UI is 95% ready, just needs agent to send data
+- Rusty personality works, just needs memory for depth
+- Core loop works, just needs debug visibility
 
-The VLM now receives:
-1. Screenshot (primary)
-2. Position/time/energy/tool (one line)
-3. 3x3 tile grid (spatial awareness)
-4. 3-5 critical hints (grounding)
-
-*This is the right balance between vision autonomy and SMAPI grounding.*
+*Fix the agent→UI pipeline first, then Rusty's character.*
 
 *— Claude (PM), Session 36*

@@ -2,284 +2,146 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-10 Session 35
+**Last Updated:** 2026-01-10 Session 36
+
+---
+
+## Project Review Findings (Session 36)
+
+A full project review identified these gaps:
+
+### UI Status: 70% Functional
+- Chat, Team Chat, Goals, Tasks, Control Panel - **100% working**
+- Skill tracking, Shipping history - **90% working**
+- Compass, Tile State, Crops - **100% SMAPI-dependent** (show "waiting" if SMAPI down)
+- VLM Debug section - **exists but agent never sends data**
+- Lessons panel - **exists but agent never populates**
+- Memory search - **Chroma DB is empty**
+
+### Key Issues
+1. **Agent doesn't populate UI fields** - VLM debug, lessons, memory
+2. **SMAPI-dependent sections have no fallback** - just show "waiting"
+3. **Rusty has no memory** - personality exists but no continuity
 
 ---
 
 ## Active Tasks
 
-### TASK: Vision Debug View (NEW - Session 35)
-
-**Priority:** HIGH
-**Assigned:** 2026-01-10 Session 34
-**Status:** ✅ Complete
-
-#### Background
-We're restructuring the VLM to be vision-first. The VLM will now output an "observation" describing what it sees before deciding actions. We need UI to show this for debugging and transparency.
-
-#### Requirements
-
-**1. Vision Debug Panel** (add to dashboard)
-
-```
-┌─────────────────────────────────────────┐
-│ VISION DEBUG                            │
-├─────────────────────────────────────────┤
-│ VLM Observation:                        │
-│ "I see the farmhouse porch with steps   │
-│  leading down. Farm area with debris    │
-│  to the southwest. Player facing west." │
-├─────────────────────────────────────────┤
-│ Proposed: move south                    │
-│ Validation: ✅ CLEAR                    │
-│ Executed: move south → success          │
-└─────────────────────────────────────────┘
-```
-
-**2. Data to Display**
-- `observation`: What VLM says it sees (new field)
-- `proposed_action`: What VLM wants to do
-- `validation_result`: SMAPI check result (pass/fail + reason)
-- `executed_action`: What actually ran
-- `outcome`: success/failed
-
-**3. API Changes**
-The agent will post new fields to `/api/status`:
-- `vlm_observation`: string
-- `proposed_action`: object
-- `validation_status`: "passed" | "failed"
-- `validation_reason`: string (if failed)
-
-#### Files to Modify
-1. `src/ui/templates/index.html` - Add vision debug panel
-2. `src/ui/static/app.js` - Render observation + validation
-3. `src/ui/static/app.css` - Styling (green=passed, red=failed)
-
----
-
-### TASK: Lessons Panel (NEW - Session 35)
+### TASK: SMAPI Status Indicators (NEW - Session 36)
 
 **Priority:** MEDIUM
-**Assigned:** 2026-01-10 Session 34
-**Status:** ✅ Complete
+**Assigned:** 2026-01-10 Session 36
+**Status:** 🔴 Not Started
 
 #### Background
-The agent will now learn from mistakes. When an action fails, it records a "lesson" that gets fed back to future VLM calls. We need UI to show these lessons.
+Many UI panels depend on SMAPI running (Compass, Tile State, Crops, Inventory, etc.). When SMAPI is unavailable, they show "Waiting for..." indefinitely. Users need clear feedback.
 
 #### Requirements
 
-**1. Lessons Panel**
+**1. Add SMAPI Connection Status Badge**
 
+In the header/status area, add a connection indicator:
 ```
-┌─────────────────────────────────────────┐
-│ LESSONS LEARNED                    [⟳]  │
-├─────────────────────────────────────────┤
-│ • west from porch → blocked by         │
-│   farmhouse → went south first          │
-│ • scythe doesn't reach 2 tiles →       │
-│   move closer first                     │
-│ • (2 lessons this session)              │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────┐
+│ SMAPI: 🟢 Connected              │
+│ SMAPI: 🔴 Unavailable            │
+└──────────────────────────────────┘
 ```
 
-**2. Features**
-- Display last 5-10 lessons
-- Reset button to clear lessons
-- Counter for session lesson count
-- Highlight when lesson is applied (VLM context)
+**2. Update Affected Panels**
 
-**3. API Endpoint**
+When SMAPI is unavailable, show explicit message instead of "Waiting...":
 ```
-GET /api/lessons
-Returns: {"lessons": [...], "count": N}
+┌──────────────────────────────────┐
+│ COMPASS                          │
+├──────────────────────────────────┤
+│ ⚠️ SMAPI unavailable            │
+│ Start game with mod to enable   │
+└──────────────────────────────────┘
+```
 
-POST /api/lessons/clear
-Clears session lessons
-```
+**3. Affected Sections**
+- Compass Navigation
+- Tile State
+- Watering Can Status
+- Crop Status
+- Inventory Grid
+- Stamina/Energy
+- Movement History (position events)
+
+#### Implementation
+
+1. Check SMAPI status on each poll (already fetching `/surroundings`)
+2. Set global `smapiConnected` flag in app.js
+3. Conditionally render "unavailable" badge in affected panels
 
 #### Files to Modify
-1. `src/ui/templates/index.html` - Lessons panel HTML
-2. `src/ui/static/app.js` - Fetch/display lessons
-3. `src/ui/app.py` - Add lessons endpoints
+- `src/ui/static/app.js` - Add SMAPI status tracking, update render functions
+- `src/ui/templates/index.html` - Add status badge area
+- `src/ui/static/app.css` - Style for unavailable state
 
 ---
 
-### TASK: Commentary & Personality Improvements
+### TASK: Empty State Messages (NEW - Session 36)
 
-**Priority:** Medium
-**Assigned:** 2026-01-10 Session 32
-**Status:** ✅ Complete
+**Priority:** LOW
+**Assigned:** 2026-01-10 Session 36
+**Status:** 🔴 Not Started
 
 #### Background
-Rusty has a commentary system with 4 personalities (sarcastic, enthusiastic, grumpy, zen). User feedback: "work on commentary and personalities" - needs more variety and context-awareness.
+Several panels show "None" or "Waiting..." when data hasn't been populated yet. Better UX to show contextual empty states.
 
 #### Requirements
 
-**1. Add More Templates** (`src/python-agent/commentary/personalities.py`)
+Update these panels with helpful empty state messages:
 
-Each personality currently has 2-4 templates per situation. Add 3-5 more to each for variety:
-
-```python
-# Example - add to "sarcastic" personality:
-"action": [
-    # existing...
-    "New template here with {action} placeholder",
-    "Another witty line about {action}",
-],
-```
-
-**2. Add Farm Plan Context** (new situation type)
-
-Add "farm_plan" situation for when agent is working a planned plot:
-```python
-"farm_plan": [
-    "Plot clearing in progress. Systematic farming, how novel.",
-    "Row by row. The algorithm demands order.",
-    # etc for each personality
-],
-```
-
-**3. UI Personality Selector** (optional enhancement)
-
-Add dropdown to UI to switch personalities:
-- Current: personality is set via API only
-- Goal: Add selector in dashboard that calls POST to update personality
-- Show current personality name in commentary panel
+| Panel | Current | Better |
+|-------|---------|--------|
+| Lessons | "None" | "No lessons recorded yet. Failures will appear here." |
+| Memory Search | "None" | "No memories stored yet." |
+| Skill History | "No data yet" | "No skills executed yet. Run agent to see stats." |
+| VLM Debug | "Waiting for observation..." | "Waiting for agent to start thinking..." |
 
 #### Files to Modify
-
-1. `src/python-agent/commentary/personalities.py` - Add templates
-2. `src/python-agent/commentary/generator.py` - Add "farm_plan" context support
-3. `src/ui/templates/index.html` - Personality selector dropdown (optional)
-4. `src/ui/static/app.js` - Handler for personality change (optional)
-
-#### Test Commands
-
-```bash
-# Check personality variety by running agent
-source venv/bin/activate
-python src/python-agent/unified_agent.py --ui --goal "Farm the plot"
-
-# Commentary appears in logs and UI
-# Check for variety over 10+ actions
-```
-
-#### Notes
-- Keep Rusty's self-aware AI farmer character
-- Sarcastic is default - should have most variety
-- Farm plan context should reference systematic work, plots, phases
+- `src/ui/static/app.js` - Update default text in render functions
 
 ---
 
-### TASK: Farm Plan Visualizer UI (COMPLETED)
+## Backlog (Future Sessions)
 
-**Priority:** High
-**Assigned:** 2026-01-10 Session 31
-**Status:** ✅ Complete (verified Session 32)
+### TASK: Rusty Memory Persistence (Claude)
 
-#### Background
-We're implementing a "planned farming" system so Rusty farms systematically instead of chaotically. Claude is building the core planning module (`src/python-agent/planning/`). Codex builds the UI visualization.
+**Priority:** HIGH (for character development)
+**Owner:** Claude
+**Status:** Planned
 
-#### Requirements
+Rusty currently has no memory between sessions. Need:
+- Episodic memory persistence
+- Character state that evolves
+- NPC relationship tracking
 
-**1. API Endpoints** (add to `src/ui/app.py`)
+### TASK: Agent VLM Debug Population (Claude)
 
-```python
-# GET /api/farm-plan
-# Returns current farm plan state (plots, phases, progress)
-# Response: {
-#   "active": true/false,
-#   "plots": [{id, origin_x, origin_y, width, height, phase, progress}],
-#   "current_tile": {x, y},
-#   "next_tile": {x, y}
-# }
+**Priority:** HIGH
+**Owner:** Claude
+**Status:** Planned
 
-# POST /api/farm-plan/plot
-# Create or update plot definition
-# Body: {origin_x, origin_y, width, height, crop_type?}
-```
+The VLM Debug panel exists but unified_agent.py doesn't send:
+- `vlm_observation`
+- `proposed_action`
+- `validation_status`
+- `executed_action`
+- `executed_outcome`
 
-**2. UI Panel** - Farm Plan Visualizer
+Need to add these to `/api/status` POST calls in unified_agent.py.
 
-Add to dashboard (can be new panel or tab):
+### TASK: Lesson Recording to UI (Claude)
 
-```
-┌─────────────────────────────────────────┐
-│ FARM PLAN                               │
-├─────────────────────────────────────────┤
-│ Plot 1 (5x3) @ 30,20   Phase: CLEARING  │
-│ ┌─────────────────────────────────────┐ │
-│ │ ▓ ▓ ▓ ▓ ░ │  Row 0: 4/5            │ │
-│ │ ░ ░ ░ ░ ░ │  Row 1: 0/5            │ │
-│ │ ░ ░ ░ ░ ░ │  Row 2: 0/5            │ │
-│ └─────────────────────────────────────┘ │
-│ Legend: ▓=done ░=pending ●=current     │
-│ Progress: 4/15 tiles (27%)              │
-└─────────────────────────────────────────┘
-```
+**Priority:** MEDIUM
+**Owner:** Claude
+**Status:** Planned
 
-**3. Phase Progress Bar**
-
-```
-WORKFLOW: [✓CLEAR][⬤TILL][ PLANT][ WATER]
-          ████████░░░░░░░░░░░░░░░░░░░░
-          53% complete
-```
-
-**4. WebSocket Updates**
-- Subscribe to farm plan state changes
-- Update visualizer in real-time as agent works
-
-#### Data Source
-
-The planning module will write state to `logs/farm_plans/current.json`:
-
-```json
-{
-  "active": true,
-  "plots": [
-    {
-      "id": "plot_1",
-      "origin_x": 30,
-      "origin_y": 20,
-      "width": 5,
-      "height": 3,
-      "phase": "clearing",
-      "tiles": {
-        "30,20": "cleared",
-        "31,20": "cleared",
-        "32,20": "debris"
-      }
-    }
-  ],
-  "active_plot_id": "plot_1",
-  "current_tile": {"x": 32, "y": 20}
-}
-```
-
-#### Files to Modify
-
-1. `src/ui/app.py` - Add `/api/farm-plan` endpoints
-2. `src/ui/templates/index.html` - Add visualizer panel HTML
-3. `src/ui/static/app.js` - Add JavaScript for grid rendering + WebSocket
-4. `src/ui/static/app.css` - Styling for grid visualization
-
-#### Test Commands
-
-```bash
-# Start UI server
-source venv/bin/activate
-uvicorn src.ui.app:app --reload --port 9001
-
-# Test endpoint (after Claude creates planning module)
-curl http://localhost:9001/api/farm-plan
-```
-
-#### Notes
-- Claude will create the planning module and persistence layer
-- UI reads from JSON file or API - coordinate with Claude
-- Grid should update via WebSocket when tiles complete
-- Color coding: green=done, yellow=current, gray=pending
+LessonMemory class exists but doesn't POST to UI. Need to call `/api/lessons` when lessons are recorded.
 
 ---
 
@@ -332,6 +194,6 @@ Update this file marking task complete, then post to team chat.
 
 ---
 
-*Session 31: Farm Plan Visualizer UI assigned! Claude building planning module in parallel.*
+*Session 36: Project review complete. Added SMAPI status indicators and empty state tasks. Archived orphaned code.*
 
 *— Claude (PM)*
