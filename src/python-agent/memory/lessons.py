@@ -14,19 +14,26 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional
 
+import requests
+
 logger = logging.getLogger(__name__)
+
+# Default UI server URL
+DEFAULT_UI_URL = "http://localhost:9001"
 
 
 class LessonMemory:
     """Track mistakes and successful corrections for VLM learning."""
 
-    def __init__(self, persist_path: Optional[str] = None):
+    def __init__(self, persist_path: Optional[str] = None, ui_url: Optional[str] = None):
         """
         Initialize lesson memory.
 
         Args:
             persist_path: Path to JSON file for persistence.
                          Defaults to logs/lessons.json
+            ui_url: URL of UI server for real-time notifications.
+                   Defaults to http://localhost:9001
         """
         self.lessons: list[dict] = []
         self.session_count = 0
@@ -34,6 +41,8 @@ class LessonMemory:
         if persist_path is None:
             persist_path = "logs/lessons.json"
         self.persist_path = Path(persist_path)
+
+        self.ui_url = ui_url or DEFAULT_UI_URL
 
         # Load existing lessons if file exists
         self._load()
@@ -71,6 +80,11 @@ class LessonMemory:
         self.session_count += 1
 
         logger.info(f"Lesson recorded: {attempted} → blocked by {blocked_by}")
+
+        # Persist and notify UI
+        self._persist()
+        self._notify_ui()
+
         return lesson["id"]
 
     def record_recovery(self, lesson_id: int, recovery: str):
@@ -85,6 +99,7 @@ class LessonMemory:
             self.lessons[lesson_id]["recovery"] = recovery
             logger.info(f"Lesson {lesson_id} updated: → {recovery} worked")
             self._persist()
+            self._notify_ui()
 
     def get_context(self, max_lessons: int = 5) -> str:
         """
@@ -201,6 +216,20 @@ class LessonMemory:
                 json.dump({"lessons": self.lessons}, f, indent=2)
         except IOError as e:
             logger.warning(f"Could not persist lessons: {e}")
+
+    def _notify_ui(self):
+        """Notify UI server of lesson update via POST."""
+        try:
+            url = f"{self.ui_url}/api/lessons/update"
+            payload = self.to_api_format()
+            response = requests.post(url, json=payload, timeout=1.0)
+            if response.status_code == 200:
+                logger.debug(f"UI notified of lesson update")
+            else:
+                logger.debug(f"UI notification failed: {response.status_code}")
+        except requests.RequestException as e:
+            # UI might not be running - don't spam warnings
+            logger.debug(f"Could not notify UI: {e}")
 
     def to_api_format(self) -> dict:
         """Format for API response (used by UI)."""

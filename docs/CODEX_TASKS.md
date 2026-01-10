@@ -140,9 +140,12 @@ Updates sent via `_send_ui_status()` at key points in `_tick()`.
 
 **Priority:** MEDIUM
 **Owner:** Claude
-**Status:** Planned
+**Status:** ✅ Complete (Session 37)
 
-LessonMemory class exists but doesn't POST to UI. Need to call `/api/lessons` when lessons are recorded.
+LessonMemory now:
+- Calls `_persist()` on every `record_failure()` (not just on recovery)
+- Calls `_notify_ui()` to POST to `/api/lessons/update`
+- UI endpoint broadcasts via WebSocket for real-time updates
 
 ---
 

@@ -14,13 +14,18 @@
    - Sends: `vlm_observation`, `proposed_action`, `validation_status`, `validation_reason`, `executed_action`, `executed_outcome`
    - Updates at 3 key points: after VLM thinking, during validation, after execution
 
-2. **SMAPI Status Indicators** ✅ (Codex)
+2. **Lesson Recording to UI** ✅
+   - LessonMemory now persists on `record_failure()` (was only on recovery)
+   - Added `_notify_ui()` method to POST lessons to UI server
+   - Added `/api/lessons/update` endpoint to UI for WebSocket broadcast
+
+3. **SMAPI Status Indicators** ✅ (Codex)
    - Added SMAPI online/offline row with last-seen time
    - Tracked SMAPI health in app.js polling
    - Applied offline empty-state messaging
    - Status styling for connected/disconnected states
 
-3. **Empty State Messages** ✅ (Codex)
+4. **Empty State Messages** ✅ (Codex)
    - Better "no data" messages for panels without data yet
 
 ---
@@ -58,7 +63,7 @@
 | Chat, Team Chat, Goals, Tasks | ✅ 100% | Working |
 | Skill tracking, Shipping | ✅ 90% | Working |
 | VLM Debug Panel | ✅ 100% | Agent sends all data |
-| Lessons Panel | ⚠️ 50% | UI ready, agent doesn't POST lessons |
+| Lessons Panel | ✅ 100% | Agent POSTs + WebSocket broadcast |
 | Memory Search | ❌ Empty | Chroma not populated |
 | SMAPI Panels | ✅ 100% | Shows online/offline status with fallback |
 
@@ -89,15 +94,11 @@ UI server: running on 9001                           ✅
 
 ## Next Session Priorities
 
-### Priority 1: Lesson Recording to UI (Claude) ← NEXT
+### ~~Priority 1: Lesson Recording to UI (Claude)~~ ✅ DONE
 
-LessonMemory class exists but doesn't notify UI when lessons are recorded:
-```python
-# In lesson_memory.record_failure():
-requests.post("http://localhost:9001/api/lessons", json=lesson)
-```
-
-Also need to ensure lessons are visible in UI panel (already wired by Codex in Session 35).
+Completed in Session 37:
+- LessonMemory now POSTs to `/api/lessons/update`
+- UI endpoint broadcasts via WebSocket
 
 ### Priority 2: Rusty Memory Persistence (Claude)
 
@@ -127,8 +128,8 @@ Completed in Session 37 by Codex.
 | Task | Priority | Status |
 |------|----------|--------|
 | ~~Agent VLM debug data~~ | ~~HIGH~~ | ✅ Done Session 37 |
-| Lesson recording to UI | HIGH | Next up |
-| Rusty memory persistence | HIGH | After lessons |
+| ~~Lesson recording to UI~~ | ~~HIGH~~ | ✅ Done Session 37 |
+| Rusty memory persistence | HIGH | Next up |
 | Test full farm cycle | MEDIUM | After memory |
 | Rusty character bible | LOW | Future |
 

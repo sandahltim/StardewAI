@@ -925,6 +925,15 @@ async def clear_lessons() -> Dict[str, Any]:
     return updated
 
 
+@app.post("/api/lessons/update")
+async def update_lessons(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Receive lesson update from agent and broadcast to UI."""
+    # Save to file and broadcast via WebSocket
+    updated = _write_lessons(payload)
+    await manager.broadcast("lessons_updated", updated)
+    return {"status": "ok", "count": len(payload.get("lessons", []))}
+
+
 @app.get("/api/spatial-map")
 def get_spatial_map(
     location: str = "Farm",
