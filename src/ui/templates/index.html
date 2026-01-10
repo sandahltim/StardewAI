@@ -83,6 +83,29 @@
           <div class="vlm-subhead">Last Reasoning</div>
           <p id="vlmReasoning">{{ status.last_reasoning or "None" }}</p>
         </div>
+        <div class="vision-debug-card">
+          <div class="vlm-subhead">Vision Debug</div>
+          <div class="vision-debug__row">
+            <span class="vision-label">Observation</span>
+            <span id="vlmObservation" class="vision-value">Waiting for observation...</span>
+          </div>
+          <div class="vision-debug__row">
+            <span class="vision-label">Proposed</span>
+            <span id="vlmProposed" class="vision-value">-</span>
+          </div>
+          <div class="vision-debug__row">
+            <span class="vision-label">Validation</span>
+            <span id="vlmValidation" class="vision-value">-</span>
+          </div>
+          <div class="vision-debug__row">
+            <span class="vision-label">Executed</span>
+            <span id="vlmExecuted" class="vision-value">-</span>
+          </div>
+          <div class="vision-debug__row">
+            <span class="vision-label">Outcome</span>
+            <span id="vlmOutcome" class="vision-value">-</span>
+          </div>
+        </div>
         <div class="vlm-error-card">
           <div class="vlm-subhead">VLM Errors</div>
           <div class="vlm-error__meta">
@@ -119,6 +142,16 @@
               <li>None</li>
             </ol>
           </div>
+        </div>
+        <div class="lessons-card">
+          <div class="lessons-header">
+            <div class="vlm-subhead">Lessons Learned</div>
+            <button id="lessonsReset" class="button small button--ghost" type="button">Reset</button>
+          </div>
+          <div id="lessonsCount" class="lessons-count">0 lessons</div>
+          <ol id="lessonsList" class="lessons-list">
+            <li>None</li>
+          </ol>
         </div>
         <div class="commentary-card">
           <div class="vlm-subhead">Rusty Commentary</div>

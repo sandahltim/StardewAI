@@ -40,7 +40,7 @@ except ImportError:
     HAS_UI = False
 
 try:
-    from memory import get_memory, get_context_for_vlm, should_remember
+    from memory import get_memory, get_context_for_vlm, should_remember, get_lesson_memory
     from memory.game_knowledge import get_npc_info
     from memory.spatial_map import SpatialMap
     HAS_MEMORY = True
@@ -48,6 +48,7 @@ except ImportError:
     get_memory = None
     get_context_for_vlm = None
     should_remember = None
+    get_lesson_memory = None
     get_npc_info = None
     SpatialMap = None
     HAS_MEMORY = False
@@ -184,6 +185,11 @@ class Config:
     max_tokens: int = 1000
     system_prompt: str = ""
 
+    # Vision-First Mode (Session 35)
+    vision_first_enabled: bool = False
+    vision_first_system_prompt: str = ""
+    vision_first_context_template: str = ""
+
     @classmethod
     def from_yaml(cls, path: str = "./config/settings.yaml") -> "Config":
         """Load config from YAML file."""
@@ -240,6 +246,13 @@ class Config:
                 config.max_tokens = data['model'].get('max_tokens', config.max_tokens)
                 config.system_prompt = data['model'].get('system_prompt', config.system_prompt)
 
+            # Vision-First Mode
+            if 'vision_first' in data:
+                vf = data['vision_first']
+                config.vision_first_enabled = vf.get('enabled', False)
+                config.vision_first_system_prompt = vf.get('system_prompt', '')
+                config.vision_first_context_template = vf.get('light_context_template', '')
+
         except FileNotFoundError:
             logging.warning(f"Config file not found: {path}, using defaults")
         except Exception as e:
@@ -276,6 +289,9 @@ class ThinkResult:
     mood: str = ""            # agent's current vibe
     reasoning: str = ""
     actions: List[Action] = field(default_factory=list)
+
+    # Vision-First Mode (Session 35)
+    observation: str = ""      # VLM's description of what it sees
 
     # Metadata
     timestamp: float = 0.0
@@ -392,6 +408,149 @@ class UnifiedVLM:
                 actions=[Action("wait", {"seconds": 2}, "Error recovery")],
                 timestamp=time.time()
             )
+
+    def think_vision_first(
+        self,
+        img: Image.Image,
+        goal: str = "",
+        light_context: str = "",
+        lessons: str = "",
+    ) -> ThinkResult:
+        """
+        Vision-first inference: Image drives decisions, text provides grounding.
+
+        Key differences from regular think():
+        - Uses minimal system prompt (vision-focused)
+        - Image is primary input, light_context is secondary
+        - VLM outputs observation before action
+        - Lessons from past failures are included
+
+        Args:
+            img: Screenshot of game
+            goal: Current agent goal
+            light_context: Minimal SMAPI data (position, time, 3x3 tiles)
+            lessons: Previous failures/corrections from LessonMemory
+        """
+        start_time = time.time()
+        img_b64 = self.image_to_base64(img)
+
+        # Build minimal user prompt
+        user_parts = []
+        if goal:
+            user_parts.append(f"🎯 Goal: {goal}")
+        if light_context:
+            user_parts.append(light_context)
+        if lessons:
+            user_parts.append(f"\n📚 Lessons from past mistakes:\n{lessons}")
+        user_parts.append("\nLOOK at the screenshot. Describe what you see, then act.")
+
+        user_prompt = "\n".join(user_parts)
+
+        # Use vision-first system prompt
+        system_prompt = self.config.vision_first_system_prompt or self.config.system_prompt
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        # Image FIRST - primary input
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                        # Then minimal text context
+                        {"type": "text", "text": user_prompt}
+                    ]
+                }
+            ],
+            "max_tokens": self.config.max_tokens,
+            "temperature": self.config.temperature,
+        }
+
+        try:
+            response = self.client.post(
+                f"{self.url}/v1/chat/completions",
+                json=payload
+            )
+            response.raise_for_status()
+            content = response.json()["choices"][0]["message"]["content"]
+            latency = (time.time() - start_time) * 1000
+
+            return self._parse_vision_first_response(content, latency)
+
+        except httpx.ConnectError:
+            logging.error(f"Cannot connect to {self.url} - is llama-server running?")
+            return ThinkResult(
+                reasoning="ERROR: Cannot connect to model server",
+                actions=[Action("wait", {"seconds": 2}, "Waiting for server")],
+                timestamp=time.time()
+            )
+        except Exception as e:
+            logging.error(f"Vision-first think failed: {e}")
+            return ThinkResult(
+                reasoning=f"ERROR: {e}",
+                actions=[Action("wait", {"seconds": 2}, "Error recovery")],
+                timestamp=time.time()
+            )
+
+    def _parse_vision_first_response(self, content: str, latency_ms: float) -> ThinkResult:
+        """
+        Parse vision-first VLM response.
+
+        Expected format:
+        {
+          "observation": "I see the farmhouse porch...",
+          "reasoning": "To reach my goal, I should...",
+          "actions": [{"type": "move", "direction": "south"}]
+        }
+        """
+        result = ThinkResult(
+            raw_response=content,
+            latency_ms=latency_ms,
+            timestamp=time.time()
+        )
+
+        data = None
+
+        # Try to extract JSON (reuse existing strategies)
+        start = content.find("{")
+        end = content.rfind("}") + 1
+        if start >= 0 and end > start:
+            json_str = content[start:end]
+            try:
+                data = json.loads(json_str)
+            except json.JSONDecodeError:
+                try:
+                    data = json.loads(self._repair_json(json_str))
+                except json.JSONDecodeError as e:
+                    logging.warning(f"Vision-first JSON parse failed: {e}")
+
+        if data:
+            result.parse_success = True
+
+            # Vision-first specific fields
+            result.observation = data.get("observation", "")
+            result.reasoning = data.get("reasoning", "")
+
+            # Parse actions (same as regular think)
+            actions_data = data.get("actions", [])
+            if not isinstance(actions_data, list):
+                actions_data = [actions_data]
+
+            for act in actions_data:
+                if isinstance(act, dict):
+                    action_type = act.get("type", "wait")
+                    params = {k: v for k, v in act.items() if k != "type"}
+                    result.actions.append(Action(action_type, params))
+
+            if not result.actions:
+                result.actions.append(Action("wait", {"seconds": 1}, "No actions parsed"))
+        else:
+            result.parse_success = False
+            result.reasoning = "Failed to parse vision-first response"
+            result.actions = [Action("wait", {"seconds": 1}, "Parse error")]
+
+        return result
 
     def _repair_json(self, text: str) -> str:
         """Attempt to repair common JSON issues from VLM output."""
@@ -1590,6 +1749,16 @@ class StardewAgent:
                 logging.warning(f"Farm planning failed to load: {e}")
                 self.plot_manager = None
 
+        # Lesson memory (vision-first learning from failures)
+        self.lesson_memory = None
+        if HAS_MEMORY and get_lesson_memory:
+            try:
+                self.lesson_memory = get_lesson_memory()
+                stats = self.lesson_memory.get_stats()
+                logging.info(f"📚 Lessons loaded: {stats['total']} total, {stats['completed']} with recovery")
+            except Exception as e:
+                logging.warning(f"Lesson memory failed to load: {e}")
+
         # Memory trigger tracking
         self.last_location: str = ""
         self.last_nearby_npcs: List[str] = []
@@ -1964,6 +2133,28 @@ class StardewAgent:
         Returns:
             True if skill executed successfully, False otherwise
         """
+        # Normalize parameter names: VLM may output 'direction' but skills expect 'target_direction'
+        if 'direction' in params and 'target_direction' not in params:
+            params['target_direction'] = params.pop('direction')
+        
+        # If no direction provided but skill needs one, use last blocked direction or facing
+        if 'target_direction' not in params:
+            # Check if this skill needs a direction (has face action)
+            if skill_name in ['clear_weeds', 'clear_stone', 'clear_wood', 'water_crop', 
+                              'harvest_crop', 'chop_tree', 'ship_item', 'refill_watering_can']:
+                # Use last blocked direction if available, else try to infer from surroundings
+                if self.last_blocked_direction:
+                    # Extract just the direction from "south (Weeds)" format
+                    blocked_dir = self.last_blocked_direction.split()[0]
+                    params['target_direction'] = blocked_dir
+                    logging.info(f"   ↳ Using last blocked direction: {blocked_dir}")
+                elif self.last_state:
+                    # Use facing direction from game state
+                    facing_map = {0: "north", 1: "east", 2: "south", 3: "west"}
+                    facing = self.last_state.get("player", {}).get("facingDirection", 2)
+                    params['target_direction'] = facing_map.get(facing, "south")
+                    logging.info(f"   ↳ Using facing direction: {params['target_direction']}")
+        
         if not self.skill_executor or skill_name not in self.skills_dict:
             logging.warning(f"Skill not found or executor not ready: {skill_name}")
             return False
@@ -2321,6 +2512,264 @@ class StardewAgent:
             self.vlm_status = "Idle"
             self._send_ui_status()
 
+
+    def _build_dynamic_hints(self) -> str:
+        """
+        Extract critical hints from SMAPI state - condensed for vision-first.
+        
+        Returns 3-5 priority hints based on current game state.
+        Priority order:
+        1. Empty watering can (blocks all watering progress)
+        2. Current tile action (what to do HERE)
+        3. Crop status (unwatered/harvestable nearby)
+        4. Time/energy warnings
+        """
+        if not self.last_state or not self.last_surroundings:
+            return ""
+        
+        hints = []
+        state = self.last_state
+        data = self.last_surroundings
+        
+        # Extract common data
+        player = state.get("player", {})
+        location = state.get("location", {})
+        crops = location.get("crops", [])
+        current_tool = player.get("currentTool", "none")
+        current_slot = player.get("currentToolIndex", -1)
+        player_x = player.get("tileX", 0)
+        player_y = player.get("tileY", 0)
+        water_left = player.get("wateringCanWater", 0)
+        water_max = player.get("wateringCanMax", 40)
+        hour = state.get("time", {}).get("hour", 6)
+        energy = player.get("energy", 270)
+        max_energy = player.get("maxEnergy", 270)
+        energy_pct = int(100 * energy / max_energy) if max_energy > 0 else 100
+        
+        # Crop counts
+        unwatered = [c for c in crops if not c.get("isWatered", False)]
+        harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
+        
+        # Tool slots for reference
+        tool_slots = {"Axe": 0, "Hoe": 1, "Watering Can": 2, "Pickaxe": 3, "Scythe": 4}
+        
+        # --- PRIORITY 1: Empty Watering Can ---
+        if water_left <= 0 and unwatered:
+            nearest_water = data.get("nearestWater")
+            if nearest_water:
+                water_dir = nearest_water.get("direction", "nearby")
+                water_dist = nearest_water.get("distance", "?")
+                hints.append(f"⚠️ WATERING CAN EMPTY! Water {water_dist} tiles {water_dir} - refill first!")
+            else:
+                hints.append("⚠️ WATERING CAN EMPTY! Find water to refill!")
+        
+        # --- PRIORITY 2: Current Tile Action ---
+        current_tile = data.get("currentTile", {})
+        tile_state = current_tile.get("state", "unknown")
+        tile_obj = current_tile.get("object")
+        can_till = current_tile.get("canTill", False)
+        can_plant = current_tile.get("canPlant", False)
+        
+        # Check for crop at current position
+        crop_here = next((c for c in crops if c.get("x") == player_x and c.get("y") == player_y), None)
+        
+        # Check for seeds in inventory
+        inventory = state.get("inventory", [])
+        seed_slot = None
+        seed_name = None
+        for item in inventory:
+            item_name = item.get("name", "")
+            if "Seed" in item_name or item_name == "Mixed Seeds":
+                seed_slot = item.get("slot")
+                seed_name = item_name
+                break
+        
+        if crop_here and crop_here.get("isReadyForHarvest"):
+            crop_name = crop_here.get("cropName", "crop")
+            hints.append(f"🌾 HARVEST! {crop_name} ready - use harvest action")
+        elif tile_state == "tilled":
+            if seed_slot is not None:
+                if "Seed" in current_tool:
+                    hints.append(f"🌱 TILLED + seeds ready - use_tool to plant!")
+                else:
+                    hints.append(f"🌱 TILLED - select_slot {seed_slot} ({seed_name}), use_tool to plant")
+            else:
+                hints.append("🌱 TILLED (no seeds) - move to find crops")
+        elif tile_state == "planted":
+            # Crop protection warning
+            dangerous = ["Scythe", "Hoe", "Pickaxe", "Axe"]
+            if any(t.lower() in current_tool.lower() for t in dangerous):
+                hints.append(f"⚠️ CROP HERE! Don't use {current_tool}! Select Watering Can (slot 2)")
+            elif water_left > 0:
+                if "Watering" in current_tool:
+                    hints.append(f"💧 PLANTED - use_tool to water! ({water_left}/{water_max})")
+                else:
+                    hints.append(f"💧 PLANTED - select_slot 2 (Watering Can), use_tool")
+        elif tile_state == "watered":
+            if can_plant and seed_slot is not None:
+                hints.append(f"🌱 WET SOIL - select_slot {seed_slot}, use_tool to plant")
+            else:
+                hints.append("✅ WATERED - move to next crop")
+        elif tile_state == "debris":
+            needed = "Scythe" if tile_obj in ["Weeds", "Grass"] else "Pickaxe" if tile_obj == "Stone" else "Axe"
+            needed_slot = tool_slots.get(needed, 4)
+            if needed.lower() in current_tool.lower():
+                hints.append(f"🪓 {tile_obj} - use_tool to clear")
+            else:
+                hints.append(f"🪓 {tile_obj} - select_slot {needed_slot} ({needed}), use_tool")
+        elif tile_state == "clear" and can_till:
+            if unwatered:
+                hints.append(f"📍 CLEAR - {len(unwatered)} crops need water, move there first!")
+            elif "Hoe" in current_tool:
+                hints.append("📍 CLEAR + Hoe ready - use_tool to till")
+            else:
+                hints.append("📍 CLEAR - select_slot 1 (Hoe), use_tool to till")
+        
+        # --- PRIORITY 3: Crop Status (if not already handled) ---
+        if unwatered and water_left > 0 and tile_state not in ["planted"]:
+            nearest = min(unwatered, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+            dx = nearest["x"] - player_x
+            dy = nearest["y"] - player_y
+            dist = abs(dx) + abs(dy)
+            
+            if dist == 1:
+                face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
+                hints.append(f"💧 {len(unwatered)} unwatered - nearest 1 tile {face_dir.upper()}")
+            elif dist > 0:
+                dirs = []
+                if dy < 0: dirs.append(f"{abs(dy)}N")
+                elif dy > 0: dirs.append(f"{abs(dy)}S")
+                if dx < 0: dirs.append(f"{abs(dx)}W")
+                elif dx > 0: dirs.append(f"{abs(dx)}E")
+                hints.append(f"💧 {len(unwatered)} unwatered - nearest {'+'.join(dirs)}")
+        
+        if harvestable and tile_state != "planted":
+            nearest_h = min(harvestable, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+            dx = nearest_h["x"] - player_x
+            dy = nearest_h["y"] - player_y
+            dist = abs(dx) + abs(dy)
+            
+            if dist == 1:
+                face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
+                hints.append(f"🌾 {len(harvestable)} harvestable - one 1 tile {face_dir.upper()}")
+            elif dist > 0:
+                dirs = []
+                if dy < 0: dirs.append(f"{abs(dy)}N")
+                elif dy > 0: dirs.append(f"{abs(dy)}S")
+                if dx < 0: dirs.append(f"{abs(dx)}W")
+                elif dx > 0: dirs.append(f"{abs(dx)}E")
+                hints.append(f"🌾 {len(harvestable)} harvestable - nearest {'+'.join(dirs)}")
+        
+        # --- PRIORITY 4: Time/Energy Warnings ---
+        if hour >= 24 or hour < 2:
+            hints.append("⚠️ VERY LATE! Pass out soon - go_to_bed!")
+        elif hour >= 22:
+            hints.append("🌙 LATE (10PM+) - consider bed")
+        
+        if energy_pct <= 20:
+            hints.append("😓 ENERGY CRITICAL (<20%) - rest or sleep!")
+        elif energy_pct <= 35:
+            hints.append("😐 Energy low - pace yourself")
+        
+        # Return top 5 hints max
+        return "\n".join(hints[:5])
+
+    def _build_light_context(self) -> str:
+        """
+        Build minimal SMAPI context for vision-first mode.
+
+        Light context includes: position, time, energy, tool, and 3x3 immediate tiles.
+        This is the grounding info - vision is still primary.
+        """
+        if not self.last_state:
+            return ""
+
+        # Basic state
+        location_data = self.last_state.get("location", {})
+        time_data = self.last_state.get("time", {})
+        player_data = self.last_state.get("player", {})
+
+        location = location_data.get("name", "Unknown")
+        pos = location_data.get("position", {})
+        x, y = pos.get("x", 0), pos.get("y", 0)
+
+        hour = time_data.get("hour", 6)
+        minute = time_data.get("minute", 0)
+        am_pm = "am" if hour < 12 else "pm"
+        display_hour = hour if hour <= 12 else hour - 12
+        time_str = f"{display_hour}:{minute:02d} {am_pm}"
+
+        energy = player_data.get("energy", 270)
+        max_energy = player_data.get("maxEnergy", 270)
+        energy_pct = int(100 * energy / max_energy) if max_energy > 0 else 100
+
+        tool = player_data.get("currentTool", "none")
+
+        # Build 3x3 tile grid from surroundings
+        tiles_3x3 = "  (no SMAPI data)"
+        if self.last_surroundings:
+            adj = self.last_surroundings.get("adjacentTiles", {})
+            # Format as simple grid
+            # NW N NE
+            # W  C  E
+            # SW S SE
+            def tile_char(key: str) -> str:
+                tile = adj.get(key, {})
+                if tile.get("isWater"):
+                    return "💧"
+                if tile.get("isPassable") == False:
+                    return "🚫"
+                if tile.get("crop"):
+                    return "🌱"
+                if tile.get("debris"):
+                    return "🪨"
+                if tile.get("tilled"):
+                    return "▒"
+                return "·"
+
+            tiles_3x3 = f"""  {tile_char('NW')} {tile_char('N')} {tile_char('NE')}
+  {tile_char('W')} 👤 {tile_char('E')}
+  {tile_char('SW')} {tile_char('S')} {tile_char('SE')}"""
+
+        # Recent actions (last 3)
+        recent = ", ".join(self.recent_actions[-3:]) if self.recent_actions else "none"
+
+        # Critical navigation hints (vision can't reliably determine these)
+        nav_hints = []
+        if location == "FarmHouse":
+            nav_hints.append("🚪 EXIT: Walk SOUTH to leave, OR use warp: {\"type\": \"warp\", \"location\": \"Farm\"}")
+        elif location in ["SeedShop", "Saloon", "JojaMart", "Blacksmith", "AnimalShop"]:
+            nav_hints.append("🚪 EXIT: Walk SOUTH to leave, OR use warp: {\"type\": \"warp\", \"location\": \"Farm\"}")
+
+        # Add landmark hints if available
+        if self.last_surroundings:
+            landmarks = self.last_surroundings.get("landmarks", {})
+            if "farmhouse" in landmarks:
+                fh = landmarks["farmhouse"]
+                dist = fh.get("distance", 0)
+                direction = fh.get("direction", "")
+                if dist > 0 and direction:
+                    nav_hints.append(f"🏠 Farmhouse: {dist} tiles {direction}")
+
+        nav_section = "\n".join(nav_hints) if nav_hints else ""
+
+        result = f"""📍 {location} @ ({x}, {y}) | ⏰ {time_str} | 💪 {energy_pct}% | 🔧 {tool}
+
+3x3 around you:
+{tiles_3x3}
+
+Recent: {recent}"""
+
+        if nav_section:
+            result += f"\n\n{nav_section}"
+
+        # Add dynamic farming hints (condensed from format_surroundings)
+        dynamic_hints = self._build_dynamic_hints()
+        if dynamic_hints:
+            result += f"\n\n--- HINTS ---\n{dynamic_hints}"
+
+        return result
+
     async def _tick(self):
         """Single tick of the agent loop."""
         now = time.time()
@@ -2401,6 +2850,18 @@ class StardewAgent:
 
                         # Non-clearable obstacle - just skip
                         logging.warning(f"⚠️ Skipping move {direction} - blocked by {blocker}")
+
+                        # Record lesson for future VLM context
+                        if self.lesson_memory:
+                            pos = self.last_position or (0, 0)
+                            loc = self.last_state.get("location", {}).get("name", "") if self.last_state else ""
+                            self.lesson_memory.record_failure(
+                                attempted=f"move {direction}",
+                                blocked_by=blocker,
+                                position=pos,
+                                location=loc
+                            )
+                            logging.info(f"   📚 Lesson recorded: move {direction} blocked by {blocker}")
 
                         # If this was part of a diagonal, cancel the second move too
                         if diagonal_second_dir and self.action_queue:
@@ -2584,8 +3045,23 @@ class StardewAgent:
                     logging.debug(f"Memory context failed: {e}")
 
             # Think! (unified perception + planning)
-            logging.info("🧠 Thinking...")
-            result = self.vlm.think(img, self.goal, spatial_context=spatial_context, memory_context=memory_context, action_context=action_context)
+            # Branch: vision-first mode uses minimal prompt, image drives decisions
+            if self.config.vision_first_enabled:
+                logging.info("👁️ Vision-First Thinking...")
+                light_context = self._build_light_context()
+                if "--- HINTS ---" in light_context:
+                    logging.debug(f"   📝 Light context hints: {light_context.split('--- HINTS ---')[1][:100]}...")
+                lessons = self.lesson_memory.get_context() if self.lesson_memory else ""
+                result = self.vlm.think_vision_first(
+                    img, self.goal, light_context=light_context, lessons=lessons
+                )
+                # Log vision-first specific output
+                if result.observation:
+                    logging.info(f"   👁️ Sees: {result.observation[:100]}{'...' if len(result.observation) > 100 else ''}")
+            else:
+                logging.info("🧠 Thinking...")
+                result = self.vlm.think(img, self.goal, spatial_context=spatial_context, memory_context=memory_context, action_context=action_context)
+
             self.think_count += 1
             if result.latency_ms:
                 self.latency_history.append(result.latency_ms)

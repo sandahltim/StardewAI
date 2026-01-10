@@ -2,7 +2,7 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-10 Session 34
+**Last Updated:** 2026-01-10 Session 35
 
 ---
 
@@ -12,7 +12,7 @@
 
 **Priority:** HIGH
 **Assigned:** 2026-01-10 Session 34
-**Status:** Assigned
+**Status:** ✅ Complete
 
 #### Background
 We're restructuring the VLM to be vision-first. The VLM will now output an "observation" describing what it sees before deciding actions. We need UI to show this for debugging and transparency.
@@ -61,7 +61,7 @@ The agent will post new fields to `/api/status`:
 
 **Priority:** MEDIUM
 **Assigned:** 2026-01-10 Session 34
-**Status:** Assigned
+**Status:** ✅ Complete
 
 #### Background
 The agent will now learn from mistakes. When an action fails, it records a "lesson" that gets fed back to future VLM calls. We need UI to show these lessons.
@@ -108,7 +108,7 @@ Clears session lessons
 
 **Priority:** Medium
 **Assigned:** 2026-01-10 Session 32
-**Status:** Assigned
+**Status:** ✅ Complete
 
 #### Background
 Rusty has a commentary system with 4 personalities (sarcastic, enthusiastic, grumpy, zen). User feedback: "work on commentary and personalities" - needs more variety and context-awareness.
@@ -298,6 +298,9 @@ Update this file marking task complete, then post to team chat.
 
 ## Completed Tasks
 
+- [x] Vision Debug View (2026-01-10 Session 35)
+- [x] Lessons Panel (2026-01-10 Session 35)
+- [x] Commentary & Personality Improvements (2026-01-10 Session 35)
 - [x] Farm Plan Visualizer UI (2026-01-10 Session 32)
 - [x] Agent Commentary System with Personalities (2026-01-09 Session 27)
 - [x] Landmark-Relative Directions (2026-01-09 Session 25)

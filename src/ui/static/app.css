@@ -824,6 +824,77 @@ h2 {
   color: var(--muted);
 }
 
+.vision-debug-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf8;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.vision-debug__row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.vision-label {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.vision-value {
+  color: #1f2937;
+}
+
+.vision-value.passed {
+  color: #166534;
+  font-weight: 600;
+}
+
+.vision-value.failed {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.lessons-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf8;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.lessons-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lessons-count {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.lessons-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.lessons-list .lesson-applied {
+  color: #166534;
+  font-weight: 600;
+}
+
 .farm-plan-card {
   border: 1px solid var(--border);
   border-radius: 16px;

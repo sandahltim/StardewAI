@@ -44,6 +44,7 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 STATUS_PATH = Path("/home/tim/StardewAI/logs/ui/status.json")
 FARM_PLAN_PATH = Path("/home/tim/StardewAI/logs/farm_plans/current.json")
+LESSONS_PATH = Path("/home/tim/StardewAI/logs/lessons.json")
 GAME_KNOWLEDGE_DB = BASE_DIR.parents[1] / "data" / "game_knowledge.db"
 CHROMA_DIR = BASE_DIR.parents[1] / "data" / "chromadb"
 CHROMA_COLLECTION = "rusty_memories"
@@ -294,6 +295,12 @@ def _default_status() -> Dict[str, Any]:
         "commentary_personality": "enthusiastic",
         "commentary_tts_enabled": False,
         "commentary_volume": 70,
+        "vlm_observation": None,
+        "proposed_action": None,
+        "validation_status": None,
+        "validation_reason": None,
+        "executed_action": None,
+        "executed_outcome": None,
     }
 
 
@@ -364,6 +371,29 @@ def _next_plot_id(plots: List[Dict[str, Any]]) -> str:
             if suffix.isdigit():
                 max_id = max(max_id, int(suffix))
     return f"plot_{max_id + 1}"
+
+
+def _read_lessons() -> Dict[str, Any]:
+    if not LESSONS_PATH.exists():
+        return {"lessons": [], "count": 0}
+    try:
+        data = json.loads(LESSONS_PATH.read_text())
+    except json.JSONDecodeError:
+        return {"lessons": [], "count": 0}
+    if isinstance(data, dict):
+        lessons = data.get("lessons")
+        if not isinstance(lessons, list):
+            lessons = []
+        return {"lessons": lessons, "count": data.get("count", len(lessons))}
+    if isinstance(data, list):
+        return {"lessons": data, "count": len(data)}
+    return {"lessons": [], "count": 0}
+
+
+def _write_lessons(payload: Dict[str, Any]) -> Dict[str, Any]:
+    LESSONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LESSONS_PATH.write_text(json.dumps(payload, indent=2))
+    return payload
 
 
 async def _watch_farm_plan() -> None:
@@ -879,6 +909,19 @@ async def update_farm_plan_plot(payload: FarmPlotCreate) -> Dict[str, Any]:
     plan.setdefault("active_plot_id", target.get("id"))
     updated = _write_farm_plan(plan)
     await manager.broadcast("farm_plan_updated", updated)
+    return updated
+
+
+@app.get("/api/lessons")
+def get_lessons() -> Dict[str, Any]:
+    return _read_lessons()
+
+
+@app.post("/api/lessons/clear")
+async def clear_lessons() -> Dict[str, Any]:
+    payload = {"lessons": [], "count": 0}
+    updated = _write_lessons(payload)
+    await manager.broadcast("lessons_updated", updated)
     return updated
 
 

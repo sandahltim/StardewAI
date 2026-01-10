@@ -333,6 +333,14 @@ function updateStatus(status) {
   const farmPlanPercent = document.getElementById("farmPlanPercent");
   const farmPlanGrid = document.getElementById("farmPlanGrid");
   const farmPlanRows = document.getElementById("farmPlanRows");
+  const vlmObservation = document.getElementById("vlmObservation");
+  const vlmProposed = document.getElementById("vlmProposed");
+  const vlmValidation = document.getElementById("vlmValidation");
+  const vlmExecuted = document.getElementById("vlmExecuted");
+  const vlmOutcome = document.getElementById("vlmOutcome");
+  const lessonsList = document.getElementById("lessonsList");
+  const lessonsCount = document.getElementById("lessonsCount");
+  const lessonsReset = document.getElementById("lessonsReset");
 
   const formatDuration = (seconds) => {
     if (!Number.isFinite(seconds) || seconds <= 0) return "-";
@@ -361,6 +369,18 @@ function updateStatus(status) {
       latencyGraph.append(bar);
     });
     latencyStats.textContent = `Avg ${Math.round(avg)}ms | Max ${Math.round(max)}ms`;
+  };
+
+  const formatAction = (value) => {
+    if (!value) return "-";
+    if (typeof value === "string") return value;
+    if (typeof value !== "object") return String(value);
+    const actionType = value.action_type || value.type || value.action || null;
+    if (actionType) {
+      const params = value.params ? JSON.stringify(value.params) : "";
+      return params ? `${actionType} ${params}` : actionType;
+    }
+    return JSON.stringify(value);
   };
 
   if (mode) mode.textContent = `Mode: ${status.mode || "helper"}`;
@@ -423,6 +443,30 @@ function updateStatus(status) {
     vlmPerception.textContent = `${location} | ${time} | Energy ${energy} | Holding ${holding}`;
   }
   if (vlmReasoning) vlmReasoning.textContent = status.last_reasoning || "None";
+  if (vlmObservation) {
+    vlmObservation.textContent = status.vlm_observation || "Waiting for observation...";
+  }
+  if (vlmProposed) {
+    vlmProposed.textContent = formatAction(status.proposed_action);
+  }
+  if (vlmValidation) {
+    const validation = status.validation_status || "-";
+    const reason = status.validation_reason ? ` (${status.validation_reason})` : "";
+    vlmValidation.textContent = `${validation}${reason}`;
+    vlmValidation.classList.remove("passed", "failed");
+    if (validation === "passed") vlmValidation.classList.add("passed");
+    if (validation === "failed") vlmValidation.classList.add("failed");
+  }
+  if (vlmExecuted) {
+    vlmExecuted.textContent = formatAction(status.executed_action);
+  }
+  if (vlmOutcome) {
+    const outcome = status.executed_outcome || "-";
+    vlmOutcome.textContent = outcome;
+    vlmOutcome.classList.remove("passed", "failed");
+    if (outcome === "success") vlmOutcome.classList.add("passed");
+    if (outcome === "failed") vlmOutcome.classList.add("failed");
+  }
   if (vlmParseStats) {
     const ok = Number(status.vlm_parse_success || 0);
     const fail = Number(status.vlm_parse_fail || 0);
@@ -1186,6 +1230,31 @@ function init() {
     if (farmPlanBarFill) farmPlanBarFill.style.width = `${percent}%`;
   };
 
+  const updateLessons = (payload) => {
+    if (!lessonsList || !lessonsCount) return;
+    const lessons = Array.isArray(payload?.lessons) ? payload.lessons : [];
+    const count = Number(payload?.count ?? lessons.length);
+    lessonsCount.textContent = `${count} lesson${count === 1 ? "" : "s"}`;
+    lessonsList.innerHTML = "";
+    if (!lessons.length) {
+      const item = document.createElement("li");
+      item.textContent = "None";
+      lessonsList.append(item);
+      return;
+    }
+    lessons.slice(-10).forEach((entry) => {
+      const item = document.createElement("li");
+      if (entry && typeof entry === "object") {
+        const text = entry.text || entry.lesson || JSON.stringify(entry);
+        item.textContent = text;
+        if (entry.applied) item.classList.add("lesson-applied");
+      } else {
+        item.textContent = String(entry);
+      }
+      lessonsList.append(item);
+    });
+  };
+
   const updateCropStatus = (crops) => {
     if (!cropStatus || !cropStatusNote) return;
     cropStatus.classList.remove("ok", "warn");
@@ -1595,6 +1664,12 @@ function init() {
     });
   }
 
+  if (lessonsReset) {
+    lessonsReset.addEventListener("click", () => {
+      postJSON("/api/lessons/clear", {});
+    });
+  }
+
   if (pendingBannerApprove) {
     pendingBannerApprove.addEventListener("click", () => {
       postJSON("/api/confirm", {});
@@ -1760,6 +1835,8 @@ function init() {
       updateCommentary(data.payload);
     } else if (data.type === "farm_plan_updated") {
       updateFarmPlan(data.payload);
+    } else if (data.type === "lessons_updated") {
+      updateLessons(data.payload);
     }
   };
 
@@ -1842,6 +1919,15 @@ function init() {
         updateSkillStats(stats);
       })
       .catch(() => {});
+
+    fetch("/api/lessons")
+      .then((res) => res.json())
+      .then((payload) => {
+        updateLessons(payload);
+      })
+      .catch(() => {
+        updateLessons({ lessons: [], count: 0 });
+      });
 
     fetch("/api/farm-plan")
       .then((res) => res.json())

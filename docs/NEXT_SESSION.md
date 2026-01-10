@@ -1,228 +1,148 @@
-# Session 35: Vision-First Architecture
+# Session 37: Farm Cycle Testing & Polish
 
-**Last Updated:** 2026-01-10 Session 34 by Claude
-**Status:** Major architecture redesign planned - vision as primary, SMAPI as validation
-
----
-
-## Session 34 Summary
-
-### What Worked
-- Skill system executing correctly (clear_weeds auto-equips scythe)
-- Direction hints improved ("clear 3 tiles, then Weeds")
-- Screenshots ARE being captured and sent to VLM
-
-### What Didn't Work
-- VLM ignoring vision, following text hints blindly
-- Can't navigate around farmhouse (stuck on porch)
-- Too much text overwhelming the model
-- Spatial reasoning failure despite having vision capability
-
-### Key Insight
-**We built great SMAPI infrastructure but used it wrong** - as primary input instead of validation. The VLM should LOOK at the game and decide, then SMAPI validates.
+**Last Updated:** 2026-01-10 Session 36 by Claude
+**Status:** Dynamic hints integrated, skills working, ready for farm cycle testing
 
 ---
 
-## Architecture Redesign
+## Session 36 Summary
 
-### Current (Broken)
-```
-SMAPI text → VLM reads text → follows text → ignores vision
-```
+### What Was Completed
 
-### New (Vision-First)
-```
-Vision → VLM decides what to do
-                ↓
-         SMAPI validates/confirms
-                ↓
-         Execute or adjust
-```
+1. **`_build_dynamic_hints()` method** (~140 lines)
+   - Extracts critical hints from SMAPI state
+   - Priority-based: empty can > tile state > crop status > time/energy warnings
+   - Returns 3-5 condensed hints (vs 500 lines in old prompt)
 
----
+2. **Integrated into light context**
+   - Added `--- HINTS ---` section to `_build_light_context()`
+   - Total light context is now ~15 lines vs 400+ line old prompt
 
-## Data Flow Diagram
+3. **Fixed skill parameter normalization**
+   - VLM outputs `direction`, skills expect `target_direction`
+   - Added automatic mapping in `execute_skill()`
+   - Added fallback: uses facing direction or last blocked direction if VLM omits param
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    PHASE 1: PERCEPTION                          │
-│                                                                 │
-│  ┌──────────────┐      ┌─────────────────────────────────────┐ │
-│  │  Screenshot  │ ──►  │  VLM sees image FIRST               │ │
-│  │  (primary)   │      │  "What do I see? Where am I?        │ │
-│  └──────────────┘      │   What's around me? What should     │ │
-│                        │   I do to reach my goal?"           │ │
-│  ┌──────────────┐      │                                     │ │
-│  │  Light SMAPI │ ──►  │  Grounding context:                 │ │
-│  │  (minimal)   │      │  - Position (X,Y), Time, Energy     │ │
-│  └──────────────┘      │  - 3x3 immediate tiles              │ │
-│                        │  - Goal + recent actions            │ │
-│                        │  - Lessons learned                  │ │
-│                        └──────────────────┬──────────────────┘ │
-└─────────────────────────────────────────────│───────────────────┘
-                                              │
-                                              ▼ VLM proposes action
-┌─────────────────────────────────────────────────────────────────┐
-│                    PHASE 2: VALIDATION                          │
-│                                                                 │
-│  VLM says: "I want to move south"                              │
-│                          │                                      │
-│                          ▼                                      │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  SMAPI Check (detailed surroundings)                    │   │
-│  │                                                         │   │
-│  │  South clear?                                           │   │
-│  │  ├─ YES ──► Execute action                              │   │
-│  │  └─ NO ───► Return to VLM: "South blocked by {X}.       │   │
-│  │             What's your alternative?"                   │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-                                              │
-                                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    PHASE 3: EXECUTION + LEARNING                │
-│                                                                 │
-│  Execute via GameBridge → Get new state → Record outcome       │
-│                                                                 │
-│  If failed: Record lesson                                       │
-│  "Tried west from porch → blocked by farmhouse → south worked" │
-└─────────────────────────────────────────────────────────────────┘
-```
+4. **Verified hint generation**
+   ```
+   📍 CLEAR - 2 crops need water, move there first!
+   💧 2 unwatered - nearest 1 tile EAST
+   🌾 1 harvestable - nearest 1S+1E
+   🌙 LATE (10PM+) - consider bed
+   ```
+
+### Skills Working
+- `till_soil` - Successfully tills ground
+- `clear_weeds` - Equips scythe, faces direction, clears
+- Movement + skill chains working
+
+### Not Yet Tested
+- Full farm cycle with planted crops
+- Water refill hints (need empty can scenario)
+- Harvest workflow
+- Bedtime/energy warnings in practice
 
 ---
 
-## SMAPI Data Layers
+## Next Session: Farm Cycle Testing
 
-| Layer | When Used | Data Provided |
-|-------|-----------|---------------|
-| **Light** | Always (perception phase) | Position, time, energy, tool, 3x3 tiles |
-| **Medium** | On request | Cardinal directions, blocking info |
-| **Heavy** | Validation phase | Full surroundings, all objects, exact distances |
+### Goal
+Test complete farming workflow with hints:
+1. Clear debris around farmhouse
+2. Till soil
+3. Plant parsnip seeds
+4. Water crops
+5. (Skip days or wait for growth)
+6. Harvest ready crops
+7. Ship items
 
----
+### Test Scenarios
 
-## New VLM Prompt Structure
+| Scenario | Tests | How to Trigger |
+|----------|-------|----------------|
+| Empty watering can | Refill hint priority | Water 40+ times |
+| Planted crops need water | Direction to nearest | After planting |
+| Crops ready to harvest | Harvest hint + count | Wait for growth |
+| Late night | Bedtime warning | Play until 10pm+ |
+| Low energy | Energy warning | Use tools repeatedly |
 
-### Before (text-heavy):
-```
-[LONG system prompt with DIRECTIONS, SKILLS, FARMING STATE MACHINE...]
-[Image appended at end - ignored]
-```
-
-### After (vision-first):
-```
-SYSTEM:
-You are Rusty, an AI farmer. LOOK at the screenshot to understand where you are.
-Use your EYES to navigate - you can SEE the game!
-
-Your goal: {goal}
-Position: ({x}, {y}) | Time: {time} | Energy: {energy} | Holding: {tool}
-
-Immediate 3x3 tiles:
-  [N]     [NE]
-[W] [YOU] [E]
-  [S]     [SE]
-
-Recent: {last_5_actions}
-Lessons: {any_lessons}
-
-LOOK at the image. What do you see? Then decide your action.
-Output: {"observation": "I see...", "reasoning": "I should...", "action": {...}}
-```
-
----
-
-## Lessons System (New Feature)
-
-```python
-class LessonMemory:
-    """Track mistakes and successful corrections for VLM learning."""
-
-    def record_failure(self, attempted: str, blocked_by: str, recovery: str):
-        lesson = f"{attempted} → blocked by {blocked_by} → {recovery} worked"
-        self.lessons.append(lesson)
-
-    def get_context(self) -> str:
-        return "\n".join(self.lessons[-5:])
-
-    def persist(self):
-        # Save to logs/lessons.json for cross-session memory
-```
-
----
-
-## Implementation Tasks
-
-### Claude (Session 35)
-
-| Task | Priority | Description |
-|------|----------|-------------|
-| Vision-first prompt | HIGH | New `build_vision_first_prompt()` - minimal text, observation output |
-| Validation layer | HIGH | `validate_action()` checks SMAPI before execute |
-| Lesson memory | MEDIUM | Track failures, feed back to VLM |
-| Test non-MoE model | MEDIUM | Try Qwen3VL-32B-Instruct for better vision |
-
-### Codex Tasks
-
-| Task | Priority | Description |
-|------|----------|-------------|
-| Vision Debug View | HIGH | Show VLM observation, proposed vs executed action, validation status |
-| Lessons Panel | MEDIUM | Display lessons learned, when applied, reset button |
-| Persistent Lessons | LOW | Save/load lessons across sessions |
-
----
-
-## Model Options
-
-| Model | Vision | Speed | Notes |
-|-------|--------|-------|-------|
-| Qwen3VL-30B-A3B (current) | Medium | Fast | MoE, may sacrifice visual reasoning |
-| Qwen3VL-32B-Instruct | Better | Slower | Dense, test this first |
-| Qwen3VL-8B-Thinking | Unknown | Fastest | Explicit reasoning, smaller |
-
-**Plan:** Try 32B-Instruct to see if visual reasoning improves. If too slow, try 8B-Thinking.
-
----
-
-## Success Criteria
-
-1. Agent navigates off porch using VISION (sees steps, walks down)
-2. Agent reaches target plot without text-based navigation hints
-3. Lessons recorded when mistakes happen
-4. Validation catches impossible actions before execution
-
----
-
-## Test Commands (Session 35)
+### Commands
 
 ```bash
-# Start with vision-first (after implementation)
-python src/python-agent/unified_agent.py --vision-first --ui --goal "Farm the plot"
+# Full farming cycle test
+python src/python-agent/unified_agent.py --goal "Farm: clear debris, till, plant, water crops"
 
-# Try alternate model
-# Edit config/settings.yaml: model: "Qwen3VL-32B-Instruct-Q4_K_M"
-python src/python-agent/unified_agent.py --ui --goal "Navigate to farm"
+# Test with debug logging for hints
+LOG_LEVEL=DEBUG python src/python-agent/unified_agent.py --goal "Water all crops"
+
+# Check hint output
+python -c "
+import sys; sys.path.insert(0, 'src/python-agent')
+from unified_agent import StardewAgent, Config
+# ... (see test code from Session 36)
+"
 ```
 
 ---
 
-## Files to Modify
+## Implementation Tasks (Session 37)
 
-- `src/python-agent/unified_agent.py`
-  - New prompt builder (vision-first)
-  - Validation layer before execution
-  - Lesson memory integration
-- `config/settings.yaml`
-  - Simplified system prompt
-  - Model switch option
-- `src/python-agent/lessons.py` (new)
-  - LessonMemory class
-- UI components (Codex)
-  - Vision debug panel
-  - Lessons display
+### Claude
+
+| Task | Priority | Description |
+|------|----------|-------------|
+| Test full farm cycle | HIGH | Clear→Till→Plant→Water with real game |
+| Fix any hint edge cases | HIGH | Missing hints, wrong directions |
+| Add harvest workflow test | MEDIUM | Verify harvest hints work |
+| Test bedtime/energy warnings | LOW | Verify late-game hints |
+
+### Codex
+
+| Task | Priority | Description |
+|------|----------|-------------|
+| Show hints in UI | LOW | Display current hints in dashboard |
+| None currently blocking | - | Await farm cycle test results |
 
 ---
 
-*Vision drives decisions. SMAPI validates them. Mistakes become lessons.*
+## Files Modified (Session 36)
 
-*— Claude (PM), Session 34*
+- `src/python-agent/unified_agent.py`:
+  - Added `_build_dynamic_hints()` method (~140 lines)
+  - Modified `_build_light_context()` to include hints
+  - Added skill parameter normalization (`direction` → `target_direction`)
+  - Added direction fallback for skills
+
+---
+
+## Code Location Reference
+
+| Feature | File | Method |
+|---------|------|--------|
+| Dynamic hints | unified_agent.py | `_build_dynamic_hints()` |
+| Light context | unified_agent.py | `_build_light_context()` |
+| Vision-first think | unified_agent.py | `think_vision_first()` |
+| Skill execution | unified_agent.py | `execute_skill()` |
+| Skill definitions | skills/definitions/farming.yaml | - |
+
+---
+
+## Key Insight from Session 36
+
+**Condensed hints work! The light context approach is viable.**
+
+The 140-line `_build_dynamic_hints()` extracts the essential information from the 500-line `format_surroundings()`:
+- Tile state + action recommendation
+- Crop counts + nearest direction
+- Tool warnings (don't destroy crops!)
+- Time/energy warnings
+
+The VLM now receives:
+1. Screenshot (primary)
+2. Position/time/energy/tool (one line)
+3. 3x3 tile grid (spatial awareness)
+4. 3-5 critical hints (grounding)
+
+*This is the right balance between vision autonomy and SMAPI grounding.*
+
+*— Claude (PM), Session 36*
