@@ -253,9 +253,13 @@ class LessonMemory:
 
     def _format_lesson(self, lesson: dict) -> str:
         """Format a single lesson for display."""
-        attempted = lesson["attempted"]
-        blocked = lesson["blocked_by"]
+        # Handle old lesson format gracefully
+        attempted = lesson.get("attempted", lesson.get("action", "unknown"))
+        blocked = lesson.get("blocked_by", lesson.get("blocker", "unknown"))
         recovery = lesson.get("recovery")
+
+        if not attempted or not blocked:
+            return "malformed lesson"
 
         if recovery:
             return f"{attempted} → blocked by {blocked} → {recovery}"
