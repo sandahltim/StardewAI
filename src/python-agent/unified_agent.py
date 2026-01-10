@@ -68,6 +68,13 @@ except ImportError:
     PiperTTS = None
     HAS_COMMENTARY = False
 
+try:
+    from planning import PlotManager
+    HAS_PLANNING = True
+except ImportError:
+    PlotManager = None
+    HAS_PLANNING = False
+
 # =============================================================================
 # Optional Input Methods
 # =============================================================================
@@ -821,41 +828,47 @@ class ModBridgeController:
                             else:
                                 front_info = ">>> TILE: WET SOIL (no seeds) - All crops watered! <<<"
                 else:
-                    # Actually planted and watered - give specific direction to next unwatered crop
-                    crops = state.get("location", {}).get("crops", []) if state else []
-                    # Check both isWatered and watered fields (SMAPI inconsistency)
-                    unwatered_nearby = [c for c in crops if not c.get("isWatered") and not c.get("watered")]
-                    if unwatered_nearby:
-                        player_x = state.get("player", {}).get("tileX", 0) if state else 0
-                        player_y = state.get("player", {}).get("tileY", 0) if state else 0
-                        # Exclude current tile
-                        unwatered_others = [c for c in unwatered_nearby if c["x"] != player_x or c["y"] != player_y]
-                        if unwatered_others:
-                            nearest = min(unwatered_others, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
-                            dx = nearest["x"] - player_x
-                            dy = nearest["y"] - player_y
-                            dist = abs(dx) + abs(dy)
+                    # Actually planted and watered crop tile
+                    # CROP PROTECTION: Check for dangerous tools FIRST before any other logic
+                    dangerous_tools = ["Scythe", "Hoe", "Pickaxe", "Axe"]
+                    if tile_obj == "crop" and any(tool.lower() in current_tool.lower() for tool in dangerous_tools):
+                        front_info = f">>> ⚠️ WATERED CROP HERE! DO NOT use {current_tool}! This will DESTROY the crop! Move away or select safe tool. <<<"
+                    else:
+                        # Give specific direction to next unwatered crop
+                        crops = state.get("location", {}).get("crops", []) if state else []
+                        # Check both isWatered and watered fields (SMAPI inconsistency)
+                        unwatered_nearby = [c for c in crops if not c.get("isWatered") and not c.get("watered")]
+                        if unwatered_nearby:
+                            player_x = state.get("player", {}).get("tileX", 0) if state else 0
+                            player_y = state.get("player", {}).get("tileY", 0) if state else 0
+                            # Exclude current tile
+                            unwatered_others = [c for c in unwatered_nearby if c["x"] != player_x or c["y"] != player_y]
+                            if unwatered_others:
+                                nearest = min(unwatered_others, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+                                dx = nearest["x"] - player_x
+                                dy = nearest["y"] - player_y
+                                dist = abs(dx) + abs(dy)
 
-                            # If crop is exactly 1 tile away, use FACE + use_tool (don't move onto the crop!)
-                            if dist == 1:
-                                face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
-                                front_info = f">>> TILE: WATERED ✓ - NEXT CROP 1 tile {face_dir.upper()}! DO: face {face_dir}, use_tool ({len(unwatered_others)} more) <<<"
+                                # If crop is exactly 1 tile away, use FACE + use_tool (don't move onto the crop!)
+                                if dist == 1:
+                                    face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
+                                    front_info = f">>> TILE: WATERED ✓ - NEXT CROP 1 tile {face_dir.upper()}! DO: face {face_dir}, use_tool ({len(unwatered_others)} more) <<<"
+                                else:
+                                    dirs = []
+                                    if dy < 0:
+                                        dirs.append(f"{abs(dy)} NORTH")
+                                    elif dy > 0:
+                                        dirs.append(f"{abs(dy)} SOUTH")
+                                    if dx < 0:
+                                        dirs.append(f"{abs(dx)} WEST")
+                                    elif dx > 0:
+                                        dirs.append(f"{abs(dx)} EAST")
+                                    direction_str = " then ".join(dirs) if dirs else "nearby"
+                                    front_info = f">>> TILE: WATERED ✓ - NEXT CROP: move {direction_str}! ({len(unwatered_others)} more to water) <<<"
                             else:
-                                dirs = []
-                                if dy < 0:
-                                    dirs.append(f"{abs(dy)} NORTH")
-                                elif dy > 0:
-                                    dirs.append(f"{abs(dy)} SOUTH")
-                                if dx < 0:
-                                    dirs.append(f"{abs(dx)} WEST")
-                                elif dx > 0:
-                                    dirs.append(f"{abs(dx)} EAST")
-                                direction_str = " then ".join(dirs) if dirs else "nearby"
-                                front_info = f">>> TILE: WATERED ✓ - NEXT CROP: move {direction_str}! ({len(unwatered_others)} more to water) <<<"
+                                front_info = self._get_done_farming_hint(state, data)
                         else:
                             front_info = self._get_done_farming_hint(state, data)
-                    else:
-                        front_info = self._get_done_farming_hint(state, data)
             elif tile_state == "debris":
                 needed_tool = "Scythe" if tile_obj in ["Weeds", "Grass"] else "Pickaxe" if tile_obj == "Stone" else "Axe"
                 needed_slot = tool_slots.get(needed_tool, 4)
@@ -1543,6 +1556,19 @@ class StardewAgent:
             except Exception as e:
                 logging.warning(f"Skill system failed to load: {e}")
                 self.skill_context = None
+
+        # Farm planning system (systematic plot-based farming)
+        self.plot_manager = None
+        if HAS_PLANNING and PlotManager:
+            try:
+                self.plot_manager = PlotManager(persistence_dir="logs/farm_plans")
+                if self.plot_manager.is_active():
+                    logging.info(f"📋 Farm plan active with {len(self.plot_manager.farm_plan.plots)} plots")
+                else:
+                    logging.info("📋 Farm planning system ready (no active plan)")
+            except Exception as e:
+                logging.warning(f"Farm planning failed to load: {e}")
+                self.plot_manager = None
 
         # Memory trigger tracking
         self.last_location: str = ""
@@ -2374,6 +2400,20 @@ class StardewAgent:
                 action_context_parts.append(time_hint)
                 logging.info(f"   ⏰ Time urgency: hour >= 22, warning added")
 
+            # Add farm plan context if active
+            if self.plot_manager and self.plot_manager.is_active() and self.last_position:
+                farm_plan_context = self.plot_manager.get_prompt_context(
+                    self.last_position[0], self.last_position[1]
+                )
+                if farm_plan_context:
+                    action_context_parts.append(farm_plan_context)
+                    logging.info("   📋 Farm plan context added")
+                    # Also sync state from game
+                    if self.last_surroundings and self.last_state:
+                        self.plot_manager.update_from_game_state(
+                            self.last_surroundings, self.last_state
+                        )
+
             user_context = self._get_recent_user_messages()
             if user_context:
                 action_context_parts.append(
@@ -2536,6 +2576,10 @@ def main():
                         help="Enable UI updates")
     parser.add_argument("--ui-url", default=None,
                         help="UI base URL (default http://localhost:9001)")
+    parser.add_argument("--plot", type=str, default=None,
+                        help="Define farm plot: 'x,y,width,height' e.g., '30,20,5,3'")
+    parser.add_argument("--clear-plan", action="store_true",
+                        help="Clear existing farm plan")
     args = parser.parse_args()
 
     # Load config
@@ -2556,6 +2600,25 @@ def main():
         config.ui_url = args.ui_url
 
     agent = StardewAgent(config)
+
+    # Handle farm planning arguments
+    if args.clear_plan and agent.plot_manager:
+        agent.plot_manager.clear_plan()
+        print("🗑️  Farm plan cleared")
+
+    if args.plot and agent.plot_manager:
+        try:
+            parts = [int(p.strip()) for p in args.plot.split(",")]
+            if len(parts) == 4:
+                x, y, w, h = parts
+                if not agent.plot_manager.farm_plan:
+                    agent.plot_manager.create_plan("Farm")
+                plot = agent.plot_manager.define_plot(x, y, w, h)
+                print(f"📋 Created farm plot: {plot.id} ({w}x{h}) at ({x},{y})")
+            else:
+                print("⚠️  Invalid --plot format. Use: x,y,width,height")
+        except ValueError as e:
+            print(f"⚠️  Invalid --plot values: {e}")
 
     print("\n" + "=" * 60)
     print("   🎮 StardewAI - Unified VLM Agent")
