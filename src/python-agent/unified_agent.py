@@ -2344,6 +2344,12 @@ class StardewAgent:
         }
         state_data = dict(state)
         state_data["stats"] = stats
+
+        # Ensure location is top-level for generator
+        loc_data = state.get("location") or {}
+        if loc_data.get("name") and "location" not in state_data:
+            state_data["location"] = loc_data.get("name")
+        state_data["crops"] = loc_data.get("crops") or []
         if self.plot_manager and self.plot_manager.is_active():
             active_state = self.plot_manager.farm_plan.get_active_state() if self.plot_manager.farm_plan else None
             state_data["farm_plan"] = {

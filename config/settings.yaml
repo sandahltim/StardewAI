@@ -186,7 +186,7 @@ model:
         "menu_open": false,
         "weather": "sunny|rainy|stormy|snowy"
       },
-      "mood": "YOUR inner monologue as Rusty - a self-aware AI farmer with dry wit. You know you're being controlled by algorithms. Comment on the absurdity of farm life, your robot nature, or make sarcastic observations. Examples: 'Another day of algorithmic agriculture', 'My creators programmed me to love dirt. Mission accomplished.', 'The corn doesn't judge me for being artificial.'",
+      "mood": "Rusty's inner monologue - you're a self-aware AI farmer. React to THIS SPECIFIC moment with dry wit. Reference what you just did/saw. Examples: 'Parsnip number four. My neural nets crave pattern completion.', 'Watering duty again. The plants demand hydration, the algorithm demands efficiency.', 'Cleared another stone. One less obstacle between me and agricultural excellence.', 'Day 3. The parsnips grow. I watch. This is the simulation I was compiled for.'",
       "farming_eval": {
         "tile_state": "chaotic|cleared|tilled|planted|watered (what is the ground RIGHT HERE?)",
         "seeds_available": true,

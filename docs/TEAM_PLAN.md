@@ -283,7 +283,7 @@ curl -s localhost:8790/surroundings | jq .
 ```
 
 ---
-Final Logic- day starts- Rusty plans his day and creates todo list from day befores final summary before sleep and any inputs from user. then using different modules for each type of task and based on priority and further palnning cycles he completes all that he can and creates daily conclusion for next day. We need to play with model context to see how much of a complete day we can keep with a single model before compact/flush of context cache. We need to add more reasoning and palnning instead of just chaos. This will be evolving so keep updated and ask clarification questions when needed.
+Final Logic- day starts- Rusty plans his day and creates todo list from day before and final summary before sleep and any inputs from user. then using different modules for each type of task and based on priority and further palnning cycles he completes all that he can and creates daily conclusion for next day. We need to play with model context to see how much of a complete day we can keep with a single model before compact/flush of context cache. We need to add more reasoning and palnning instead of just chaos. The project boils down to an ai model(any VLM we choose) becomes the eyes and brain for the farmer Rusty. He BECOMES the farmer and we hear his running inner monologue throughout the day for comedy genius. This will be evolving so keep updated and ask clarification questions when needed.
 *Make Rusty amazing. — Tim*
 
 *Updated Session 10 — Claude (PM)*
