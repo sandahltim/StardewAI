@@ -2,13 +2,80 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-10 Session 31
+**Last Updated:** 2026-01-10 Session 32
 
 ---
 
 ## Active Tasks
 
-### TASK: Farm Plan Visualizer UI
+### TASK: Commentary & Personality Improvements
+
+**Priority:** Medium
+**Assigned:** 2026-01-10 Session 32
+**Status:** Assigned
+
+#### Background
+Rusty has a commentary system with 4 personalities (sarcastic, enthusiastic, grumpy, zen). User feedback: "work on commentary and personalities" - needs more variety and context-awareness.
+
+#### Requirements
+
+**1. Add More Templates** (`src/python-agent/commentary/personalities.py`)
+
+Each personality currently has 2-4 templates per situation. Add 3-5 more to each for variety:
+
+```python
+# Example - add to "sarcastic" personality:
+"action": [
+    # existing...
+    "New template here with {action} placeholder",
+    "Another witty line about {action}",
+],
+```
+
+**2. Add Farm Plan Context** (new situation type)
+
+Add "farm_plan" situation for when agent is working a planned plot:
+```python
+"farm_plan": [
+    "Plot clearing in progress. Systematic farming, how novel.",
+    "Row by row. The algorithm demands order.",
+    # etc for each personality
+],
+```
+
+**3. UI Personality Selector** (optional enhancement)
+
+Add dropdown to UI to switch personalities:
+- Current: personality is set via API only
+- Goal: Add selector in dashboard that calls POST to update personality
+- Show current personality name in commentary panel
+
+#### Files to Modify
+
+1. `src/python-agent/commentary/personalities.py` - Add templates
+2. `src/python-agent/commentary/generator.py` - Add "farm_plan" context support
+3. `src/ui/templates/index.html` - Personality selector dropdown (optional)
+4. `src/ui/static/app.js` - Handler for personality change (optional)
+
+#### Test Commands
+
+```bash
+# Check personality variety by running agent
+source venv/bin/activate
+python src/python-agent/unified_agent.py --ui --goal "Farm the plot"
+
+# Commentary appears in logs and UI
+# Check for variety over 10+ actions
+```
+
+#### Notes
+- Keep Rusty's self-aware AI farmer character
+- Sarcastic is default - should have most variety
+- Farm plan context should reference systematic work, plots, phases
+
+---
+
+### TASK: Farm Plan Visualizer UI (COMPLETED)
 
 **Priority:** High
 **Assigned:** 2026-01-10 Session 31
