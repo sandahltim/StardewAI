@@ -53,11 +53,12 @@ except ImportError:
     HAS_MEMORY = False
 
 try:
-    from skills import SkillLoader, SkillContext
+    from skills import SkillLoader, SkillContext, SkillExecutor
     HAS_SKILLS = True
 except ImportError:
     SkillLoader = None
     SkillContext = None
+    SkillExecutor = None
     HAS_SKILLS = False
 
 try:
@@ -542,6 +543,17 @@ class UnifiedVLM:
                         params["direction"] = normalize_direction(action_data.get("direction", "south"))
                     elif action_type == "select_slot":
                         params["slot"] = action_data.get("slot", 0)
+                    else:
+                        # Skills and unknown actions: capture common params
+                        # target_direction is used by clearing/farming skills
+                        if "direction" in action_data:
+                            params["target_direction"] = normalize_direction(action_data.get("direction", ""))
+                        if "target_direction" in action_data:
+                            params["target_direction"] = normalize_direction(action_data.get("target_direction", ""))
+                        if "slot" in action_data:
+                            params["slot"] = action_data.get("slot", 0)
+                        if "seed_slot" in action_data:
+                            params["seed_slot"] = action_data.get("seed_slot", 5)
 
                     result.actions.append(Action(
                         action_type=action_type,
@@ -1544,15 +1556,19 @@ class StardewAgent:
         self.commentary_tts = PiperTTS() if HAS_COMMENTARY and PiperTTS else None
         self.last_mood: str = ""
 
-        # Skill system (contextual guidance for VLM)
+        # Skill system (contextual guidance + execution)
         self.skill_context = None
-        if HAS_SKILLS and SkillLoader and SkillContext:
+        self.skills_dict: Dict[str, Any] = {}
+        self.skill_executor = None
+        if HAS_SKILLS and SkillLoader and SkillContext and SkillExecutor:
             try:
                 skill_dir = Path(__file__).parent / "skills" / "definitions"
                 loader = SkillLoader()
-                skills_dict = loader.load_skills(str(skill_dir))
-                self.skill_context = SkillContext(skills_dict.values())
-                logging.info(f"📚 Loaded {len(skills_dict)} skills from {skill_dir}")
+                self.skills_dict = loader.load_skills(str(skill_dir))
+                self.skill_context = SkillContext(self.skills_dict.values())
+                # Create adapter for skill executor (wraps controller.execute)
+                self.skill_executor = SkillExecutor(self._create_action_adapter())
+                logging.info(f"📚 Loaded {len(self.skills_dict)} skills from {skill_dir} (executor ready)")
             except Exception as e:
                 logging.warning(f"Skill system failed to load: {e}")
                 self.skill_context = None
@@ -1907,19 +1923,67 @@ class StardewAgent:
                 cat = skill.category or "other"
                 if cat not in by_category:
                     by_category[cat] = []
-                by_category[cat].append(f"{skill.name}: {skill.description}")
-            # Format as compact list
-            lines = ["AVAILABLE ACTIONS FOR YOUR SITUATION:"]
+                # Format: skill_name - description (for VLM to output skill names)
+                by_category[cat].append(f"{skill.name} - {skill.description}")
+            # Format as compact list - emphasize skill names for VLM selection
+            lines = ["AVAILABLE SKILLS (use skill name as action type):"]
             for cat, skills in sorted(by_category.items()):
                 lines.append(f"  [{cat.upper()}]")
-                for desc in skills[:5]:  # Limit to 5 per category to avoid flooding
+                for desc in skills[:8]:  # Allow more skills to show
                     lines.append(f"    - {desc}")
-                if len(skills) > 5:
-                    lines.append(f"    ... and {len(skills) - 5} more")
+                if len(skills) > 8:
+                    lines.append(f"    ... and {len(skills) - 8} more")
             return "\n".join(lines)
         except Exception as e:
             logging.debug(f"Skill context failed: {e}")
             return ""
+
+    def _create_action_adapter(self):
+        """Create adapter for SkillExecutor that wraps controller.execute()."""
+        controller = self.controller
+
+        class ActionAdapter:
+            def execute_action(self, action_type: str, params: dict) -> bool:
+                """Execute a single action via the controller."""
+                action = Action(action_type=action_type, params=params or {})
+                return controller.execute(action)
+
+        return ActionAdapter()
+
+    async def execute_skill(self, skill_name: str, params: Dict[str, Any]) -> bool:
+        """Execute a multi-step skill by name.
+
+        Args:
+            skill_name: Name of the skill to execute (e.g., 'clear_weeds')
+            params: Parameters for the skill (e.g., {'target_direction': 'south'})
+
+        Returns:
+            True if skill executed successfully, False otherwise
+        """
+        if not self.skill_executor or skill_name not in self.skills_dict:
+            logging.warning(f"Skill not found or executor not ready: {skill_name}")
+            return False
+
+        skill = self.skills_dict[skill_name]
+        logging.info(f"🎯 Executing skill: {skill_name} ({skill.description})")
+
+        try:
+            result = await self.skill_executor.execute(skill, params, self.last_state or {})
+            if result.success:
+                logging.info(f"✅ Skill {skill_name} completed: {result.actions_taken}")
+                return True
+            else:
+                logging.warning(f"❌ Skill {skill_name} failed: {result.error}")
+                if result.recovery_skill:
+                    logging.info(f"💡 Recovery suggested: {result.recovery_skill}")
+                return False
+        except Exception as e:
+            logging.error(f"Skill execution error: {e}")
+            return False
+
+    def is_skill(self, action_type: str) -> bool:
+        """Check if an action type is a skill name."""
+        return action_type in self.skills_dict
 
     def _refresh_state_snapshot(self) -> None:
         if not hasattr(self.controller, "get_state"):
@@ -2020,6 +2084,12 @@ class StardewAgent:
         }
         state_data = dict(state)
         state_data["stats"] = stats
+        if self.plot_manager and self.plot_manager.is_active():
+            active_state = self.plot_manager.farm_plan.get_active_state() if self.plot_manager.farm_plan else None
+            state_data["farm_plan"] = {
+                "active": True,
+                "phase": active_state.phase.value if active_state else None,
+            }
         personality = None
         tts_enabled = None
         volume = None
@@ -2349,8 +2419,15 @@ class StardewAgent:
                 self.movement_attempts += 1
             self.recent_actions.append(self._format_action(action))
             self.recent_actions = self.recent_actions[-10:]  # Keep last 10 for pattern detection
-            logging.info(f"🎮 Executing: {action.action_type} {action.params}")
-            success = self.controller.execute(action)
+
+            # Check if this is a skill (multi-step action sequence)
+            if self.is_skill(action.action_type):
+                logging.info(f"🎯 Executing skill: {action.action_type} {action.params}")
+                success = await self.execute_skill(action.action_type, action.params)
+            else:
+                logging.info(f"🎮 Executing: {action.action_type} {action.params}")
+                success = self.controller.execute(action)
+
             self._record_action_event(action, success)
             await asyncio.sleep(self.config.action_delay)
             self._send_ui_status()

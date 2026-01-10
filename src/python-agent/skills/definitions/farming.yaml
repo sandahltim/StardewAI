@@ -6,21 +6,17 @@
 # =============================================================================
 
 water_crop:
-  description: "Water an unwatered planted crop"
+  description: "Water an unwatered planted crop (auto-equips watering can)"
   category: farming
   energy_cost: 2
 
   preconditions:
     required:
-      - type: adjacent_to
-        target: unwatered_crop
-      - type: equipped
+      - type: has_item
         item: Watering Can
-      - type: resource_above
-        resource: watering_can_water
-        minimum: 1
 
   actions:
+    - select_slot: 2  # Watering Can
     - face: "{target_direction}"
     - use_tool
 
@@ -30,12 +26,8 @@ water_crop:
       - crop.isWatered: true
 
   on_failure:
-    not_adjacent:
-      message: "Not adjacent to an unwatered crop"
-      recovery_skill: navigate_to_crop
-    wrong_tool:
-      message: "Watering Can not equipped"
-      recovery_skill: equip_watering_can
+    no_tool:
+      message: "No watering can in inventory"
     can_empty:
       message: "Watering can is empty"
       recovery_skill: refill_watering_can
@@ -174,18 +166,17 @@ equip_seeds:
 # =============================================================================
 
 till_soil:
-  description: "Use hoe to till clear ground for planting"
+  description: "Use hoe to till clear ground for planting (auto-equips)"
   category: farming
   energy_cost: 2
 
   preconditions:
     required:
-      - type: standing_on
-        target: tillable_ground
-      - type: equipped
+      - type: has_item
         item: Hoe
 
   actions:
+    - select_slot: 1  # Hoe
     - use_tool
 
   on_success:
@@ -194,12 +185,8 @@ till_soil:
       - tile.state: tilled
 
   on_failure:
-    wrong_tile:
-      message: "Cannot till this ground (decorative lawn or blocked)"
-      recovery_skill: navigate_to_farmable
-    wrong_tool:
-      message: "Hoe not equipped"
-      recovery_skill: equip_hoe
+    no_tool:
+      message: "No hoe in inventory"
 
 equip_hoe:
   description: "Select the hoe from toolbar"
@@ -222,18 +209,17 @@ equip_hoe:
 # =============================================================================
 
 clear_weeds:
-  description: "Cut weeds or grass with scythe (free - no energy cost!)"
+  description: "Cut weeds or grass with scythe (auto-equips, free energy!)"
   category: farming
   energy_cost: 0
 
   preconditions:
     required:
-      - type: adjacent_to
-        target: weeds
-      - type: equipped
+      - type: has_item
         item: Scythe
 
   actions:
+    - select_slot: 4  # Scythe
     - face: "{target_direction}"
     - use_tool
 
@@ -242,11 +228,8 @@ clear_weeds:
     drops: [Mixed Seeds, Fiber]
 
   on_failure:
-    not_adjacent:
-      message: "Not adjacent to weeds"
-    wrong_tool:
-      message: "Scythe not equipped"
-      recovery_skill: equip_scythe
+    no_tool:
+      message: "No scythe in inventory"
 
 equip_scythe:
   description: "Select the scythe from toolbar"
@@ -265,18 +248,17 @@ equip_scythe:
     message: "Equipped Scythe"
 
 clear_stone:
-  description: "Break small stones with pickaxe"
+  description: "Break small stones with pickaxe (auto-equips)"
   category: farming
   energy_cost: 2
 
   preconditions:
     required:
-      - type: adjacent_to
-        target: stone
-      - type: equipped
+      - type: has_item
         item: Pickaxe
 
   actions:
+    - select_slot: 3  # Pickaxe
     - face: "{target_direction}"
     - use_tool
 
@@ -285,11 +267,8 @@ clear_stone:
     drops: [Stone]
 
   on_failure:
-    not_adjacent:
-      message: "Not adjacent to stone"
-    wrong_tool:
-      message: "Pickaxe not equipped"
-      recovery_skill: equip_pickaxe
+    no_tool:
+      message: "No pickaxe in inventory"
 
 equip_pickaxe:
   description: "Select the pickaxe from toolbar"
@@ -308,18 +287,17 @@ equip_pickaxe:
     message: "Equipped Pickaxe"
 
 clear_wood:
-  description: "Chop branches or twigs with axe"
+  description: "Chop branches or twigs with axe (auto-equips)"
   category: farming
   energy_cost: 2
 
   preconditions:
     required:
-      - type: adjacent_to
-        target: wood
-      - type: equipped
+      - type: has_item
         item: Axe
 
   actions:
+    - select_slot: 0  # Axe
     - face: "{target_direction}"
     - use_tool
 
@@ -328,11 +306,8 @@ clear_wood:
     drops: [Wood]
 
   on_failure:
-    not_adjacent:
-      message: "Not adjacent to wood"
-    wrong_tool:
-      message: "Axe not equipped"
-      recovery_skill: equip_axe
+    no_tool:
+      message: "No axe in inventory"
 
 equip_axe:
   description: "Select the axe from toolbar"

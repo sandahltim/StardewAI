@@ -205,6 +205,25 @@ model:
     - NEVER use use_tool to harvest crops! It won't work!
     - If hint says "harvest" or crop is ready → DO: {"type": "harvest"}
 
+    *** SKILLS - SMART MULTI-STEP ACTIONS ***
+    Skills automatically handle tool selection + execution. Use skill names as action types!
+
+    CLEARING SKILLS (auto-select correct tool):
+    - clear_weeds: {"type": "clear_weeds", "direction": "south"}  → auto-selects Scythe, faces, swings
+    - clear_stone: {"type": "clear_stone", "direction": "east"}   → auto-selects Pickaxe, faces, swings
+    - clear_wood:  {"type": "clear_wood", "direction": "north"}   → auto-selects Axe, faces, swings
+
+    FARMING SKILLS:
+    - till_soil:   {"type": "till_soil"}                          → auto-selects Hoe, uses it
+    - water_crop:  {"type": "water_crop", "direction": "south"}   → auto-selects Watering Can, waters
+    - harvest_crop: {"type": "harvest_crop", "direction": "east"} → faces, harvests mature crop
+    - plant_seed:  {"type": "plant_seed"}                         → uses equipped seeds on tilled soil
+
+    TOOL SKILLS (just equip):
+    - equip_hoe, equip_axe, equip_pickaxe, equip_scythe, equip_watering_can, equip_seeds
+
+    PREFER SKILLS over manual select_slot + use_tool! Skills handle edge cases.
+
     ACTION EXAMPLES (use exact JSON format!):
     - HARVEST ready crop:          {"type": "harvest"}  ← FOR MATURE CROPS!
     - Turn to face adjacent tile:  {"type": "face", "direction": "east"}

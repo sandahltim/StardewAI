@@ -1,81 +1,77 @@
 # Next Session - StardewAI
 
-**Last Updated:** 2026-01-10 Session 32 by Claude
-**Status:** Farm planning system tested end-to-end! UI visualizer verified!
+**Last Updated:** 2026-01-10 Session 33 by Claude
+**Status:** Skill-based execution system wired! Ready for Day 1 test run.
 
 ---
 
-## Session 32 Results
+## Session 33 Results
 
 ### Completed This Session
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Codex Farm Plan Visualizer UI | ✅ Verified | API endpoints, grid visualizer, WebSocket updates all working |
-| Progress calculation bug | ✅ Fixed | String comparison → numeric ordering for TileState |
-| TTS doubling issue | ✅ Fixed | Was caused by duplicate agent processes |
-| TTS time cooldown | ✅ Added | 8-second minimum between TTS calls |
-| Tool guidance improvement | ✅ Done | Specific tool slots for each debris type |
-| Navigation priority | ✅ Done | "NAVIGATE FIRST!" instruction when far from target |
-| End-to-end test | ✅ Working | Agent cleared 7/12 tiles in test plot |
+| Skill executor wired into agent | ✅ Done | VLM can output skill names as action types |
+| VLM prompt updated for skills | ✅ Done | Added SKILLS section with clear_*, till_*, water_* |
+| Clearing skills auto-equip | ✅ Done | Skills now include select_slot before face/use_tool |
+| Skill executor tested | ✅ Done | Mock test: clear_weeds → select_slot(4) → face → use_tool |
+| TEAM_PLAN.md updated | ✅ Done | Added Phase 1.5, updated architecture diagram |
 
-### Key Fixes
+### Key Changes
 
-**1. TileState Ordering (models.py:31-42)**
+**1. Skill Executor Integration (unified_agent.py:1930-1975)**
 ```python
-def order(self) -> int:
-    """Numeric ordering for state progression."""
-    ordering = {"unknown": 0, "debris": 1, "cleared": 2, "tilled": 3, ...}
-    return ordering.get(self.value, 0)
-```
-- Bug: String comparison `"unknown" >= "cleared"` was True (lexicographic)
-- Fix: Added `.order()` method for proper numeric comparison
-
-**2. TTS Time Cooldown (unified_agent.py:2052-2068)**
-```python
-tts_cooldown = 8.0  # Minimum seconds between TTS
-time_ok = (current_time - self._last_tts_time) >= tts_cooldown
-```
-- Prevents TTS from firing too rapidly even with throttling
-
-**3. Improved Tool Guidance (plot_manager.py:324-329)**
-```python
-"clear": "WEEDS=Scythe(slot 4), STONE=Pickaxe(slot 3), TWIG/WOOD=Axe(slot 0). Check debris type FIRST..."
+# Agent checks if action type is a skill
+if self.is_skill(action.action_type):
+    success = await self.execute_skill(action.action_type, action.params)
+else:
+    success = self.controller.execute(action)
 ```
 
-**4. Navigation Priority (plot_manager.py:332-336)**
-```python
-if dist > 2:
-    nav_instr = f">>> NAVIGATE FIRST! Go {direction} to reach target tile, THEN work. <<<"
+**2. Skills Auto-Equip Tools (farming.yaml)**
+```yaml
+clear_weeds:
+  actions:
+    - select_slot: 4  # Scythe
+    - face: "{target_direction}"
+    - use_tool
+```
+
+**3. VLM Prompt Skills Section (config/settings.yaml)**
+```
+CLEARING SKILLS (auto-select correct tool):
+- clear_weeds: {"type": "clear_weeds", "direction": "south"}  → Scythe
+- clear_stone: {"type": "clear_stone", "direction": "east"}   → Pickaxe
+- clear_wood:  {"type": "clear_wood", "direction": "north"}   → Axe
 ```
 
 ---
 
 ## Current State
 
-- **Day 3, Spring Year 1** - sunny
-- **Active farm plan** with 4x3 plot at (56, 18)
-- **7/12 tiles cleared** in CLEARING phase
-- **UI visualizer working** at http://localhost:9001
+- **Day 3, Spring Year 1** (from Session 32)
+- **Skill system ready** - 45 skills loaded, executor wired
+- **Farm plan** at (56, 18) 4x3 plot - 7/12 tiles cleared
+- **UI visualizer** working at http://localhost:9001
 
 ---
 
 ## Next Session Priorities
 
-### 1. Continue Farm Plan Testing
-- Watch agent complete CLEARING phase
-- Test transition to TILLING phase
-- Verify serpentine traversal order
+### 1. Test Skill-Based Execution Live
+- Start fresh Day 1 game for clean test
+- Watch VLM output skill names (clear_weeds, clear_stone)
+- Verify executor handles multi-step sequences
 
-### 2. Commentary and Personalities
-- User noted: "work on commentary and personalities"
-- Improve personality variety
-- Add more contextual commentary
+### 2. Full 6-Day Farming Cycle
+- Day 1: Clear plot, till, plant parsnips
+- Day 2-5: Water daily
+- Day 6: Harvest parsnips, sell at shipping bin, buy more seeds
+- Goal: Complete full cycle without intervention
 
-### 3. Potential Improvements
-- Auto-detect debris type in prompt (not just from game state)
-- Better handling of watering can empty state
-- Consider pathfinding to avoid obstacles
+### 3. Commentary Task (Codex)
+- Assigned: Commentary & Personality improvements
+- More variety, farm_plan context
 
 ---
 
@@ -87,41 +83,47 @@ curl http://localhost:8780/health
 curl http://localhost:8790/health
 curl http://localhost:9001/api/farm-plan
 
-# 2. Run agent with existing plot
+# 2. Test skill loading
 source venv/bin/activate
-python src/python-agent/unified_agent.py --ui --goal "Work farm plot systematically"
+python -c "
+from skills import SkillLoader
+loader = SkillLoader()
+skills = loader.load_skills('src/python-agent/skills/definitions')
+print(f'Loaded {len(skills)} skills')
+"
 
-# 3. Start fresh plot
-python src/python-agent/unified_agent.py --clear-plan --observe
-python src/python-agent/unified_agent.py --plot "56,18,4,3" --ui --goal "Clear and plant the farm plot"
+# 3. Start fresh Day 1 test
+# (Start new Stardew game, create farmer, wake up Day 1)
+python src/python-agent/unified_agent.py --clear-plan --ui --goal "Clear farm plot, plant parsnips"
 
-# 4. Watch UI at http://localhost:9001
+# 4. Or continue existing game
+python src/python-agent/unified_agent.py --ui --goal "Work the farm systematically"
 ```
 
 ---
 
-## Files Changed (Session 32)
+## Files Changed (Session 33)
 
 ### Modified Files
-- `src/python-agent/planning/models.py`
-  - Added `TileState.order()` method for proper ordering
-- `src/python-agent/planning/plot_manager.py`
-  - Fixed progress calculation to use `.order()`
-  - Improved tool guidance with specific slots
-  - Added navigation priority instructions
 - `src/python-agent/unified_agent.py`
-  - Added TTS time-based cooldown (8 seconds)
-- `docs/CODEX_TASKS.md`
-  - Marked Farm Plan Visualizer as complete
-- `src/ui/app.py` (by Codex)
-  - Farm plan API endpoints
-  - WebSocket file watcher
-- `src/ui/templates/index.html` (by Codex)
-  - Farm Plan panel HTML
-- `src/ui/static/app.js` (by Codex)
-  - Grid visualization JavaScript
-- `src/ui/static/app.css` (by Codex)
-  - Farm plan styling
+  - Added SkillExecutor import
+  - Added skills_dict and skill_executor instance variables
+  - Added _create_action_adapter() method
+  - Added execute_skill() method
+  - Added is_skill() method
+  - Modified action execution to check for skills
+  - Updated VLM response parsing for skill params
+- `src/python-agent/skills/definitions/farming.yaml`
+  - Updated clear_weeds, clear_stone, clear_wood to auto-equip
+  - Updated till_soil, water_crop to auto-equip
+- `config/settings.yaml`
+  - Added SKILLS section to system prompt
+- `docs/TEAM_PLAN.md`
+  - Updated status to Session 33
+  - Added Phase 1.5: Skill-Based Actions
+  - Updated architecture diagram with Skill Executor
+- `docs/CODEX_TASKS.md` (from Session 32)
+  - Commentary task still assigned
 
 ---
 
@@ -135,6 +137,22 @@ python src/python-agent/unified_agent.py --plot "56,18,4,3" --ui --goal "Clear a
 
 ---
 
-*Session 32: Verified Codex's UI work, fixed several bugs (progress calculation, TTS doubling), improved farm plan guidance. Agent successfully cleared 7/12 tiles in test plot. Ready for continued testing and commentary improvements!*
+## Skill-Based Action Summary
+
+VLM now outputs skill names instead of low-level actions:
+
+| Before (Low-level) | After (Skill-based) |
+|--------------------|---------------------|
+| select_slot 4 → face south → use_tool | clear_weeds direction=south |
+| select_slot 3 → face east → use_tool | clear_stone direction=east |
+| select_slot 0 → face north → use_tool | clear_wood direction=north |
+| select_slot 1 → use_tool | till_soil |
+| select_slot 2 → face west → use_tool | water_crop direction=west |
+
+This reduces VLM complexity and handles tool selection automatically.
+
+---
+
+*Session 33: Skill-based execution system wired! VLM outputs skill names, executor handles multi-step sequences. Ready for Day 1 → harvest cycle test.*
 
 *— Claude (PM)*

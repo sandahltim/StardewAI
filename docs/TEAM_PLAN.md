@@ -22,24 +22,32 @@
 
 ---
 
-## Current Status (Session 10)
+## Current Status (Session 33)
 
 ### What's Working
-| Component | Status |
-|-----------|--------|
-| VLM Perception (Qwen3VL-30B) | Working |
-| SMAPI GameBridge API | Working |
-| Tool Detection | Working |
-| Tile State Detection | Working |
-| Water Source Detection | Working |
-| Farming Progress UI | Working |
-| Memory Systems | Working |
+| Component | Status | Session |
+|-----------|--------|---------|
+| VLM Perception (Qwen3VL-30B) | ✅ Working | - |
+| SMAPI GameBridge API (24 actions) | ✅ Working | - |
+| Farm Planning System | ✅ Working | 31-32 |
+| Farm Plan Visualizer UI | ✅ Working | 32 |
+| Commentary System (4 personalities) | ✅ Working | 27 |
+| TTS with Piper | ✅ Working | 27-28 |
+| Skill System (55 definitions) | ✅ Working | 20-21 |
+| Knowledge Base (NPCs/items/locations) | ✅ Working | 23 |
+| Debris Clearing (multi-tool) | ✅ Working | 29-32 |
+| Time Management (bedtime warnings) | ✅ Working | 30 |
+| Diagonal Movement | ✅ Working | 30 |
+| Landmark-Relative Hints | ✅ Working | 25 |
+| Shipping Bin UI | ✅ Working | 23 |
+| Skill History Analytics | ✅ Working | 23 |
 
-### What's Being Fixed
-| Issue | Status |
-|-------|--------|
-| Seed planting action | Fix ready, needs test |
-| Agent decision making | Needs improvement |
+### Current Focus
+| Task | Status |
+|------|--------|
+| Commentary variety | In progress (Codex assigned) |
+| Multi-day autonomy test | Ready |
+| Phase 2 planning | Ready to start |
 
 ---
 
@@ -99,24 +107,34 @@
 
 ## Phase Plan
 
-### Phase 1: Farming Loop (Current)
+### Phase 1: Farming Loop ✅ COMPLETE (Session 26)
 - [x] Till ground
 - [x] Tool detection
 - [x] Tile state awareness
-- [ ] Plant seeds
-- [ ] Water crops
-- [ ] Refill watering can
-- [ ] Harvest when ready
-- [ ] Sell at shipping bin
+- [x] Plant seeds
+- [x] Water crops
+- [x] Refill watering can
+- [x] Harvest when ready
+- [x] Sell at shipping bin
+- [x] Buy seeds from shop
 
-### Phase 2: Multi-Day Autonomy
+### Phase 1.5: Skill-Based Actions ✅ COMPLETE (Session 33)
+- [x] Skill system infrastructure (55 skills)
+- [x] Skill executor with multi-step sequences
+- [x] Auto-equip tools in skills (clear_weeds, clear_stone, etc.)
+- [x] VLM outputs skill names → executor handles tool selection
+- [x] Farm planning system (systematic plot clearing)
+
+### Phase 2: Multi-Day Autonomy (Current)
+- [x] Bedtime warnings (go_to_bed at 11pm+)
+- [x] Energy monitoring
+- [x] Time management
 - [ ] Wake up routine
-- [ ] Daily task planning
-- [ ] Energy management
-- [ ] Sleep when tired
-- [ ] 3+ day continuous run
+- [ ] Daily task planning (priority queue)
+- [ ] 6+ day continuous run (Day 1 → harvest cycle)
 
 ### Phase 3: Exploration
+- [x] Warp to locations
 - [ ] Navigate to Town
 - [ ] Enter/exit buildings
 - [ ] Map awareness
@@ -143,9 +161,15 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                    Python Agent (unified_agent.py)          │
 │  ┌────────────┐  ┌────────────┐  ┌────────────────────────┐│
-│  │  Screen    │─▶│  Qwen3 VL  │─▶│  Action Planning       ││
-│  │  Capture   │  │  (8780)    │  │  + Game State Override ││
+│  │  Screen    │─▶│  Qwen3 VL  │─▶│  Skill/Action Planner  ││
+│  │  Capture   │  │  (8780)    │  │  outputs skill names   ││
 │  └────────────┘  └────────────┘  └───────────┬────────────┘│
+│                                              │              │
+│  ┌───────────────────────────────────────────▼────────────┐│
+│  │              Skill Executor (skills/)                  ││
+│  │  skill_name → [select_slot, face, use_tool] sequence   ││
+│  │  45 skills: clear_*, till_*, water_*, harvest_*, etc.  ││
+│  └───────────────────────────────────────────┬────────────┘│
 └──────────────────────────────────────────────│─────────────┘
                                                ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -159,7 +183,7 @@
                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    UI Server (9001)                         │
-│  Dashboard │ Team Chat │ Memory Viewer │ Status Indicators  │
+│  Dashboard │ Farm Plan │ Team Chat │ Status Indicators      │
 └─────────────────────────────────────────────────────────────┘
 ```
 

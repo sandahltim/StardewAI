@@ -45,6 +45,9 @@ class CommentaryGenerator:
         if energy is not None and max_energy:
             if max_energy > 0 and energy / max_energy <= 0.25:
                 return "low_energy"
+        farm_plan = state.get("farm_plan") or {}
+        if farm_plan.get("active"):
+            return "farm_plan"
         milestone = self._detect_milestone(state)
         if milestone:
             self._last_milestone = milestone
