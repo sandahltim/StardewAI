@@ -2200,6 +2200,50 @@ class StardewAgent:
                 self.recent_actions = self.recent_actions[-10:]
                 return False
 
+        # WATER VALIDATION: Auto-target nearest unwatered crop in adjacent tiles
+        if skill_name == "water_crop" and self.last_state:
+            player = self.last_state.get("player", {})
+            player_x = player.get("tileX", 0)
+            player_y = player.get("tileY", 0)
+            facing = player.get("facing", "south")
+
+            crops = self.last_state.get("location", {}).get("crops", [])
+
+            # Check all 4 adjacent tiles for unwatered crops
+            directions = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
+            found_dir = None
+            found_crop = None
+
+            # First check if VLM specified a direction
+            target_dir = params.get("target_direction")
+            if target_dir and target_dir in directions:
+                dx, dy = directions[target_dir]
+                target_x, target_y = player_x + dx, player_y + dy
+                crop = next((c for c in crops if c.get("x") == target_x and c.get("y") == target_y), None)
+                if crop and not crop.get("isWatered", False):
+                    found_dir = target_dir
+                    found_crop = crop
+
+            # If no valid direction specified, auto-find nearest unwatered crop
+            if not found_crop:
+                for dir_name, (dx, dy) in directions.items():
+                    target_x, target_y = player_x + dx, player_y + dy
+                    crop = next((c for c in crops if c.get("x") == target_x and c.get("y") == target_y), None)
+                    if crop and not crop.get("isWatered", False):
+                        found_dir = dir_name
+                        found_crop = crop
+                        break
+
+            if not found_crop:
+                logging.warning(f"🛡️ BLOCKED: water_crop but no unwatered crop adjacent to ({player_x}, {player_y})! Skipping.")
+                self.recent_actions.append("BLOCKED: water_crop (no adjacent crop)")
+                self.recent_actions = self.recent_actions[-10:]
+                return False
+
+            # Set the correct direction for the skill to use
+            params['target_direction'] = found_dir
+            logging.info(f"🎯 Auto-targeting unwatered crop {found_dir} at ({found_crop['x']}, {found_crop['y']})")
+
         skill = self.skills_dict[skill_name]
         logging.info(f"🎯 Executing skill: {skill_name} ({skill.description})")
 

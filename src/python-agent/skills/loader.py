@@ -79,6 +79,8 @@ class SkillLoader:
                             params["direction"] = value
                         elif action_type == "face":
                             params["direction"] = value
+                        elif action_type == "warp":
+                            params["location"] = value
                         else:
                             params["value"] = value
                     actions.append(SkillAction(action_type=action_type, params=params))

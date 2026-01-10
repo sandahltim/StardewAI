@@ -1,118 +1,117 @@
-# Session 43: Continue Multi-Day Test
+# Session 44: Continue Multi-Day Testing
 
-**Last Updated:** 2026-01-10 Session 42 by Claude
-**Status:** Day 1 farming in progress with new safeguards
+**Last Updated:** 2026-01-10 Session 43 by Claude
+**Status:** Day 4 reached, watering improved, harvest pending
 
 ---
 
-## Session 42 Summary
+## Session 43 Summary
 
 ### What Was Completed
 
-1. **Obstacle Failure Tolerance** ✅
-   - Added 3-strike tracking per (location, tile, blocker)
-   - After 3 failed clear attempts, adds to skip list
-   - Logs lesson "requires upgraded tool" for VLM learning
-   - Added Stump, Tree Stump, Large Rock to clearable debris list
+1. **Water Validation Fix** ✅
+   - Block water_crop when no crop at target tile
+   - Prevents wasting energy watering empty ground
+   - Location: unified_agent.py:2203-2245
 
-2. **Crop Protection** ✅
-   - `till_soil` skill now BLOCKED when standing on planted crop
-   - Prevents VLM from tilling over planted seeds
+2. **Warp Action Param Fix** ✅
+   - Fixed `warp: FarmHouse` not working
+   - Issue: loader.py used `params["value"]` but execute_action expected `params["location"]`
+   - Location: skills/loader.py:82-83
 
-3. **Commentary Tag Priority Fix** ✅
-   - Action-specific templates now prioritized over farm_plan
-   - "Seed 4 enters the matrix" instead of generic "following plan"
+3. **Water Auto-Targeting** ✅
+   - Auto-find unwatered crops in adjacent tiles
+   - Sets correct facing direction even when VLM direction is wrong
+   - Location: unified_agent.py:2203-2245
 
-4. **Bug Fixes** ✅
-   - Fixed lessons.py KeyError for old lesson format
-   - Made lesson loading robust with .get() fallbacks
+### Test Progress
+
+| Metric | Session 42 | Session 43 |
+|--------|------------|------------|
+| Day reached | Day 1 | **Day 4** |
+| Warp working | No | **Yes** |
+| Water efficiency | Low | **Improved** |
+| Crops planted | ~14 | 11 surviving |
+| Harvest completed | No | No (crops need 1-2 more days) |
 
 ### Issues Discovered
 
 | Issue | Impact | Notes |
 |-------|--------|-------|
-| **VLM ignores warnings** | HIGH | VLM saw "DO NOT use Hoe" but still tilled. Fixed with hard blocker. |
-| **No state-change detection** | MEDIUM | Tool "success" != actual clear. Need before/after comparison. |
-| **Elevated terrain** | MEDIUM | Still not detecting cliff edges (from Session 41) |
+| **VLM spatial inaccuracy** | HIGH | VLM targets wrong tiles for watering; auto-targeting mitigates |
+| **Inconsistent watering** | HIGH | Crops died or grew slowly from missed watering |
+| **No state-change detection** | MEDIUM | Tim's feedback: can't detect failed plant/water attempts |
 
-### Test Progress
+### Tim's Feedback
 
-| Metric | Session 41 | Session 42 |
-|--------|------------|------------|
-| Crops planted | 13 | ~14+ (in progress) |
-| Crops watered | 22 | In progress |
-| Days completed | 0 | 0 (Day 1 ongoing) |
+> "Rusty still doesn't know if an action failed like trying to plant in an untilled cell"
+
+This requires before/after state comparison to detect actual failures.
 
 ---
 
 ## Next Session Priorities
 
-### Priority 1: Complete Multi-Day Test
+### Priority 1: State-Change Detection
 
-1. Let Day 1 finish (Rusty should go_to_bed at 6PM+)
-2. Day 2: Verify wake routine, water all crops
-3. Day 4: Harvest parsnips, verify shipping
-
-### Priority 2: State-Change Detection
-
-Current failure tracking counts attempts. Better approach:
+Add actual failure detection by comparing state before/after tool use:
 
 ```python
-# Before tool use
-blocker_before = get_blocker_at_target_tile()
+# Before action
+crop_count_before = len(state.crops)
+tile_state_before = get_tile_at(target_x, target_y)
 
-# After tool use
-blocker_after = get_blocker_at_target_tile()
+# Execute action
+await execute_skill(skill_name, params)
 
-# Real failure = blocker still there
-if blocker_after == blocker_before:
-    increment_failure_count()
+# After action
+crop_count_after = len(state.crops)
+
+# Detect failure
+if skill_name == "plant_seed" and crop_count_after == crop_count_before:
+    record_failure("plant failed - tile not tilled?")
 ```
 
-### Priority 3: Daily Planning System (from Tim's vision)
+### Priority 2: Continue Harvest Test
 
-> "Rusty plans his day from yesterday's summary → creates todo list → uses different modules per task type → completes based on priority → creates daily conclusion."
+- Crops need 1-2 more days of watering to reach harvest
+- On Day 5 or 6, some crops should be ready
+- Test harvest_crop skill and ship action
 
-Not yet started. Current agent is reactive chaos.
+### Priority 3: Daily Planning (from Tim's vision)
+
+Not started. Current agent is reactive, not proactive.
 
 ---
 
 ## Code Reference
 
-| Feature | File | Notes |
-|---------|------|-------|
-| Obstacle failure tolerance | unified_agent.py:2923+ | 3-strike tracking |
-| Crop protection | unified_agent.py:2193+ | Block till on crops |
-| Commentary priority fix | commentary/generator.py:113+ | Action > farm_plan |
-| go_to_bed skill | skills/definitions/navigation.yaml:281 | Uses warp + walk |
+| Feature | File | Line | Notes |
+|---------|------|------|-------|
+| Water validation | unified_agent.py | 2203-2245 | Auto-targets adjacent crops |
+| Warp param fix | skills/loader.py | 82-83 | Maps "warp" → "location" param |
+| Till protection | unified_agent.py | 2193-2201 | Blocks till on crops |
+| Obstacle tolerance | unified_agent.py | 2923+ | 3-strike tracking |
 
 ---
 
 ## Known Issues
 
-1. **VLM sometimes ignores SMAPI hints** - Crop protection hard-blocks dangerous actions
-2. **No state-change detection** - Tool animations "succeed" even if nothing cleared
-3. **Elevated terrain invisible** - SMAPI doesn't report cliff/ledge tiles
-4. **No daily planning** - Agent is reactive, not proactive
+1. **VLM spatial reasoning** - Often targets wrong tiles, mitigated by auto-targeting
+2. **No state-change detection** - Actions "succeed" even when nothing changes
+3. **Crops die from missed watering** - Agent too slow or distracted to water all crops
+4. **No daily planning** - Agent is reactive chaos, not planned
 
 ---
 
-## Architecture Notes
+## Session 43 Commits
 
-Session 42 added safety layer between VLM decisions and execution:
-
-```
-VLM → Proposed Action → Safety Checks → Execute
-                            │
-                            ├── Crop protection (block till on crop)
-                            ├── Failure tolerance (skip after 3 fails)
-                            └── Collision detection (existing)
-```
-
-This pattern can be extended for other dangerous actions.
+- Water validation fix
+- Warp param fix
+- Water auto-targeting
 
 ---
 
-*Session 42: Obstacle failure tolerance + Crop protection + Commentary fix*
+*Session 43: Warp fix + Water auto-targeting + Day 4 reached*
 
-*— Claude (PM), Session 42*
+*— Claude (PM), Session 43*
