@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Set
 
 import httpx
 import yaml
@@ -1721,6 +1721,13 @@ class StardewAgent:
         self.commentary_tts = PiperTTS() if HAS_COMMENTARY and PiperTTS else None
         self.last_mood: str = ""
 
+        # Obstacle failure tolerance - give up on unclearable blockers
+        # Key: (location, tile_x, tile_y, blocker_type) -> attempt count
+        self._clear_attempts: Dict[Tuple[str, int, int, str], int] = {}
+        # Blockers we've given up on this session
+        self._skip_blockers: Set[Tuple[str, int, int, str]] = set()
+        self._max_clear_attempts = 3  # Give up after 3 failed clears
+
         # VLM Debug state (for UI panel)
         self.vlm_observation: Optional[str] = None
         self.proposed_action: Optional[Dict[str, Any]] = None
@@ -2182,6 +2189,16 @@ class StardewAgent:
         if not self.skill_executor or skill_name not in self.skills_dict:
             logging.warning(f"Skill not found or executor not ready: {skill_name}")
             return False
+
+        # CROP PROTECTION: Block till_soil when standing on a planted crop
+        if skill_name == "till_soil" and self.last_surroundings:
+            tile_state = self.last_surroundings.get("standingOnTile", {})
+            has_crop = tile_state.get("hasCrop", False)
+            if has_crop:
+                logging.warning(f"🛡️ BLOCKED: till_soil would destroy crop! Skipping.")
+                self.recent_actions.append("BLOCKED: till_soil (crop protection)")
+                self.recent_actions = self.recent_actions[-10:]
+                return False
 
         skill = self.skills_dict[skill_name]
         logging.info(f"🎯 Executing skill: {skill_name} ({skill.description})")
@@ -2905,50 +2922,87 @@ Recent: {recent}"""
 
                         # Check if blocker is clearable debris
                         CLEARABLE_DEBRIS = {
-                            "Weeds": ("SCYTHE", 4),
+                            "Weeds": ("AXE", 0),  # Scythe or axe works
                             "Grass": ("SCYTHE", 4),
                             "Twig": ("AXE", 0),
                             "Wood": ("AXE", 0),
+                            "Stump": ("AXE", 0),  # May require upgraded axe
+                            "Tree Stump": ("AXE", 0),  # Large stump variant
                             "Stone": ("PICKAXE", 3),
                             "Boulder": ("PICKAXE", 3),
+                            "Large Rock": ("PICKAXE", 3),  # May require upgraded pick
                         }
 
                         if blocker in CLEARABLE_DEBRIS:
-                            tool_name, tool_slot = CLEARABLE_DEBRIS[blocker]
-                            logging.info(f"🧹 Proactive clear: {blocker} blocking {direction}, using {tool_name}")
+                            # Get blocker position for failure tracking
+                            player = surroundings.get("player", {})
+                            px, py = player.get("tileX", 0), player.get("tileY", 0)
+                            loc_name = self.last_state.get("location", {}).get("name", "Farm") if self.last_state else "Farm"
+                            # Calculate target tile based on direction
+                            dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}.get(direction, (0, 0))
+                            target_x, target_y = px + dx, py + dy
+                            blocker_key = (loc_name, target_x, target_y, blocker)
 
-                            # Queue: select_slot → face → use_tool → retry original move
-                            clear_actions = [
-                                Action("select_slot", {"slot": tool_slot}, f"select {tool_name}"),
-                                Action("face", {"direction": direction}, f"face {direction}"),
-                                Action("use_tool", {}, f"clear {blocker}"),
-                                action,  # Retry the original move after clearing
-                            ]
+                            # Check if we've given up on this blocker
+                            if blocker_key in self._skip_blockers:
+                                logging.warning(f"⏭️ Skipping {blocker} at ({target_x},{target_y}) - gave up after {self._max_clear_attempts} attempts")
+                                # Treat as non-clearable, fall through to skip logic below
+                            else:
+                                # Track attempt
+                                attempts = self._clear_attempts.get(blocker_key, 0) + 1
+                                self._clear_attempts[blocker_key] = attempts
 
-                            # If diagonal, also re-queue the second move
-                            if diagonal_second_dir:
-                                clear_actions.append(Action(
-                                    "move",
-                                    {"direction": diagonal_second_dir, "duration": 0.3},
-                                    f"move {diagonal_second_dir} (diagonal)"
-                                ))
-                                # Remove the queued second move (we'll add it back after clearing)
-                                if self.action_queue and self.action_queue[0].params.get("direction") == diagonal_second_dir:
-                                    self.action_queue.pop(0)
+                                if attempts > self._max_clear_attempts:
+                                    # Too many failures - give up on this blocker
+                                    self._skip_blockers.add(blocker_key)
+                                    logging.warning(f"🚫 Giving up on {blocker} at ({target_x},{target_y}) after {attempts} failed attempts")
+                                    self.recent_actions.append(f"GAVE_UP: {blocker} at ({target_x},{target_y}) - unclearable")
+                                    self.recent_actions = self.recent_actions[-10:]
+                                    # Record lesson about this obstacle
+                                    if self.lesson_memory:
+                                        self.lesson_memory.record_failure(
+                                            attempted=f"clear {blocker}",
+                                            blocked_by=f"{blocker} (requires upgraded tool)",
+                                            position=(target_x, target_y),
+                                            location=loc_name
+                                        )
+                                    # Fall through to non-clearable logic
+                                else:
+                                    tool_name, tool_slot = CLEARABLE_DEBRIS[blocker]
+                                    logging.info(f"🧹 Proactive clear: {blocker} blocking {direction}, using {tool_name} (attempt {attempts}/{self._max_clear_attempts})")
 
-                            # Insert clearing actions at front of queue
-                            self.action_queue = clear_actions + self.action_queue
-                            self.recent_actions.append(f"CLEARING: {blocker} to {direction}")
-                            self.recent_actions = self.recent_actions[-10:]
-                            # Update validation status - blocked but auto-clearing
-                            self.validation_status = "blocked"
-                            self.validation_reason = f"{blocker} (auto-clearing)"
-                            self.executed_action = {"type": action.action_type, "params": action.params}
-                            self.executed_outcome = "blocked"
-                            self._send_ui_status()
-                            return  # Will execute select_slot next tick
+                                    # Queue: select_slot → face → use_tool → retry original move
+                                    clear_actions = [
+                                        Action("select_slot", {"slot": tool_slot}, f"select {tool_name}"),
+                                        Action("face", {"direction": direction}, f"face {direction}"),
+                                        Action("use_tool", {}, f"clear {blocker}"),
+                                        action,  # Retry the original move after clearing
+                                    ]
 
-                        # Non-clearable obstacle - just skip
+                                    # If diagonal, also re-queue the second move
+                                    if diagonal_second_dir:
+                                        clear_actions.append(Action(
+                                            "move",
+                                            {"direction": diagonal_second_dir, "duration": 0.3},
+                                            f"move {diagonal_second_dir} (diagonal)"
+                                        ))
+                                        # Remove the queued second move (we'll add it back after clearing)
+                                        if self.action_queue and self.action_queue[0].params.get("direction") == diagonal_second_dir:
+                                            self.action_queue.pop(0)
+
+                                    # Insert clearing actions at front of queue
+                                    self.action_queue = clear_actions + self.action_queue
+                                    self.recent_actions.append(f"CLEARING: {blocker} to {direction} (attempt {attempts})")
+                                    self.recent_actions = self.recent_actions[-10:]
+                                    # Update validation status - blocked but auto-clearing
+                                    self.validation_status = "blocked"
+                                    self.validation_reason = f"{blocker} (auto-clearing, attempt {attempts})"
+                                    self.executed_action = {"type": action.action_type, "params": action.params}
+                                    self.executed_outcome = "blocked"
+                                    self._send_ui_status()
+                                    return  # Will execute select_slot next tick
+
+                        # Non-clearable obstacle (or gave up) - just skip
                         logging.warning(f"⚠️ Skipping move {direction} - blocked by {blocker}")
 
                         # Record lesson for future VLM context

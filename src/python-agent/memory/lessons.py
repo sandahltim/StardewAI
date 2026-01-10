@@ -126,9 +126,13 @@ class LessonMemory:
 
         lines = []
         for lesson in relevant:
-            attempted = lesson["attempted"]
-            blocked = lesson["blocked_by"]
+            # Handle old lesson format gracefully
+            attempted = lesson.get("attempted", lesson.get("action", "unknown"))
+            blocked = lesson.get("blocked_by", lesson.get("blocker", "unknown"))
             recovery = lesson.get("recovery")
+
+            if not attempted or not blocked:
+                continue  # Skip malformed lessons
 
             if recovery:
                 lines.append(f"• {attempted} → blocked by {blocked} → {recovery}")

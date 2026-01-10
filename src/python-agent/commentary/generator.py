@@ -115,7 +115,7 @@ class CommentaryGenerator:
         if not state:
             return "action" if action else "idle"
 
-        # Priority checks
+        # Priority checks - only for environmental/status conditions
         if ctx["weather"] == "rainy":
             return "rain"
         if ctx["hour"] >= 22:
@@ -123,18 +123,13 @@ class CommentaryGenerator:
         if ctx["energy_pct"] <= 25:
             return "low_energy"
 
-        # Farm plan active?
-        farm_plan = state.get("farm_plan") or {}
-        if farm_plan.get("active"):
-            return "farm_plan"
-
         # Milestone check
         milestone = self._detect_milestone(state, ctx)
         if milestone:
             self._last_milestone = milestone
             return "milestone"
 
-        # Action-specific tags
+        # Action-specific tags FIRST - these have the best templates
         if action:
             action_lower = action.lower()
             if "plant" in action_lower:
@@ -150,7 +145,11 @@ class CommentaryGenerator:
             if "bed" in action_lower or "sleep" in action_lower:
                 return "bedtime"
 
+        # Farm plan note only when idle (not overriding actions)
         if not action or action == "wait":
+            farm_plan = state.get("farm_plan") or {}
+            if farm_plan.get("active"):
+                return "farm_plan"
             return "idle"
 
         return "action"

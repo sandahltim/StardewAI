@@ -22,7 +22,7 @@
 
 ---
 
-## Current Status (Session 33)
+## Current Status (Session 42)
 
 ### What's Working
 | Component | Status | Session |
@@ -31,7 +31,7 @@
 | SMAPI GameBridge API (24 actions) | ✅ Working | - |
 | Farm Planning System | ✅ Working | 31-32 |
 | Farm Plan Visualizer UI | ✅ Working | 32 |
-| Commentary System (4 personalities) | ✅ Working | 27 |
+| Commentary System (context-aware) | ✅ Improved | 41-42 |
 | TTS with Piper | ✅ Working | 27-28 |
 | Skill System (55 definitions) | ✅ Working | 20-21 |
 | Knowledge Base (NPCs/items/locations) | ✅ Working | 23 |
@@ -39,15 +39,16 @@
 | Time Management (bedtime warnings) | ✅ Working | 30 |
 | Diagonal Movement | ✅ Working | 30 |
 | Landmark-Relative Hints | ✅ Working | 25 |
-| Shipping Bin UI | ✅ Working | 23 |
-| Skill History Analytics | ✅ Working | 23 |
+| go_to_bed skill | ✅ Fixed | 41 |
+| Obstacle Failure Tolerance | ✅ New | 42 |
+| Crop Protection (till blocker) | ✅ New | 42 |
 
 ### Current Focus
 | Task | Status |
 |------|--------|
-| Commentary variety | In progress (Codex assigned) |
-| Multi-day autonomy test | Ready |
-| Phase 2 planning | Ready to start |
+| Multi-day autonomy test | In progress |
+| State-change detection for tool failures | Planned |
+| Daily planning system (Rusty's inner monologue) | Not started |
 
 ---
 
