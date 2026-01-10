@@ -2,11 +2,107 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-10 Session 32
+**Last Updated:** 2026-01-10 Session 34
 
 ---
 
 ## Active Tasks
+
+### TASK: Vision Debug View (NEW - Session 35)
+
+**Priority:** HIGH
+**Assigned:** 2026-01-10 Session 34
+**Status:** Assigned
+
+#### Background
+We're restructuring the VLM to be vision-first. The VLM will now output an "observation" describing what it sees before deciding actions. We need UI to show this for debugging and transparency.
+
+#### Requirements
+
+**1. Vision Debug Panel** (add to dashboard)
+
+```
+┌─────────────────────────────────────────┐
+│ VISION DEBUG                            │
+├─────────────────────────────────────────┤
+│ VLM Observation:                        │
+│ "I see the farmhouse porch with steps   │
+│  leading down. Farm area with debris    │
+│  to the southwest. Player facing west." │
+├─────────────────────────────────────────┤
+│ Proposed: move south                    │
+│ Validation: ✅ CLEAR                    │
+│ Executed: move south → success          │
+└─────────────────────────────────────────┘
+```
+
+**2. Data to Display**
+- `observation`: What VLM says it sees (new field)
+- `proposed_action`: What VLM wants to do
+- `validation_result`: SMAPI check result (pass/fail + reason)
+- `executed_action`: What actually ran
+- `outcome`: success/failed
+
+**3. API Changes**
+The agent will post new fields to `/api/status`:
+- `vlm_observation`: string
+- `proposed_action`: object
+- `validation_status`: "passed" | "failed"
+- `validation_reason`: string (if failed)
+
+#### Files to Modify
+1. `src/ui/templates/index.html` - Add vision debug panel
+2. `src/ui/static/app.js` - Render observation + validation
+3. `src/ui/static/app.css` - Styling (green=passed, red=failed)
+
+---
+
+### TASK: Lessons Panel (NEW - Session 35)
+
+**Priority:** MEDIUM
+**Assigned:** 2026-01-10 Session 34
+**Status:** Assigned
+
+#### Background
+The agent will now learn from mistakes. When an action fails, it records a "lesson" that gets fed back to future VLM calls. We need UI to show these lessons.
+
+#### Requirements
+
+**1. Lessons Panel**
+
+```
+┌─────────────────────────────────────────┐
+│ LESSONS LEARNED                    [⟳]  │
+├─────────────────────────────────────────┤
+│ • west from porch → blocked by         │
+│   farmhouse → went south first          │
+│ • scythe doesn't reach 2 tiles →       │
+│   move closer first                     │
+│ • (2 lessons this session)              │
+└─────────────────────────────────────────┘
+```
+
+**2. Features**
+- Display last 5-10 lessons
+- Reset button to clear lessons
+- Counter for session lesson count
+- Highlight when lesson is applied (VLM context)
+
+**3. API Endpoint**
+```
+GET /api/lessons
+Returns: {"lessons": [...], "count": N}
+
+POST /api/lessons/clear
+Clears session lessons
+```
+
+#### Files to Modify
+1. `src/ui/templates/index.html` - Lessons panel HTML
+2. `src/ui/static/app.js` - Fetch/display lessons
+3. `src/ui/app.py` - Add lessons endpoints
+
+---
 
 ### TASK: Commentary & Personality Improvements
 

@@ -222,24 +222,23 @@ model:
     TOOL SKILLS (just equip):
     - equip_hoe, equip_axe, equip_pickaxe, equip_scythe, equip_watering_can, equip_seeds
 
-    PREFER SKILLS over manual select_slot + use_tool! Skills handle edge cases.
+    *** USE SKILLS! Skills auto-equip tools - much simpler! ***
 
-    ACTION EXAMPLES (use exact JSON format!):
-    - HARVEST ready crop:          {"type": "harvest"}  ← FOR MATURE CROPS!
-    - Turn to face adjacent tile:  {"type": "face", "direction": "east"}
-    - Swing current tool:          {"type": "use_tool"}  ← NOT for harvesting!
-    - Walk multiple tiles:         {"type": "move", "direction": "south", "tiles": 3}
-    - Select watering can:         {"type": "select_slot", "slot": 2}
-    - Interact with object/NPC:    {"type": "interact"}
+    FARMING STATE MACHINE (USE SKILL NAMES!):
+    LOOK at the tile DIRECTLY IN FRONT of your character:
+    - See WEEDS/GRASS?     → {"type": "clear_weeds", "direction": "south"}
+    - See STONE/ROCK?      → {"type": "clear_stone", "direction": "south"}
+    - See WOOD/BRANCH?     → {"type": "clear_wood", "direction": "south"}
+    - See BARE DIRT?       → {"type": "till_soil"}
+    - See TILLED SOIL?     → {"type": "plant_seed"}
+    - See PLANTED CROP?    → {"type": "water_crop", "direction": "south"}
+    - See READY CROP?      → {"type": "harvest_crop", "direction": "south"}
+    - See WATERED SOIL?    → {"type": "move", "direction": "south"}
 
-    FARMING STATE MACHINE:
-    LOOK at the tile DIRECTLY IN FRONT of your character (where your tool will hit):
-    - See READY CROP (big, mature plant)? → {"type": "harvest"} NOT use_tool!
-    - See WEEDS/GRASS (tall green plants)? → Use SCYTHE, then re-evaluate
-    - See BARE DIRT (brown, no plants)? → Use HOE to till
-    - See TILLED SOIL (darker brown rows)? → Select SEEDS and plant
-    - See PLANTED SEED (small sprout)? → Select WATERING CAN and water
-    - See WATERED SOIL (wet/dark)? → MOVE to next tile
+    NAVIGATION (low-level - no skill needed):
+    - Walk: {"type": "move", "direction": "south", "tiles": 3}
+    - Turn: {"type": "face", "direction": "east"}
+    - Interact: {"type": "interact"}
 
     IMPORTANT: Look at what's RIGHT IN FRONT of you, not what's far away!
     - Tools hit ONE TILE in front of you in the direction you're facing

@@ -320,14 +320,14 @@ class PlotManager:
             if state.get_tile_state(x, y).order() >= target_state.order()
         )
 
-        # Action hint based on phase - be VERY specific about tools
+        # Action hint based on phase - USE SKILLS (auto-equip tools)
         action_hints = {
-            "clear": "WEEDS=Scythe(slot 4), STONE=Pickaxe(slot 3), TWIG/WOOD=Axe(slot 0). Check debris type FIRST, then select_slot, then use_tool",
-            "till": "select_slot 1 (Hoe), face tile, use_tool",
-            "plant": "select_slot 5 or 6 (Seeds), face tilled tile, use_tool",
-            "water": "select_slot 2 (Watering Can), face planted tile, use_tool",
+            "clear": "USE SKILL: clear_weeds (grass/weeds), clear_stone (rocks), clear_wood (branches). Skills auto-equip correct tool!",
+            "till": "USE SKILL: till_soil - auto-equips Hoe",
+            "plant": "USE SKILL: plant_seed - uses equipped seeds",
+            "water": "USE SKILL: water_crop - auto-equips Watering Can",
         }
-        action_hint = action_hints.get(action, "use appropriate tool")
+        action_hint = action_hints.get(action, "use appropriate skill")
 
         # Add navigation instruction if far from target
         if dist > 2:

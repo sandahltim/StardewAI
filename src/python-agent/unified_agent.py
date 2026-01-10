@@ -650,8 +650,12 @@ class ModBridgeController:
                 # Special case: water is not a blocker, it's a resource!
                 if "water" in blocker.lower():
                     desc = f"{direction}: 💧 WATER ({tiles} tile{'s' if tiles != 1 else ''}) - refill here!"
+                elif tiles > 1:
+                    # Can walk some tiles before hitting blocker
+                    desc = f"{direction}: clear {tiles-1} tile{'s' if tiles > 2 else ''}, then {blocker}"
                 else:
-                    desc = f"{direction}: BLOCKED ({blocker}, {tiles} tile{'s' if tiles != 1 else ''})"
+                    # Immediately blocked
+                    desc = f"{direction}: BLOCKED ({blocker})"
                 if direction == facing_dir:
                     if "water" in blocker.lower():
                         front_info = f">>> 💧 WATER SOURCE! select_slot 2 (Watering Can), use_tool to REFILL! <<<"
