@@ -40,11 +40,44 @@
           </div>
           <div class="snapshot__row">
             <span class="snapshot__label">Mood</span>
-            <span id="stateMood" class="snapshot__value">{{ status.mood or "-" }}</span>
+            <span id="rustyMood" class="snapshot__value">-</span>
           </div>
           <div class="snapshot__row">
             <span class="snapshot__label">Nearby</span>
             <span id="stateNearby" class="snapshot__value">{{ ", ".join(status.nearby) if status.nearby else "-" }}</span>
+          </div>
+          <div id="rustyMemoryEmpty" class="rusty-empty hidden">
+            No memories yet. Run the agent to start recording.
+          </div>
+          <div id="rustyMemoryPanel" class="rusty-memory">
+            <div class="snapshot__row">
+              <span class="snapshot__label">Confidence</span>
+              <div class="confidence">
+                <div class="confidence-bar">
+                  <div id="rustyConfidenceFill" class="confidence-bar__fill"></div>
+                </div>
+                <span id="rustyConfidenceValue" class="confidence-value">-</span>
+              </div>
+            </div>
+            <div class="snapshot__row">
+              <span class="snapshot__label">Days farming</span>
+              <span id="rustyDays" class="snapshot__value">-</span>
+            </div>
+            <div class="snapshot__row">
+              <span class="snapshot__label">Recent events</span>
+              <ol id="rustyEvents" class="rusty-list">
+                <li>None</li>
+              </ol>
+            </div>
+            <div class="snapshot__row">
+              <span class="snapshot__label">Known NPCs</span>
+              <div class="rusty-npcs">
+                <span id="rustyNpcCount" class="snapshot__value">0</span>
+                <ol id="rustyNpcs" class="rusty-list">
+                  <li>None</li>
+                </ol>
+              </div>
+            </div>
           </div>
         </div>
         <div class="plan">

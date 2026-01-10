@@ -111,7 +111,7 @@ relationship = {
 ### Priority 1: Full Farm Cycle Test (Claude)
 
 Test end-to-end with real game now that memory is working:
-1. Start game in co-op mode
+1. Start game in single player mode
 2. Run agent with `--goal "Clear and plant some parsnips"`
 3. Verify:
    - VLM debug panel shows data
@@ -123,8 +123,10 @@ Test end-to-end with real game now that memory is working:
 ```bash
 cd src/python-agent
 source ../../venv/bin/activate
-python unified_agent.py --mode coop --goal "Clear some weeds and plant parsnips"
+python unified_agent.py --goal "Clear some weeds and plant parsnips"
 ```
+
+**Note:** Single player mode is now default (`--mode single`). Full screen capture.
 
 ### Priority 2: Rusty Memory UI Panel (Claude/Codex)
 

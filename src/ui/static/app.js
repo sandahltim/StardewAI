@@ -343,6 +343,15 @@ function updateStatus(status) {
   const lessonsList = document.getElementById("lessonsList");
   const lessonsCount = document.getElementById("lessonsCount");
   const lessonsReset = document.getElementById("lessonsReset");
+  const rustyMood = document.getElementById("rustyMood");
+  const rustyConfidenceFill = document.getElementById("rustyConfidenceFill");
+  const rustyConfidenceValue = document.getElementById("rustyConfidenceValue");
+  const rustyDays = document.getElementById("rustyDays");
+  const rustyEvents = document.getElementById("rustyEvents");
+  const rustyNpcs = document.getElementById("rustyNpcs");
+  const rustyNpcCount = document.getElementById("rustyNpcCount");
+  const rustyMemoryEmpty = document.getElementById("rustyMemoryEmpty");
+  const rustyMemoryPanel = document.getElementById("rustyMemoryPanel");
 
   const formatDuration = (seconds) => {
     if (!Number.isFinite(seconds) || seconds <= 0) return "-";
@@ -1296,6 +1305,80 @@ function init() {
     });
   };
 
+  const updateRustyMemory = (payload) => {
+    if (!rustyMemoryEmpty || !rustyMemoryPanel) return;
+    const character = payload?.character_state || null;
+    if (!character) {
+      rustyMemoryEmpty.classList.remove("hidden");
+      rustyMemoryPanel.classList.add("hidden");
+      if (rustyMood) rustyMood.textContent = "-";
+      return;
+    }
+
+    rustyMemoryEmpty.classList.add("hidden");
+    rustyMemoryPanel.classList.remove("hidden");
+
+    const mood = character.mood || "neutral";
+    const moodIcon = {
+      neutral: "😐",
+      content: "😊",
+      frustrated: "😤",
+      tired: "😴",
+      proud: "🏆",
+      curious: "🤔",
+      anxious: "😟",
+    }[mood] || "🙂";
+    if (rustyMood) rustyMood.textContent = `${moodIcon} ${mood}`;
+
+    const confidence = Math.max(0, Math.min(1, Number(character.confidence || 0)));
+    if (rustyConfidenceFill) rustyConfidenceFill.style.width = `${Math.round(confidence * 100)}%`;
+    if (rustyConfidenceValue) rustyConfidenceValue.textContent = `${Math.round(confidence * 100)}%`;
+
+    if (rustyDays) rustyDays.textContent = character.days_farming ?? "-";
+
+    if (rustyEvents) {
+      rustyEvents.innerHTML = "";
+      const events = Array.isArray(payload?.recent_events) ? payload.recent_events.slice(-5) : [];
+      if (!events.length) {
+        const item = document.createElement("li");
+        item.textContent = "None";
+        rustyEvents.append(item);
+      } else {
+        events.forEach((event) => {
+          const item = document.createElement("li");
+          item.textContent = event?.description || String(event);
+          rustyEvents.append(item);
+        });
+      }
+    }
+
+    const relationships = payload?.relationships || null;
+    const npcList = Array.isArray(payload?.known_npcs) ? payload.known_npcs : [];
+    if (rustyNpcCount) {
+      const count = payload?.relationship_count ?? npcList.length;
+      rustyNpcCount.textContent = `${count}`;
+    }
+    if (rustyNpcs) {
+      rustyNpcs.innerHTML = "";
+      if (!npcList.length) {
+        const item = document.createElement("li");
+        item.textContent = "None";
+        rustyNpcs.append(item);
+      } else {
+        npcList.forEach((npc) => {
+          const item = document.createElement("li");
+          if (relationships && relationships[npc]) {
+            const level = relationships[npc]?.level || relationships[npc]?.friendship || "";
+            item.textContent = level ? `${npc} (${level})` : npc;
+          } else {
+            item.textContent = npc;
+          }
+          rustyNpcs.append(item);
+        });
+      }
+    }
+  };
+
   const updateCropStatus = (crops) => {
     if (!cropStatus || !cropStatusNote) return;
     cropStatus.classList.remove("ok", "warn");
@@ -1878,6 +1961,8 @@ function init() {
       updateFarmPlan(data.payload);
     } else if (data.type === "lessons_updated") {
       updateLessons(data.payload);
+    } else if (data.type === "rusty_memory_updated") {
+      updateRustyMemory(data.payload);
     }
   };
 
@@ -1976,6 +2061,15 @@ function init() {
       })
       .catch(() => {
         updateLessons({ lessons: [], count: 0 });
+      });
+
+    fetch("/api/rusty/memory")
+      .then((res) => res.json())
+      .then((payload) => {
+        updateRustyMemory(payload);
+      })
+      .catch(() => {
+        updateRustyMemory(null);
       });
 
     fetch("/api/farm-plan")

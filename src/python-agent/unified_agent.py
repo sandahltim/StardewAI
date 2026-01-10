@@ -152,9 +152,9 @@ class Config:
     server_url: str = "http://localhost:8765"
     model: str = "Qwen3VL-30B-A3B-Instruct-Q4_K_M"
 
-    # Mode
-    mode: str = "coop"  # "coop" or "helper"
-    coop_region: Dict[str, float] = field(default_factory=lambda: {
+    # Mode: single (full screen), splitscreen (Player 2 right half), helper (advisory)
+    mode: str = "single"
+    splitscreen_region: Dict[str, float] = field(default_factory=lambda: {
         "x_start": 0.5, "x_end": 1.0, "y_start": 0.0, "y_end": 1.0
     })
 
@@ -209,8 +209,8 @@ class Config:
             # Mode
             if 'mode' in data:
                 config.mode = data['mode'].get('type', config.mode)
-                if 'coop_region' in data['mode']:
-                    config.coop_region = data['mode']['coop_region']
+                if 'splitscreen_region' in data['mode']:
+                    config.splitscreen_region = data['mode']['splitscreen_region']
 
             # Timing
             if 'timing' in data:
@@ -3011,8 +3011,8 @@ Recent: {recent}"""
             self._send_ui_status()
             self._refresh_state_snapshot()
 
-            # Capture screen (crop for co-op mode)
-            crop = self.config.coop_region if self.config.mode == "coop" else None
+            # Capture screen (crop for splitscreen mode - Player 2 right half)
+            crop = self.config.splitscreen_region if self.config.mode == "splitscreen" else None
             img = self.vlm.capture_screen(crop)
 
             # Save screenshot (with rotation - keep last 100)
@@ -3206,7 +3206,7 @@ Recent: {recent}"""
             # Check memory triggers (new location, NPC met, notable event)
             self._check_memory_triggers(result, game_day=game_day)
 
-            if self.config.mode == "coop" and result.actions:
+            if self.config.mode in ("single", "splitscreen") and result.actions:
                 self.vlm_status = "Executing"
             else:
                 self.vlm_status = "Idle"
@@ -3221,7 +3221,7 @@ Recent: {recent}"""
                 self.awaiting_user_reply = False
 
             # Queue actions
-            if self.config.mode in ("coop", "single"):
+            if self.config.mode in ("single", "splitscreen"):
                 self.action_queue = result.actions
                 for i, a in enumerate(self.action_queue):
                     logging.info(f"   [{i+1}] {a.action_type}: {a.params}")
@@ -3251,8 +3251,8 @@ def main():
                         help="Path to config file")
     parser.add_argument("--goal", "-g", default="",
                         help="Goal for the agent")
-    parser.add_argument("--mode", "-m", choices=["coop", "helper"],
-                        help="Override mode from config")
+    parser.add_argument("--mode", "-m", choices=["single", "splitscreen", "helper"],
+                        help="Override mode: single (full screen), splitscreen (Player 2), helper (advisory)")
     parser.add_argument("--observe", "-o", action="store_true",
                         help="Observe only (disable controller)")
     parser.add_argument("--ui", action="store_true",
@@ -3310,7 +3310,7 @@ def main():
     print(f"   Model: {config.model}")
     print(f"   Server: {config.server_url}")
     print(f"   Goal: {args.goal or 'Explore and help'}")
-    if config.mode == "coop":
+    if config.mode == "splitscreen":
         print(f"   Screen: Right half (Player 2)")
         print(f"   Input: SMAPI Mod API")
     elif config.mode == "single":

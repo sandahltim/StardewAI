@@ -21,13 +21,13 @@ server:
 # Agent Mode
 # =============================================================================
 mode:
-  # "single" = Single player, agent controls the main character
-  # "coop" = Split-screen co-op, agent controls Player 2
+  # "single" = Single player, agent controls the main character (full screen)
+  # "splitscreen" = Split-screen co-op, agent controls Player 2 (right half)
   # "helper" = Single player, agent advises but doesn't control
   type: "single"
 
-  # Screen region for co-op (right half for Player 2)
-  coop_region:
+  # Screen region for splitscreen mode (right half for Player 2)
+  splitscreen_region:
     enabled: true
     # Percentage of screen (0.5 = right half)
     x_start: 0.5

@@ -2,7 +2,7 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-10 Session 36
+**Last Updated:** 2026-01-10 Session 39
 
 ---
 
@@ -26,6 +26,106 @@ A full project review identified these gaps:
 ---
 
 ## Active Tasks
+
+### TASK: Rusty Memory UI Panel (NEW - Session 39)
+
+**Priority:** MEDIUM
+**Assigned:** 2026-01-10 Session 39
+**Status:** ✅ Complete
+
+#### Background
+
+Session 38 added `memory/rusty_memory.py` - a character persistence system that tracks Rusty's episodic memory, mood, confidence, and NPC relationships. The system has a `to_api_format()` method ready for UI consumption, but no panel displays this data yet.
+
+The existing "Rusty Snapshot" section shows mood but isn't connected to RustyMemory.
+
+#### Requirements
+
+**1. Add API Endpoint**
+
+In `src/ui/app.py`, add endpoint to serve RustyMemory data:
+```python
+@app.get("/api/rusty/memory")
+def get_rusty_memory():
+    # Import from memory/rusty_memory.py
+    # Return: character_state, recent_events, known_npcs
+```
+
+**2. Update Rusty Snapshot Panel**
+
+Enhance the existing "Rusty Snapshot" section in index.html:
+```
+┌──────────────────────────────────┐
+│ RUSTY                            │
+├──────────────────────────────────┤
+│ Mood: 😊 content                 │
+│ Confidence: ████████░░ 80%      │
+│ Day 12 of farming                │
+├──────────────────────────────────┤
+│ Recent Events:                   │
+│ • Planted 3 parsnips             │
+│ • Harvested cauliflower          │
+│ • Met Lewis                      │
+├──────────────────────────────────┤
+│ Known NPCs: 4                    │
+│ • Robin (acquaintance)           │
+│ • Lewis (friend)                 │
+└──────────────────────────────────┘
+```
+
+**3. Data Fields to Display**
+
+From `RustyMemory.to_api_format()`:
+- `character_state.mood` - Icon + text (😊 content, 😤 frustrated, etc.)
+- `character_state.confidence` - Progress bar (0.0-1.0)
+- `character_state.days_farming` - Counter
+- `recent_events` - Last 5 events (description only)
+- `known_npcs` - List with friendship levels
+
+**4. Empty State**
+
+When memory file doesn't exist yet:
+```
+┌──────────────────────────────────┐
+│ RUSTY                            │
+├──────────────────────────────────┤
+│ No memories yet.                 │
+│ Run agent to start recording.   │
+└──────────────────────────────────┘
+```
+
+#### Implementation
+
+1. Add import in app.py: `from memory.rusty_memory import get_rusty_memory`
+2. Add `/api/rusty/memory` GET endpoint
+3. Add poll function in app.js: `pollRustyMemory()`
+4. Update `renderRustyPanel()` to use new data
+5. Add CSS for confidence bar and event list
+
+#### Files to Modify
+- `src/ui/app.py` - Add endpoint
+- `src/ui/static/app.js` - Add polling and render function
+- `src/ui/templates/index.html` - Expand Rusty Snapshot section
+- `src/ui/static/app.css` - Style for confidence bar
+
+#### Reference
+
+Memory file location: `logs/rusty_state.json`
+Memory module: `src/python-agent/memory/rusty_memory.py`
+
+Key method:
+```python
+def to_api_format(self) -> Dict[str, Any]:
+    return {
+        "character_state": self.character_state,
+        "recent_events": self.episodic[-10:],
+        "known_npcs": list(self.relationships.keys()),
+        "relationship_count": len(self.relationships),
+        "context": self.get_context_for_prompt(),
+    }
+```
+
+---
 
 ### TASK: SMAPI Status Indicators (NEW - Session 36)
 
@@ -171,6 +271,7 @@ Update this file marking task complete, then post to team chat.
 
 ## Completed Tasks
 
+- [x] UI: Rusty Memory Panel (2026-01-10 Session 39)
 - [x] UI: SMAPI Status Indicators + Empty States (2026-01-10 Session 36)
 - [x] Vision Debug View (2026-01-10 Session 35)
 - [x] Lessons Panel (2026-01-10 Session 35)

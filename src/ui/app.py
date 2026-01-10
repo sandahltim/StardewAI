@@ -39,12 +39,18 @@ try:
 except Exception:  # pragma: no cover - optional for UI
     SpatialMap = None
 
+try:
+    from memory.rusty_memory import get_rusty_memory
+except Exception:  # pragma: no cover - optional for UI
+    get_rusty_memory = None
+
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 STATUS_PATH = Path("/home/tim/StardewAI/logs/ui/status.json")
 FARM_PLAN_PATH = Path("/home/tim/StardewAI/logs/farm_plans/current.json")
 LESSONS_PATH = Path("/home/tim/StardewAI/logs/lessons.json")
+RUSTY_STATE_PATH = Path("/home/tim/StardewAI/logs/rusty_state.json")
 GAME_KNOWLEDGE_DB = BASE_DIR.parents[1] / "data" / "game_knowledge.db"
 CHROMA_DIR = BASE_DIR.parents[1] / "data" / "chromadb"
 CHROMA_COLLECTION = "rusty_memories"
@@ -393,6 +399,22 @@ def _read_lessons() -> Dict[str, Any]:
 def _write_lessons(payload: Dict[str, Any]) -> Dict[str, Any]:
     LESSONS_PATH.parent.mkdir(parents=True, exist_ok=True)
     LESSONS_PATH.write_text(json.dumps(payload, indent=2))
+    return payload
+
+
+def _read_rusty_state() -> Dict[str, Any]:
+    if not RUSTY_STATE_PATH.exists():
+        return {}
+    try:
+        data = json.loads(RUSTY_STATE_PATH.read_text())
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_rusty_state(payload: Dict[str, Any]) -> Dict[str, Any]:
+    RUSTY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    RUSTY_STATE_PATH.write_text(json.dumps(payload, indent=2))
     return payload
 
 
@@ -932,6 +954,26 @@ async def update_lessons(payload: Dict[str, Any]) -> Dict[str, Any]:
     updated = _write_lessons(payload)
     await manager.broadcast("lessons_updated", updated)
     return {"status": "ok", "count": len(payload.get("lessons", []))}
+
+
+@app.get("/api/rusty/memory")
+def get_rusty_memory_api() -> Dict[str, Any]:
+    data = _read_rusty_state()
+    if data:
+        return data
+    if get_rusty_memory:
+        try:
+            return get_rusty_memory().to_api_format()
+        except Exception:
+            return {}
+    return {}
+
+
+@app.post("/api/rusty/memory")
+async def update_rusty_memory_api(payload: Dict[str, Any]) -> Dict[str, Any]:
+    updated = _write_rusty_state(payload)
+    await manager.broadcast("rusty_memory_updated", updated)
+    return updated
 
 
 @app.get("/api/spatial-map")

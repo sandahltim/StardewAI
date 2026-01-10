@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 You are Project Manager. Use agents and Codex(team chat comms!) effectively to keep your focus on main project overview. All code is AI agent maintained, use best practices to maintain docs and codebase. Beware of bloat and orphaned/obsolete code and docs.
-StardewAI is an LLM-powered AI agent(Rusty) that plays Stardew Valley as a co-op partner and friend. The system uses vision models to perceive the game screen and execute actions via virtual gamepad input.
+StardewAI is an LLM-powered AI agent (Rusty) that plays Stardew Valley autonomously. The system uses vision models to perceive the game screen and execute actions via SMAPI mod API.
 
 ## Quick Start Commands
 
@@ -14,11 +14,14 @@ StardewAI is an LLM-powered AI agent(Rusty) that plays Stardew Valley as a co-op
 cd /home/tim/StardewAI
 source venv/bin/activate
 
+# Run agent in single player mode (default, full screen)
+python src/python-agent/unified_agent.py --goal "Water the crops"
+
 # Run agent (observe only - no input)
 python src/python-agent/unified_agent.py --observe --goal "Help with farming"
 
-# Run agent with gamepad control (Player 2 in co-op)
-python src/python-agent/unified_agent.py --mode coop --goal "Water the crops"
+# Run in splitscreen mode (Player 2, right half of screen)
+python src/python-agent/unified_agent.py --mode splitscreen --goal "Water the crops"
 
 # Run in helper mode (advisory only, no control)
 python src/python-agent/unified_agent.py --mode helper --goal "Help with farming"
@@ -42,9 +45,10 @@ Screenshot → Unified VLM → Actions → Execution
 
 **Approach:** Single unified VLM (Qwen3 VL) handles both perception AND planning in one inference call. This is simpler and lower latency than the earlier dual-model design.
 
-**Input Methods:**
-- `gamepad` (default): Virtual Xbox 360 controller via vgamepad - used for co-op Player 2
-- `keyboard`: WASD + pyautogui - fallback for single-player
+**Agent Modes:**
+- `single` (default): Full screen capture, controls main character via SMAPI mod API
+- `splitscreen`: Right half screen (Player 2), for split-screen co-op
+- `helper`: Advisory only, no control
 
 ## Key Files
 
@@ -117,19 +121,14 @@ model: "Qwen3VL-30B-A3B-Instruct-Q4_K_M"  # Default: MoE, balanced
 
 The earlier multi-tier escalation design (`docs/MODEL_TIERS.md`) is preserved for reference but not currently used.
 
-## Co-op Mode Details
+## Splitscreen Mode Details
 
-When running in co-op mode, the agent:
+When running with `--mode splitscreen`, the agent:
 1. Captures only the right half of the screen (Player 2's view)
-2. Uses virtual Xbox controller as Player 2 input
+2. Uses SMAPI mod API for actions
 3. Stardew Valley must be in split-screen co-op mode
 
-Controller mapping:
-- A: Use tool / Confirm
-- B: Cancel / Back
-- X: Check / Interact
-- Y: Inventory / Menu
-- Left stick: Movement
+**Note:** Single player mode is the current focus. Splitscreen mode is for future co-op support.
 
 ## Development Team
 
