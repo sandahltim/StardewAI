@@ -825,6 +825,16 @@ class ModBridgeController:
             logging.debug(f"Failed to get surroundings: {e}")
         return None
 
+    def get_farm(self) -> Optional[Dict[str, Any]]:
+        """Get Farm state regardless of current location - for morning planning."""
+        try:
+            resp = httpx.get(f"{self.base_url}/farm", timeout=5)
+            if resp.status_code == 200:
+                return resp.json().get("data", {})
+        except Exception as e:
+            logging.debug(f"Failed to get farm state: {e}")
+        return None
+
     def format_surroundings(self) -> str:
         """Format surroundings as text for VLM prompt with facing direction emphasis."""
         data = self.get_surroundings()
@@ -3245,7 +3255,11 @@ class StardewAgent:
                 logging.info(f"🌅 New day detected: Day {day} - generating plan...")
                 # Pass VLM reasoning function if available
                 reason_fn = self._vlm_reason if hasattr(self, '_vlm_reason') else None
-                plan_summary = self.daily_planner.start_new_day(day, season, state, reason_fn)
+                # Get farm state for planning (works even when in FarmHouse)
+                farm_state = None
+                if hasattr(self.controller, 'get_farm'):
+                    farm_state = self.controller.get_farm()
+                plan_summary = self.daily_planner.start_new_day(day, season, state, reason_fn, farm_state)
                 logging.info(f"📋 Daily plan:\n{plan_summary}")
                 self._last_planned_day = day
 

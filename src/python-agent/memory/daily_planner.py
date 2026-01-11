@@ -114,6 +114,7 @@ class DailyPlanner:
         season: str,
         game_state: Dict[str, Any],
         reason_fn: Optional[callable] = None,
+        farm_state: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Called when a new game day starts. Generates the daily plan.
@@ -123,6 +124,7 @@ class DailyPlanner:
             season: Current season
             game_state: Full game state for context
             reason_fn: Optional async function(prompt) -> str for VLM reasoning
+            farm_state: Farm-specific state (crops, objects) from /farm endpoint
 
         Returns:
             Rusty's morning plan as a string (for VLM context)
@@ -137,7 +139,8 @@ class DailyPlanner:
         self.morning_plan_done = True
 
         # Generate tasks based on game state (rule-based baseline)
-        self._generate_farming_tasks(game_state)
+        # Use farm_state if available (works when player is in FarmHouse)
+        self._generate_farming_tasks(game_state, farm_state)
         self._generate_maintenance_tasks(game_state)
         self._generate_social_tasks(game_state)
 
@@ -322,7 +325,11 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         # Re-sort after changes
         self.tasks.sort(key=lambda t: t.priority)
 
-    def _generate_farming_tasks(self, state: Dict[str, Any]) -> None:
+    def _generate_farming_tasks(
+        self,
+        state: Dict[str, Any],
+        farm_state: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """Generate farming-related tasks based on game state.
 
         STANDARD DAILY ROUTINE (in priority order):
@@ -331,14 +338,27 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         3. Crops ready → harvest (HIGH - money and clear space)
         4. Seeds in inventory → plant (HIGH - grow more crops)
         5. Nothing else → clear debris (MEDIUM - expand farm)
+
+        Args:
+            state: Current game state (player location, inventory)
+            farm_state: Optional farm-specific state from /farm endpoint
+                       (allows seeing crops when player is in FarmHouse)
         """
         # Handle SMAPI response structure: {success, data: {...}, error}
         # OR already-extracted data: {player, location, time, ...}
         data = state.get("data") or state
         location = data.get("location", {})
-        crops = location.get("crops", [])
         player = data.get("player", {})
         inventory = player.get("inventory", [])
+
+        # Use farm_state crops if available (works from FarmHouse)
+        # Otherwise fall back to current location crops
+        if farm_state and farm_state.get("crops"):
+            crops = farm_state.get("crops", [])
+            logger.info(f"📊 Using /farm endpoint: {len(crops)} crops on farm")
+        else:
+            crops = location.get("crops", [])
+            logger.debug(f"📊 Using location crops: {len(crops)} (fallback)")
 
         # PRIORITY 1: Incomplete tasks from yesterday (carried over)
         if self.yesterday_notes and "incomplete" in self.yesterday_notes.lower():
