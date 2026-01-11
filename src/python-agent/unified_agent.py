@@ -2898,8 +2898,19 @@ class StardewAgent:
             return None
         player_pos = (tile_x, tile_y)
 
+        # Check if we need to warp to Farm first (can't farm from inside FarmHouse)
+        location = data.get("location", {}).get("name", "")
+        if location == "FarmHouse":
+            logging.info("🌱 Cell farming: Player in FarmHouse → warping to Farm")
+            return Action(
+                action_type="warp",
+                params={"location": "Farm"},
+                description="Warp to Farm for cell farming"
+            )
+
         # Get current cell
         cell = self.cell_coordinator.get_current_cell()
+        logging.debug(f"🌱 _process_cell_farming: player={player_pos}, cell={cell}")
         if not cell:
             # All cells complete - finish cell farming
             self._finish_cell_farming()
@@ -2907,6 +2918,7 @@ class StardewAgent:
 
         # Check if we need to navigate to this cell
         nav_target = self.cell_coordinator.get_navigation_target(cell, player_pos)
+        logging.info(f"🌱 Cell ({cell.x},{cell.y}): player={player_pos}, nav_target={nav_target}")
         if player_pos != nav_target:
             # Need to move to adjacent position
             dx = nav_target[0] - player_pos[0]
@@ -2916,7 +2928,7 @@ class StardewAgent:
             else:
                 direction = "south" if dy > 0 else "north"
 
-            logging.debug(f"🌱 Cell ({cell.x},{cell.y}): Moving {direction} to {nav_target}")
+            logging.info(f"🌱 Cell ({cell.x},{cell.y}): Moving {direction} to {nav_target}")
             return Action(
                 action_type="move",
                 params={"direction": direction},
@@ -2924,8 +2936,18 @@ class StardewAgent:
             )
 
         # We're at the right position - execute cell actions
-        if not self._current_cell_actions or self._cell_action_index >= len(self._current_cell_actions):
-            # Need to start or restart cell execution
+        # Check if we just finished all actions for this cell
+        if self._current_cell_actions and self._cell_action_index >= len(self._current_cell_actions):
+            # All actions for this cell complete
+            logging.info(f"🌱 Cell ({cell.x},{cell.y}): Complete!")
+            self.cell_coordinator.mark_cell_complete(cell)
+            self._current_cell_actions = []
+            self._cell_action_index = 0
+            return None  # Will process next cell on next tick
+
+        # Check if we need to start a new cell
+        if not self._current_cell_actions:
+            # Start fresh cell execution
             # Compute facing direction
             facing = self.cell_coordinator.get_facing_direction(cell, player_pos)
             cell.target_direction = facing
@@ -2974,12 +2996,8 @@ class StardewAgent:
                 description=f"Cell ({cell.x},{cell.y}): {action_type}"
             )
 
-        # All actions for this cell complete
-        logging.info(f"🌱 Cell ({cell.x},{cell.y}): Complete!")
-        self.cell_coordinator.mark_cell_complete(cell)
-        self._current_cell_actions = []
-        self._cell_action_index = 0
-        return None  # Will process next cell on next tick
+        # No more actions (should be caught by completion check at start)
+        return None
 
     def _finish_cell_farming(self) -> None:
         """
@@ -3050,6 +3068,17 @@ class StardewAgent:
         # Don't start if executor is already active
         if self.task_executor.is_active():
             return False
+
+        # Don't start tasks if daily plan hasn't been created yet for today
+        # This prevents race condition on first tick where tasks run before planning
+        state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if state:
+            data = state.get("data") or state
+            time_data = data.get("time", {})
+            current_day = time_data.get("day", 0)
+            if current_day > 0 and current_day != self._last_planned_day:
+                logging.debug(f"🎯 _try_start_daily_task: waiting for daily plan (day {current_day})")
+                return False
 
         # Check if cell farming should take over for plant_seeds
         # This bypasses the separate clear_debris, till_soil, plant_seeds prereqs
