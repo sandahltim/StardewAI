@@ -79,6 +79,8 @@ class SkillLoader:
                             params["direction"] = value
                         elif action_type == "face":
                             params["direction"] = value
+                        elif action_type == "harvest":
+                            params["direction"] = value
                         elif action_type == "warp":
                             params["location"] = value
                         else:
