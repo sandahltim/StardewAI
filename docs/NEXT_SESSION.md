@@ -58,9 +58,40 @@ TaskExecutor now handles tasks that don't require skill execution:
 
 ---
 
+## Bugs Found in Testing
+
+### 1. Can't See Crops From FarmHouse (CRITICAL)
+
+**Problem:** DailyPlanner runs at 6AM when Rusty is in FarmHouse. SMAPI only returns crops for current location → Farm crops = 0 during planning.
+
+**Evidence:**
+```
+Location: FarmHouse, crops: 0  ← planning happens here
+...warp to Farm...
+Location: Farm, crops: 15     ← crops exist but too late
+```
+
+**Solutions:**
+- A) SMAPI endpoint for global farm state (all locations)
+- B) Memory: Store yesterday's farm state for planning
+- C) Warp to Farm first, plan, then proceed
+
+### 2. Need Bedtime Notes
+
+Rusty should document at end of day:
+- What crops he has planted (type, count, days to harvest)
+- What he harvested today
+- What he shipped
+- What's in inventory
+- Money earned/spent
+
+This enables smarter morning planning.
+
+---
+
 ## Session 60 Priorities
 
-### 1. Live Test Full Flow
+### 1. Fix Crop Visibility for Planning
 
 ```bash
 cd /home/tim/StardewAI && source venv/bin/activate
