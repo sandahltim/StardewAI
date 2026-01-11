@@ -1,100 +1,96 @@
-# Session 58: TaskExecutor Working - Next Steps
+# Session 58: Precondition System Testing
 
 **Last Updated:** 2026-01-11 Session 57 by Claude
-**Status:** TaskExecutor fully working! Ready for next improvements.
+**Status:** TaskExecutor working + precondition checking added. Needs testing.
 
 ---
 
 ## Session 57 Accomplishments
 
-### BUG FIXED: TaskExecutor Now Activates!
+### 1. BUG FIXED: TaskExecutor Activation
 
-**Root Cause:** State format mismatch
-- `controller.get_state()` already extracts `response.data`, returning `{location, player, ...}`
-- But `_try_start_daily_task()` and `TargetGenerator` expected wrapped format `{success, data, error}`
-- Result: `state.get("data")` returned `None`, causing empty location name
+**Root Cause:** State format mismatch - `controller.get_state()` returns unwrapped data, but code expected wrapped format.
 
-**Fix Applied:**
-```python
-# OLD (broken)
-data = state.get("data") or {}
+**Fix:** `data = state.get("data") or state` in 4 locations.
 
-# NEW (handles both formats)
-data = state.get("data") or state
+### 2. NEW: Precondition Checking System
+
+**Problem Observed:** TaskExecutor tried to water crops with empty watering can, causing phantom failures.
+
+**Solution:** Added `_check_preconditions()` method to TaskExecutor that:
+- Checks watering can water level before water_crops
+- Returns refill_watering_can action if empty
+- New state: `TaskState.NEEDS_REFILL`
+
+**Code Flow:**
 ```
-
-Fixed in 4 locations:
-- `unified_agent._try_start_daily_task()`
-- `target_generator._extract_crops()`
-- `target_generator._extract_objects()`
-- `target_generator._extract_tiles()`
-
-### Verified Working
-
-```
-🎯 TaskExecutor: Started water_crops with 15 targets (strategy=row_by_row)
-🎯 Started task: water_crops (15 targets)
-🎭 Event-driven commentary: [task_started] Starting water_crops with 15 targets
-✅ Skill refill_watering_can completed
-🎯 TaskExecutor: move → Moving north toward target at (62, 18)
-🎯 TaskExecutor: move → Moving west toward target at (62, 18)
+get_next_action()
+    → _check_preconditions()  # NEW
+        → If water_crops AND wateringCanWater == 0
+        → Return refill_watering_can action
+    → If preconditions OK, continue with normal execution
 ```
 
 ---
 
 ## Session 58 Priorities
 
-### 1. Test Full Watering Cycle
+### 1. Test Precondition System
 
-Run agent and verify:
-- [ ] TaskExecutor waters all crops row-by-row
-- [ ] Event-driven commentary triggers at milestones (25%, 50%, 75%, complete)
-- [ ] Daily planner marks task complete
-- [ ] Agent moves to next task (clear debris or explore)
+The precondition code is in place but wasn't triggered in testing (crops were already watered). Need to verify:
 
 ```bash
 cd /home/tim/StardewAI && source venv/bin/activate
-python src/python-agent/unified_agent.py --ui --goal "Farm maintenance"
+
+# Start a new day where watering can is empty
+python src/python-agent/unified_agent.py --ui --goal "Water all crops"
+
+# Watch for logs:
+# 💧 Watering can empty (0/40) - need to refill first
+# 🎯 TaskExecutor: refill_watering_can
 ```
 
-### 2. Wake-Up Routine
+### 2. Extend Preconditions (Future)
 
-Player starts in FarmHouse. Needs to:
-1. Exit door (currently auto-handled?)
-2. Navigate to farm area
-3. Start farming tasks
+The system is designed to be extensible:
 
-Test and document wake-up flow.
+| Task | Precondition | Recovery Action |
+|------|--------------|-----------------|
+| `water_crops` | ✅ watering can has water | `refill_watering_can` |
+| `plant_seeds` | 📋 have seeds in inventory | `go_to_pierre` → `buy_seeds` |
+| `clear_debris` | (auto-handled by skill) | - |
 
-### 3. Commentary System Tuning
+### 3. Test Full Watering Cycle
 
-Event-driven commentary is implemented. Check if:
-- Triggers are appropriate (not too frequent/sparse)
-- VLM provides useful observations during milestones
-- Fallback every 5 ticks works for quiet periods
+Once preconditions work:
+- [ ] Rusty refills can when empty
+- [ ] Waters all crops row-by-row
+- [ ] Refills again if can runs out mid-task
+- [ ] Completes task and moves to next
 
 ---
 
-## Architecture (Now Working!)
+## Architecture Update
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    DAILY PLANNER ✅ WORKING                  │
+│                    DAILY PLANNER ✅                          │
 │  Generates prioritized tasks from SMAPI state               │
 └─────────────────────────┬───────────────────────────────────┘
                           │ tasks
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              TASK EXECUTOR ✅ WORKING                        │
-│  Deterministic row-by-row execution                         │
-│  Event-driven VLM triggers                                  │
+│              TASK EXECUTOR ✅ + PRECONDITIONS               │
+│  1. Check preconditions (watering can, seeds, etc.)         │
+│  2. Return prerequisite action if not met                   │
+│  3. Execute task row-by-row if preconditions OK            │
 └─────────────────────────┬───────────────────────────────────┘
                           │ actions
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              SKILL EXECUTOR ✅ WORKING                       │
-│  water_crop → [select_slot, face, use_tool]                │
+│              SKILL EXECUTOR ✅                               │
 │  refill_watering_can → [select_slot, wait, face, use_tool] │
+│  water_crop → [select_slot, face, use_tool]                │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -104,8 +100,9 @@ Event-driven commentary is implemented. Check if:
 
 | File | Change |
 |------|--------|
-| `unified_agent.py` | Fixed state format in `_try_start_daily_task()` |
-| `execution/target_generator.py` | Fixed state format in 3 extract methods |
+| `unified_agent.py` | Fixed state format, pass game_state to TaskExecutor |
+| `execution/target_generator.py` | Fixed state format in extract methods |
+| `execution/task_executor.py` | Added precondition checking system |
 
 ---
 
@@ -113,6 +110,9 @@ Event-driven commentary is implemented. Check if:
 
 ```
 72a7f01 Fix state format mismatch in TaskExecutor activation
+5fbf25f Update NEXT_SESSION.md for Session 57 handoff
+fd20193 Update TEAM_PLAN.md for Session 57
+1185e0a Add precondition checking to TaskExecutor
 ```
 
 ---
@@ -126,16 +126,17 @@ cd /home/tim/StardewAI && source venv/bin/activate
 # Run agent with UI
 python src/python-agent/unified_agent.py --ui --goal "Water all crops"
 
-# Check services
-curl -s http://localhost:8790/state | python -m json.tool | head -20
-curl -s http://localhost:8780/health
-
-# Watch agent logs
-tail -f logs/agent.log
+# Check watering can status
+curl -s http://localhost:8790/state | python -c "
+import sys, json
+d = json.load(sys.stdin)
+p = d['data']['player']
+print(f'Watering Can: {p[\"wateringCanWater\"]}/{p[\"wateringCanMax\"]}')
+"
 ```
 
 ---
 
-*Session 57: TaskExecutor activation FIXED! State format mismatch resolved. Ready for end-to-end testing.*
+*Session 57: TaskExecutor fixed + precondition system added. Ready for testing.*
 
 *— Claude (PM), Session 57*
