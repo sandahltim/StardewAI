@@ -2860,11 +2860,34 @@ class StardewAgent:
     def _fix_no_seeds(self, actions: List[Action]) -> List[Action]:
         """
         Override: If we have no seeds and Pierre's is open, force go_to_pierre.
+        If already at Pierre's, force buy_parsnip_seeds.
         This prevents the agent from endlessly farming or clearing when it should buy seeds.
         """
         if not actions:
             return actions
 
+        # Get state to check inventory and location
+        state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if not state:
+            return actions
+
+        location = state.get("location", {}).get("name", "")
+
+        # Check for seeds in inventory (used in both branches)
+        inventory = state.get("inventory", [])
+        has_seeds = any(item and ("Seed" in item.get("name", "") or item.get("name") == "Mixed Seeds")
+                       for item in inventory if item)
+
+        # If at Pierre's (SeedShop), force buy seeds regardless of VLM action
+        if location == "SeedShop":
+            if not has_seeds:
+                money = state.get("player", {}).get("money", 0)
+                if money >= 20:
+                    logging.info(f"🛒 OVERRIDE: In SeedShop with no seeds → buy_parsnip_seeds (have {money}g)")
+                    return [Action("buy_parsnip_seeds", {}, f"Buy seeds at Pierre's ({money}g available)")]
+            return actions  # Has seeds or can't afford, proceed normally
+
+        # Not at Pierre's - check if we should force navigation there
         # Override farming AND debris actions when no seeds
         override_actions = {"clear_stone", "clear_wood", "clear_weeds", "clear_debris",
                            "chop_tree", "mine_boulder", "break_stone",
@@ -2874,16 +2897,6 @@ class StardewAgent:
         first_action = actions[0].action_type if actions else ""
         if first_action not in override_actions:
             return actions  # Not a farming/debris action, let it through
-
-        # Get state to check inventory and time
-        state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
-        if not state:
-            return actions
-
-        location = state.get("location", {}).get("name", "")
-        # Only apply when on farm (not already at Pierre's)
-        if location == "SeedShop":
-            return actions  # Already at Pierre's
 
         # Check for seeds in inventory
         inventory = state.get("inventory", [])
