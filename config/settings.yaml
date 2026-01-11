@@ -176,7 +176,6 @@ model:
     RESPOND WITH ONLY A JSON OBJECT. Nothing before or after it.
 
     {
-      "inner_monologue": "WRITE YOUR ACTUAL THOUGHTS FIRST - what you're thinking/feeling RIGHT NOW about what you see and what you're about to do. Be specific to THIS moment. Never repeat yourself. 2-4 flowing sentences of genuine self-talk, like you're thinking out loud. Reference specific things you see in the screenshot.",
       "perception": {
         "location": "Farm|Town|Beach|Mine|Forest|House|Shop|Other",
         "ground_type": "lawn|farmable|tilled|watered (only when on Farm)",
@@ -193,6 +192,7 @@ model:
         "next_step": "clear|till|plant|water|move (what's the NEXT action needed?)"
       },
       "reasoning": "what you're thinking (1-2 sentences)",
+      "inner_monologue": "React to what you're DOING right now. 2-3 sentences of self-talk about THIS specific action. Be sarcastic, funny, self-aware. Example if planting: 'Another seed. That makes... however many. I've lost count. The farm grows whether I count or not.' Example if watering: 'Splash. Plant seems happy. Or indifferent. Hard to tell with vegetables.'",
       "actions": [
         {"type": "face", "direction": "east"},
         {"type": "use_tool"}

@@ -2740,14 +2740,14 @@ class StardewAgent:
     def _fix_priority_shipping(self, actions: List[Action]) -> List[Action]:
         """
         Override: If we have sellable crops in inventory, prioritize shipping over other tasks.
-        This ensures agent ships crops before clearing debris or tilling.
+        AGGRESSIVE: Override ALL actions except critical ones until crops are shipped.
         """
         if not actions:
             return actions
 
-        # Check if already shipping or doing important tasks
-        skip_actions = {"ship_item", "go_to_bed", "harvest", "water_crop", "refill_watering_can"}
-        if any(a.action_type in skip_actions for a in actions):
+        # Only allow these through - everything else gets overridden
+        critical_actions = {"ship_item", "go_to_bed", "harvest", "water_crop", "refill_watering_can", "warp"}
+        if any(a.action_type in critical_actions for a in actions):
             return actions
 
         # Get state to check inventory and location
@@ -2785,27 +2785,26 @@ class StardewAgent:
             logging.info(f"📦 OVERRIDE: Have {total_to_ship} sellables in FarmHouse → warp to Farm")
             return [Action("warp", {"location": "Farm"}, f"Auto-warp to ship {total_to_ship} crops")]
 
-        # If adjacent to shipping bin, ship
-        if dist <= 1:
+        # If adjacent to shipping bin (dist <= 2 to be safe), ship immediately
+        if dist <= 2:
             face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
-            logging.info(f"📦 OVERRIDE: At shipping bin → ship_item")
+            logging.info(f"📦 OVERRIDE: At shipping bin (dist={dist}) → ship_item")
             return [Action("face", {"direction": face_dir}, "Face bin"),
                     Action("ship_item", {}, f"Ship {total_to_ship} crops")]
 
-        # If doing non-shipping task (till, clear), override to move toward bin
-        non_priority_tasks = {"till_soil", "clear_stone", "clear_twig", "clear_weeds", "clear_wood", "use_tool"}
-        if any(a.action_type in non_priority_tasks for a in actions):
-            # Calculate direction to shipping bin
-            if abs(dy) > abs(dx):
-                direction = "north" if dy < 0 else "south"
-                tiles = min(abs(dy), 5)  # Move up to 5 tiles at a time
-            else:
-                direction = "west" if dx < 0 else "east"
-                tiles = min(abs(dx), 5)
-            logging.info(f"📦 OVERRIDE: Have {total_to_ship} sellables → move {direction} toward bin (dist={dist})")
-            return [Action("move", {"direction": direction, "tiles": tiles}, f"Move to ship {total_to_ship} crops")]
-
-        return actions
+        # AGGRESSIVE: Override ANY action to move toward bin when we have sellables
+        original_action = actions[0].action_type if actions else "unknown"
+        
+        # Calculate direction to shipping bin
+        if abs(dy) > abs(dx):
+            direction = "north" if dy < 0 else "south"
+            tiles = min(abs(dy), 5)  # Move up to 5 tiles at a time
+        else:
+            direction = "west" if dx < 0 else "east"
+            tiles = min(abs(dx), 5)
+        
+        logging.info(f"📦 OVERRIDE: VLM wanted '{original_action}' but have {total_to_ship} sellables → move {direction} toward bin (dist={dist})")
+        return [Action("move", {"direction": direction, "tiles": tiles}, f"Move to ship {total_to_ship} crops")]
 
     def _vlm_reason(self, prompt: str) -> Optional[str]:
         """Use VLM for reasoning/planning (synchronous wrapper).
