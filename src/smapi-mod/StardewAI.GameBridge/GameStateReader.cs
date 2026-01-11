@@ -45,6 +45,101 @@ public class GameStateReader
         };
     }
 
+    /// <summary>
+    /// Read Farm state regardless of player's current location.
+    /// Used for morning planning when player is in FarmHouse.
+    /// </summary>
+    public FarmState ReadFarmState()
+    {
+        if (!Context.IsWorldReady)
+            return null;
+
+        var farm = Game1.getFarm();
+        if (farm == null)
+            return null;
+
+        var state = new FarmState
+        {
+            Name = farm.Name,
+            MapWidth = farm.Map?.Layers[0]?.LayerWidth ?? 0,
+            MapHeight = farm.Map?.Layers[0]?.LayerHeight ?? 0,
+            ShippingBin = new TilePosition { X = 71, Y = 14 }
+        };
+
+        // Read ALL crops on farm (no distance limit)
+        foreach (var pair in farm.terrainFeatures.Pairs)
+        {
+            if (pair.Value is HoeDirt dirt && dirt.crop != null)
+            {
+                var pos = pair.Key;
+                var crop = dirt.crop;
+
+                // Calculate actual days until harvest
+                int daysRemaining = 0;
+                if (!crop.fullyGrown.Value)
+                {
+                    var phases = crop.phaseDays;
+                    int currentPhase = crop.currentPhase.Value;
+                    int dayInPhase = crop.dayOfCurrentPhase.Value;
+
+                    if (currentPhase < phases.Count)
+                    {
+                        daysRemaining = Math.Max(0, phases[currentPhase] - dayInPhase);
+                    }
+
+                    for (int i = currentPhase + 1; i < phases.Count - 1; i++)
+                    {
+                        daysRemaining += phases[i];
+                    }
+                }
+
+                state.Crops.Add(new CropInfo
+                {
+                    X = (int)pos.X,
+                    Y = (int)pos.Y,
+                    CropName = GetCropName(crop),
+                    DaysUntilHarvest = daysRemaining,
+                    IsWatered = dirt.state.Value == HoeDirt.watered,
+                    IsReadyForHarvest = crop.currentPhase.Value >= crop.phaseDays.Count - 1
+                });
+            }
+        }
+
+        // Read debris/objects on farm (for clearing tasks)
+        foreach (var pair in farm.objects.Pairs)
+        {
+            var pos = pair.Key;
+            var obj = pair.Value;
+
+            state.Objects.Add(new TileObject
+            {
+                X = (int)pos.X,
+                Y = (int)pos.Y,
+                Name = obj.DisplayName ?? obj.Name,
+                Type = obj.Type,
+                IsPassable = obj.isPassable(),
+                IsForageable = obj.isForage(),
+                CanInteract = false,
+                InteractionType = null
+            });
+        }
+
+        // Count tilled empty tiles (for planting)
+        foreach (var pair in farm.terrainFeatures.Pairs)
+        {
+            if (pair.Value is HoeDirt dirt && dirt.crop == null)
+            {
+                state.TilledTiles.Add(new TilePosition
+                {
+                    X = (int)pair.Key.X,
+                    Y = (int)pair.Key.Y
+                });
+            }
+        }
+
+        return state;
+    }
+
     /// <summary>Read immediate surroundings in each direction (up to N tiles).</summary>
     public SurroundingsState ReadSurroundings(int maxTiles = 5)
     {

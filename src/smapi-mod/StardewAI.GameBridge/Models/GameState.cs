@@ -161,3 +161,15 @@ public class DirectionInfo
     public int TilesUntilBlocked { get; set; }
     public string Blocker { get; set; }
 }
+
+/// <summary>Farm state - accessible from any location for planning</summary>
+public class FarmState
+{
+    public string Name { get; set; }
+    public int MapWidth { get; set; }
+    public int MapHeight { get; set; }
+    public TilePosition ShippingBin { get; set; }
+    public List<CropInfo> Crops { get; set; } = new();
+    public List<TileObject> Objects { get; set; } = new();
+    public List<TilePosition> TilledTiles { get; set; } = new();
+}

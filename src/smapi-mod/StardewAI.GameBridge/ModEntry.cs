@@ -20,6 +20,7 @@ public class ModEntry : Mod
     private GameStateReader _stateReader;
     private ActionExecutor _actionExecutor;
     private volatile SurroundingsState _cachedSurroundings;
+    private volatile FarmState _cachedFarmState;
 
     // Thread-safe queues for cross-thread communication
     private readonly ConcurrentQueue<(ActionCommand Command, Action<ActionResult> Callback)> _actionQueue = new();
@@ -41,6 +42,7 @@ public class ModEntry : Mod
         _httpServer = new HttpServer(HttpPort, Monitor);
         _httpServer.GetGameState = () => _cachedState;
         _httpServer.GetSurroundings = () => _cachedSurroundings;
+        _httpServer.GetFarmState = () => _cachedFarmState;
         _httpServer.QueueAction = QueueActionFromHttp;
         _httpServer.Start();
 
@@ -83,6 +85,7 @@ public class ModEntry : Mod
             {
                 _cachedState = _stateReader.ReadState();
                 _cachedSurroundings = _stateReader.ReadSurroundings();
+                _cachedFarmState = _stateReader.ReadFarmState();
             }
             catch (Exception ex)
             {

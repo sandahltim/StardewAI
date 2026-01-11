@@ -22,6 +22,7 @@ public class HttpServer : IDisposable
     public Func<GameState> GetGameState { get; set; }
     public Func<ActionCommand, ActionResult> QueueAction { get; set; }
     public Func<SurroundingsState> GetSurroundings { get; set; }
+    public Func<FarmState> GetFarmState { get; set; }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -100,6 +101,7 @@ public class HttpServer : IDisposable
                 ("GET", "/health") => HandleHealth(),
                 ("GET", "/state") => HandleGetState(),
                 ("GET", "/surroundings") => HandleGetSurroundings(),
+                ("GET", "/farm") => HandleGetFarm(),
                 ("POST", "/action") => HandleAction(request),
                 _ => JsonSerializer.Serialize(ApiResponse<object>.Fail($"Unknown endpoint: {method} {path}"), JsonOptions)
             };
@@ -183,6 +185,25 @@ public class HttpServer : IDisposable
         catch (Exception ex)
         {
             return JsonSerializer.Serialize(ApiResponse<SurroundingsState>.Fail($"Error reading surroundings: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandleGetFarm()
+    {
+        if (GetFarmState == null)
+            return JsonSerializer.Serialize(ApiResponse<FarmState>.Fail("Farm state reader not initialized"), JsonOptions);
+
+        try
+        {
+            var farmState = GetFarmState();
+            if (farmState == null)
+                return JsonSerializer.Serialize(ApiResponse<FarmState>.Fail("No farm state available (not in game?)"), JsonOptions);
+
+            return JsonSerializer.Serialize(ApiResponse<FarmState>.Ok(farmState), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<FarmState>.Fail($"Error reading farm state: {ex.Message}"), JsonOptions);
         }
     }
 
