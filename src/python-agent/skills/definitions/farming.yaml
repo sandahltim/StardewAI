@@ -364,7 +364,7 @@ chop_tree:
 # =============================================================================
 
 ship_item:
-  description: "Put item in shipping bin to sell overnight"
+  description: "Put held crop in shipping bin to sell overnight (auto-selects crop)"
   category: farming
   energy_cost: 0
 
@@ -376,8 +376,9 @@ ship_item:
         category: sellable
 
   actions:
+    - select_item_type: crop  # Auto-select first crop to ship
     - face: "{target_direction}"
-    - interact
+    - interact  # Places held item in bin
 
   on_success:
     message: "Shipped {item_name} - will sell overnight"

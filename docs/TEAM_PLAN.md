@@ -22,7 +22,7 @@
 
 ---
 
-## Current Status (Session 44)
+## Current Status (Session 49)
 
 ### What's Working
 | Component | Status | Session |
@@ -42,20 +42,23 @@
 | go_to_bed skill | ✅ Fixed | 41 |
 | Obstacle Failure Tolerance | ✅ New | 42 |
 | Crop Protection (till blocker) | ✅ New | 42 |
-| **State-Change Detection** | ✅ New | 44 |
-| **Daily Planning System** | ✅ New | 44 |
-| **VLM Text Reasoning** | ✅ New | 44 |
+| State-Change Detection | ✅ Working | 44 |
+| Daily Planning System | ✅ Working | 44 |
+| VLM Text Reasoning | ✅ Working | 44 |
 | Daily Plan UI Panel | ✅ Codex | 44 |
 | Action Failure UI Panel | ✅ Codex | 44 |
+| Growing Crop Hint Fix | ✅ Fixed | 48 |
+| Harvest Action (proper SMAPI) | ✅ Fixed | 48 |
+| **Shipping Hint System** | ✅ New | 49 |
+| **Priority Action Override** | ⚠️ WIP | 49 |
+| **ship_item Auto-Select** | ✅ Fixed | 49 |
 
 ### Current Focus
 | Task | Status |
 |------|--------|
 | Multi-day autonomy test | In progress |
-| State-change detection for tool failures | ✅ Implemented (Session 44) |
-| Daily planning system (Rusty's inner monologue) | ✅ Implemented (Session 44) |
-| **Fix positioning bug** | **CRITICAL** (Session 46) |
-| Verify daily planner triggers on day change | Testing |
+| **Shipping workflow** | **PRIORITY** - hints work, VLM ignores them |
+| Action override for shipping | ⚠️ Needs expansion |
 | Task completion tracking in planner | Not started |
 
 ---
