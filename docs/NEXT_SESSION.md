@@ -30,6 +30,11 @@
    - `logger.debug` → `logging.debug` (lines 2912, 2915)
    - `shipping_bin` None handling with `or {}` (lines 1307, 1402, 2776)
 
+5. **Fixed ship_item Skill** ✅
+   - Added `select_item_type: crop` before face/interact
+   - Agent now auto-selects first crop when at shipping bin
+   - File: `skills/definitions/farming.yaml:378-381`
+
 ### What's NOT Working
 
 **VLM Ignores Shipping Hints**
