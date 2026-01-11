@@ -17,6 +17,20 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Import PrereqResolver for resolving task prerequisites
+try:
+    from planning.prereq_resolver import (
+        PrereqResolver,
+        ResolvedTask,
+        ResolutionResult,
+        get_prereq_resolver,
+    )
+    HAS_PREREQ_RESOLVER = True
+except ImportError:
+    HAS_PREREQ_RESOLVER = False
+    ResolvedTask = None
+    ResolutionResult = None
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_PERSIST_PATH = "logs/daily_plan.json"
@@ -72,6 +86,12 @@ class DailyPlanner:
         self.current_season: str = "spring"
         self.tasks: List[DailyTask] = []
         self.morning_plan_done: bool = False
+
+        # Resolved task queue (with prereqs baked in)
+        # This is the EXECUTION order after PrereqResolver processes raw tasks
+        self.resolved_queue: List[Any] = []  # List of ResolvedTask
+        self.resolution_notes: List[str] = []  # Memory notes from resolution
+        self.skipped_tasks: List[tuple] = []  # (task_id, reason) pairs
 
         # Day summary (populated at end of day)
         self.day_summary: Dict[str, Any] = {}
@@ -131,8 +151,83 @@ class DailyPlanner:
             except Exception as e:
                 logger.warning(f"VLM reasoning failed: {e}")
 
+        # Resolve prerequisites and create execution queue
+        self._resolve_prerequisites(game_state)
+
         self._persist()
         return self.get_plan_summary()
+
+    def _resolve_prerequisites(self, game_state: Dict[str, Any]) -> None:
+        """
+        Resolve prerequisites for all tasks and create ordered execution queue.
+
+        This is called AFTER raw tasks are generated. It:
+        1. Checks what resources each task needs (water, seeds, money)
+        2. Inserts prerequisite actions where needed (refill, buy, sell)
+        3. Skips tasks with unresolvable prereqs (notes for memory)
+
+        The resolved_queue is what TaskExecutor should execute.
+        """
+        if not HAS_PREREQ_RESOLVER:
+            logger.warning("PrereqResolver not available - using raw task list")
+            # Fallback: convert tasks to simple queue without prereq resolution
+            self.resolved_queue = [
+                {"task_type": self._infer_task_type(t.description),
+                 "description": t.description,
+                 "original_task_id": t.id}
+                for t in self.tasks
+            ]
+            return
+
+        try:
+            resolver = get_prereq_resolver()
+            result = resolver.resolve(self.tasks, game_state)
+
+            self.resolved_queue = result.resolved_queue
+            self.skipped_tasks = result.skipped_tasks
+            self.resolution_notes = result.notes_for_memory
+
+            # Log resolution summary
+            logger.info(resolver.get_queue_summary(result))
+
+            # Log skipped tasks for user awareness
+            for task_id, reason in result.skipped_tasks:
+                logger.warning(f"⚠️ Task skipped: {task_id} - {reason}")
+
+        except Exception as e:
+            logger.error(f"PrereqResolver failed: {e}")
+            # Fallback to raw tasks
+            self.resolved_queue = []
+
+    def _infer_task_type(self, description: str) -> str:
+        """Infer task type from description (fallback when PrereqResolver unavailable)."""
+        desc_lower = description.lower()
+        if "water" in desc_lower:
+            return "water_crops"
+        elif "harvest" in desc_lower:
+            return "harvest_crops"
+        elif "plant" in desc_lower:
+            return "plant_seeds"
+        elif "clear" in desc_lower:
+            return "clear_debris"
+        return "unknown"
+
+    def get_resolved_queue(self) -> List[Any]:
+        """Get the resolved task queue for TaskExecutor."""
+        return self.resolved_queue
+
+    def get_next_resolved_task(self) -> Optional[Any]:
+        """Get the next task from resolved queue (first pending one)."""
+        for task in self.resolved_queue:
+            # Check if task is not yet completed
+            task_id = task.original_task_id if hasattr(task, 'original_task_id') else task.get('original_task_id')
+            daily_task = self._find_task(task_id) if task_id else None
+            if daily_task and daily_task.status in ("pending", "in_progress"):
+                return task
+            elif not daily_task:
+                # Prereq task - check if already done somehow
+                return task
+        return None
 
     def _reason_about_plan(self, game_state: Dict[str, Any], reason_fn: callable) -> None:
         """

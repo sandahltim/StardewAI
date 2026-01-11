@@ -67,7 +67,7 @@ except ImportError:
     HAS_SKILLS = False
 
 try:
-    from execution import TaskExecutor, SortStrategy
+    from execution import TaskExecutor, SortStrategy, TaskState
     HAS_TASK_EXECUTOR = True
 except ImportError:
     TaskExecutor = None
@@ -2765,14 +2765,17 @@ class StardewAgent:
 
     def _try_start_daily_task(self) -> bool:
         """
-        Try to start the next pending task from daily planner.
+        Try to start the next task from the RESOLVED queue.
 
-        Maps daily planner task categories to TaskExecutor task types.
+        Uses PrereqResolver's ordered queue (with prereqs baked in) instead
+        of keyword-matching raw tasks. This ensures:
+        1. Prerequisites execute before main tasks
+        2. No VLM override of task order
+        3. Locked execution until queue complete or 2hr re-plan
+
         Returns True if a task was started, False otherwise.
         """
-        logging.info("🎯 _try_start_daily_task called")
         if not self.task_executor or not self.daily_planner:
-            logging.info(f"🎯 _try_start_daily_task: no executor ({self.task_executor}) or planner ({self.daily_planner})")
             return False
 
         # Don't start if executor is already active
@@ -2782,79 +2785,143 @@ class StardewAgent:
         # Get current game state for target generation
         state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
         if not state:
-            logging.debug("🎯 _try_start_daily_task: no state")
             return False
 
-        # Only start farming tasks when on the Farm (crops/debris only exist there)
-        # Handle both wrapped {success, data, error} and already-extracted {location, player, ...} formats
+        data = state.get("data") or state
+        location = data.get("location") or {}
+        location_name = location.get("name", "")
+        player_pos = self.last_position or (0, 0)
+
+        # Get next task from resolved queue
+        resolved_queue = getattr(self.daily_planner, 'resolved_queue', [])
+        if not resolved_queue:
+            logging.debug("🎯 _try_start_daily_task: no resolved queue")
+            return self._try_start_daily_task_legacy()  # Fallback to old method
+
+        logging.info(f"🎯 _try_start_daily_task: {len(resolved_queue)} items in resolved queue")
+
+        # Find next task that can be executed
+        for i, resolved_task in enumerate(resolved_queue):
+            # Get task info (handle both ResolvedTask objects and dicts)
+            if hasattr(resolved_task, 'task_type'):
+                task_type = resolved_task.task_type
+                task_id = resolved_task.original_task_id
+                description = resolved_task.description
+                is_prereq = resolved_task.is_prereq
+            else:
+                task_type = resolved_task.get('task_type', 'unknown')
+                task_id = resolved_task.get('original_task_id', f'resolved_{i}')
+                description = resolved_task.get('description', task_type)
+                is_prereq = resolved_task.get('is_prereq', False)
+
+            # Check if already completed
+            if task_id and not task_id.endswith('_prereq'):
+                daily_task = self.daily_planner._find_task(task_id)
+                if daily_task and daily_task.status in ("completed", "skipped"):
+                    continue
+
+            # Check location requirements
+            # Farm tasks need to be on Farm; navigation tasks can be anywhere
+            FARM_TASKS = {"water_crops", "harvest_crops", "plant_seeds", "clear_debris", "till_soil", "refill_watering_can"}
+            if task_type in FARM_TASKS and location_name != "Farm":
+                logging.debug(f"🎯 Task {task_type} needs Farm, currently at {location_name}")
+                # Queue navigate action to Farm
+                # For now, skip - unified_agent should handle this
+                continue
+
+            # Try to start this task
+            logging.info(f"🎯 Starting resolved task: {task_type} ({'prereq' if is_prereq else 'main'})")
+
+            has_targets = self.task_executor.set_task(
+                task_id=task_id,
+                task_type=task_type,
+                game_state=state,
+                player_pos=player_pos,
+            )
+
+            if has_targets:
+                # Mark task as in progress
+                if not is_prereq and task_id:
+                    try:
+                        self.daily_planner.start_task(task_id)
+                    except Exception:
+                        pass
+
+                logging.info(f"🎯 Started: {description} ({self.task_executor.progress.total_targets} targets)")
+                return True
+            else:
+                # No targets - mark complete and try next
+                logging.info(f"✅ No targets for {task_type} - moving to next")
+                if not is_prereq and task_id:
+                    try:
+                        self.daily_planner.complete_task(task_id)
+                    except Exception:
+                        pass
+                # Remove from resolved queue
+                resolved_queue.pop(i)
+                return self._try_start_daily_task()  # Recurse to try next
+
+        return False
+
+    def _try_start_daily_task_legacy(self) -> bool:
+        """
+        Legacy fallback: Use keyword matching when PrereqResolver not available.
+        """
+        state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if not state:
+            return False
+
         data = state.get("data") or state
         location = data.get("location") or {}
         location_name = location.get("name", "")
         if location_name != "Farm":
-            logging.debug(f"🎯 _try_start_daily_task: not on Farm (at {location_name})")
-            return False  # Wait until we're on the farm
-
-        logging.info(f"🎯 _try_start_daily_task: checking {len(self.daily_planner.tasks)} tasks on Farm")
+            return False
 
         player_pos = self.last_position or (0, 0)
 
-        # Map daily planner categories to executor task types
         CATEGORY_TO_TASK = {
             "water": "water_crops",
-            "harvest": "harvest_crops", 
+            "harvest": "harvest_crops",
             "plant": "plant_seeds",
             "clear": "clear_debris",
             "till": "till_soil",
         }
-        
-        # Find next pending task that maps to an executor task type
+
         for task in self.daily_planner.tasks:
-            logging.info(f"🎯 Checking task: '{task.description}' status={task.status}")
             if task.status != "pending":
                 continue
 
-            # Check task description for keywords
             task_lower = task.description.lower()
             task_type = None
 
             for keyword, executor_task in CATEGORY_TO_TASK.items():
                 if keyword in task_lower:
                     task_type = executor_task
-                    logging.info(f"🎯 Matched keyword '{keyword}' → {executor_task}")
                     break
 
             if not task_type:
-                logging.info(f"🎯 No keyword match for: {task_lower}")
                 continue
 
-            # Try to start this task
-            state_data = state.get("data") or state
-            crops_in_state = len(state_data.get("location", {}).get("crops", []))
-            logging.info(f"🎯 Calling set_task({task_type}) with {crops_in_state} crops in state")
             has_targets = self.task_executor.set_task(
                 task_id=task.id,
                 task_type=task_type,
                 game_state=state,
                 player_pos=player_pos,
             )
-            
+
             if has_targets:
-                # Mark task as in progress in daily planner
                 try:
                     self.daily_planner.start_task(task.id)
                 except Exception:
-                    pass  # start_task might not exist
-                
-                logging.info(f"🎯 Started task: {task_type} ({self.task_executor.progress.total_targets} targets)")
+                    pass
+                logging.info(f"🎯 Started (legacy): {task_type}")
                 return True
             else:
-                # No targets for this task - mark complete
-                logging.info(f"✅ No targets for {task_type} - marking complete")
                 try:
                     self.daily_planner.complete_task(task.id)
-                except Exception as e:
-                    logging.warning(f"Failed to mark task complete: {e}")
-        
+                except Exception:
+                    pass
+
         return False
 
     def _get_task_executor_context(self) -> str:
@@ -4078,6 +4145,20 @@ Recent: {recent}"""
             executor_action = self.task_executor.get_next_action(player_pos, surroundings, game_state)
             
             if executor_action:
+                # Precondition actions (e.g., refill watering can) must execute immediately
+                # Don't let VLM override these - they're prerequisites for the task
+                if self.task_executor.state == TaskState.NEEDS_REFILL:
+                    action = Action(
+                        action_type=executor_action.action_type,
+                        params=executor_action.params,
+                        description=executor_action.reason
+                    )
+                    self.action_queue.append(action)
+                    logging.info(f"🎯 TaskExecutor (precondition): {executor_action.action_type} → {executor_action.reason}")
+                    self.vlm_status = f"Precondition: {executor_action.action_type}"
+                    self._send_ui_status()
+                    return  # Execute precondition immediately, skip VLM
+
                 # Check if VLM should provide commentary this tick (event-driven)
                 should_comment, event_context = self.task_executor.should_vlm_comment(self._vlm_commentary_interval)
 
