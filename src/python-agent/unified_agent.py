@@ -4070,8 +4070,12 @@ Recent: {recent}"""
             # Get player position for navigation
             player_pos = self.last_position or (0, 0)
             
-            # Get next deterministic action from executor
-            executor_action = self.task_executor.get_next_action(player_pos)
+            # Get game state for precondition checks (e.g., watering can level)
+            game_state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+            surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
+            
+            # Get next deterministic action from executor (checks preconditions first)
+            executor_action = self.task_executor.get_next_action(player_pos, surroundings, game_state)
             
             if executor_action:
                 # Check if VLM should provide commentary this tick (event-driven)

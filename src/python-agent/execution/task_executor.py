@@ -24,6 +24,7 @@ class TaskState(Enum):
     IDLE = "idle"                    # No task active
     MOVING_TO_TARGET = "moving"      # Walking to next target
     EXECUTING_AT_TARGET = "executing"  # Performing action at target
+    NEEDS_REFILL = "needs_refill"    # Watering can empty, need to refill first
     TASK_COMPLETE = "complete"       # All targets done
     INTERRUPTED = "interrupted"      # Higher priority task available
 
@@ -219,11 +220,13 @@ class TaskExecutor:
         self,
         player_pos: Tuple[int, int],
         surroundings: Optional[Dict[str, Any]] = None,
+        game_state: Optional[Dict[str, Any]] = None,
     ) -> Optional[ExecutorAction]:
         """
         Get the next deterministic action to execute.
         
         Returns None if task is complete or no action needed.
+        Checks preconditions (e.g., watering can full) before execution.
         """
         if self.state in (TaskState.IDLE, TaskState.TASK_COMPLETE, TaskState.INTERRUPTED):
             return None
@@ -231,6 +234,12 @@ class TaskExecutor:
         if self.current_index >= len(self.targets):
             self.state = TaskState.TASK_COMPLETE
             return None
+        
+        # Check preconditions before executing task
+        prereq_action = self._check_preconditions(game_state, surroundings)
+        if prereq_action:
+            self.state = TaskState.NEEDS_REFILL
+            return prereq_action
         
         self.tick_count += 1
         target = self.targets[self.current_index]
@@ -256,6 +265,58 @@ class TaskExecutor:
         # Adjacent or on target - execute skill
         self.state = TaskState.EXECUTING_AT_TARGET
         return self._create_skill_action(player_pos, target, dx, dy)
+    
+    def _check_preconditions(
+        self,
+        game_state: Optional[Dict[str, Any]],
+        surroundings: Optional[Dict[str, Any]],
+    ) -> Optional[ExecutorAction]:
+        """
+        Check if preconditions are met for current task.
+        
+        Returns an action to satisfy precondition if not met, None if OK.
+        
+        Preconditions:
+        - water_crops: watering can must have water
+        - plant_seeds: must have seeds in inventory (future)
+        """
+        if not self.progress:
+            return None
+        
+        task_type = self.progress.task_type
+        
+        # Extract player data from game state
+        data = (game_state.get("data") or game_state) if game_state else {}
+        player = data.get("player", {})
+        
+        if task_type == "water_crops":
+            # Check watering can water level
+            water_level = player.get("wateringCanWater", 0)
+            water_max = player.get("wateringCanMax", 40)
+            
+            if water_level <= 0:
+                logger.info(f"💧 Watering can empty ({water_level}/{water_max}) - need to refill first")
+                
+                # Determine direction to water source from surroundings
+                target_direction = "south"  # Default - water is usually south on farm
+                if surroundings:
+                    dirs = surroundings.get("directions", {})
+                    # Find water direction from landmarks
+                    landmarks = data.get("landmarks", {})
+                    water_info = landmarks.get("water", {})
+                    if water_info.get("direction"):
+                        target_direction = water_info.get("direction", "south").lower()
+                
+                return ExecutorAction(
+                    action_type="refill_watering_can",
+                    params={"target_direction": target_direction},
+                    reason=f"Watering can empty - refilling before watering crops",
+                )
+        
+        # Future: add plant_seeds check for seeds in inventory
+        # Future: add clear_debris check for appropriate tools
+        
+        return None  # All preconditions met
     
     def _create_move_action(
         self,
