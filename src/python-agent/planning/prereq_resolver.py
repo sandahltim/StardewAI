@@ -244,11 +244,20 @@ class PrereqResolver:
         if task_type == "water_crops":
             # Need water in watering can
             if watering_can_water <= 0:
+                # First navigate to water source, then refill
+                # Farm pond is typically south of the farmhouse
+                prereqs.append(PrereqAction(
+                    action_type="navigate_to_water",
+                    task_type="navigate",
+                    description="Walk to water source (farm pond)",
+                    params={"destination": "water", "target_coords": (58, 16)},  # Farm pond
+                    estimated_time=10,
+                ))
                 prereqs.append(PrereqAction(
                     action_type="refill_watering_can",
                     task_type="refill_watering_can",
-                    description="Refill watering can at water source",
-                    params={"target_direction": "south"},  # Default, water usually south
+                    description="Refill watering can",
+                    params={"target_direction": "south"},
                     estimated_time=5,
                 ))
             return prereqs, PrereqStatus.MET if not prereqs else PrereqStatus.NEEDS_ACTION, ""
