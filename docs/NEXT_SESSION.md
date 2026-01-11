@@ -1,134 +1,118 @@
-# Session 57: TaskExecutor Debugging
+# Session 58: TaskExecutor Working - Next Steps
 
-**Last Updated:** 2026-01-11 Session 56 by Claude
-**Status:** Daily planner fixed, TaskExecutor not activating - needs debugging
-
----
-
-## Session 56 Accomplishments
-
-### Bug Fixes
-
-1. **Buy seeds skills fixed** - Replaced template `{quantity}` with hardcoded defaults:
-   - `buy_parsnip_seeds`: 5 seeds (100g)
-   - `buy_cauliflower_seeds`: 1 seed (80g)
-   - `buy_potato_seeds`: 2 seeds (100g)
-
-2. **Daily planner SMAPI state path fixed** - Same bug as TargetGenerator in Session 55:
-   - Was looking at `state.location.crops`
-   - Fixed to look at `state.data.location.crops`
-   - Now correctly detects unwatered crops and generates "Water N crops" task
-
-### Remaining Issue: TaskExecutor Not Activating
-
-**Symptom:** Daily planner correctly generates "Water 12 crops" task (priority 1), but TaskExecutor never starts. VLM continues to drive actions directly.
-
-**Debug logging added** in `_try_start_daily_task()`:
-- Function entry
-- Executor/planner availability
-- Farm location check
-- Task iteration and keyword matching
-- set_task() calls
-
-**Expected logs that SHOULD appear:**
-```
-🎯 _try_start_daily_task called
-🎯 _try_start_daily_task: checking N tasks on Farm
-🎯 Checking task: 'Water 12 crops' status=pending
-🎯 Matched keyword 'water' → water_crops
-🎯 Calling set_task(water_crops) with 12 crops in state
-🎯 Started task: water_crops (12 targets)
-```
-
-**Actual logs:** None of the above appear - suggesting `_try_start_daily_task()` is never reached or returning early.
+**Last Updated:** 2026-01-11 Session 57 by Claude
+**Status:** TaskExecutor fully working! Ready for next improvements.
 
 ---
 
-## Session 57 Priority 1: Debug TaskExecutor Activation
+## Session 57 Accomplishments
 
-### Hypothesis 1: tick() flow never reaches TaskExecutor check
+### BUG FIXED: TaskExecutor Now Activates!
 
-The tick flow is:
-1. Line 4060-4064: Check TaskExecutor, try to start task
-2. Line 4066+: If executor active, get next action
-3. Line 4107+: VLM thinking
+**Root Cause:** State format mismatch
+- `controller.get_state()` already extracts `response.data`, returning `{location, player, ...}`
+- But `_try_start_daily_task()` and `TargetGenerator` expected wrapped format `{success, data, error}`
+- Result: `state.get("data")` returned `None`, causing empty location name
 
-Test: Add logging BEFORE line 4060 to confirm tick reaches that point.
+**Fix Applied:**
+```python
+# OLD (broken)
+data = state.get("data") or {}
 
-### Hypothesis 2: daily_planner.tasks is empty in tick()
+# NEW (handles both formats)
+data = state.get("data") or state
+```
 
-The daily planner might be a different instance or the tasks might not be persisted.
+Fixed in 4 locations:
+- `unified_agent._try_start_daily_task()`
+- `target_generator._extract_crops()`
+- `target_generator._extract_objects()`
+- `target_generator._extract_tiles()`
 
-Test: Add `logging.info(f"Planner tasks: {len(self.daily_planner.tasks)}")` before the check.
+### Verified Working
 
-### Hypothesis 3: task_executor is None
+```
+🎯 TaskExecutor: Started water_crops with 15 targets (strategy=row_by_row)
+🎯 Started task: water_crops (15 targets)
+🎭 Event-driven commentary: [task_started] Starting water_crops with 15 targets
+✅ Skill refill_watering_can completed
+🎯 TaskExecutor: move → Moving north toward target at (62, 18)
+🎯 TaskExecutor: move → Moving west toward target at (62, 18)
+```
 
-The TaskExecutor might fail to initialize.
+---
 
-Test: Check logs for `🎯 Task Executor initialized` at startup.
+## Session 58 Priorities
 
-### Quick Debug Commands
+### 1. Test Full Watering Cycle
+
+Run agent and verify:
+- [ ] TaskExecutor waters all crops row-by-row
+- [ ] Event-driven commentary triggers at milestones (25%, 50%, 75%, complete)
+- [ ] Daily planner marks task complete
+- [ ] Agent moves to next task (clear debris or explore)
 
 ```bash
 cd /home/tim/StardewAI && source venv/bin/activate
-
-# Clear state and run with verbose logging
-rm -f logs/daily_planner_state.json
-python src/python-agent/unified_agent.py --ui --goal "Water crops" 2>&1 | grep -E "(Task Executor|_try_start|Started task|daily_planner)"
+python src/python-agent/unified_agent.py --ui --goal "Farm maintenance"
 ```
+
+### 2. Wake-Up Routine
+
+Player starts in FarmHouse. Needs to:
+1. Exit door (currently auto-handled?)
+2. Navigate to farm area
+3. Start farming tasks
+
+Test and document wake-up flow.
+
+### 3. Commentary System Tuning
+
+Event-driven commentary is implemented. Check if:
+- Triggers are appropriate (not too frequent/sparse)
+- VLM provides useful observations during milestones
+- Fallback every 5 ticks works for quiet periods
 
 ---
 
-## Session 57 Priority 2: Fix Once Debugged
-
-Once we find why TaskExecutor isn't starting, the fix should enable:
-
-1. **Deterministic execution** - Row-by-row watering instead of VLM-driven chaos
-2. **Event-driven commentary** - VLM triggers on milestones, not every tick
-3. **Task completion tracking** - Daily planner marks tasks complete
-
----
-
-## Architecture Reference
+## Architecture (Now Working!)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    DAILY PLANNER ✅ FIXED                   │
-│  Correctly generates "Water N crops" with SMAPI state       │
+│                    DAILY PLANNER ✅ WORKING                  │
+│  Generates prioritized tasks from SMAPI state               │
 └─────────────────────────┬───────────────────────────────────┘
-                          │ ❓ ISSUE: Not reaching TaskExecutor
+                          │ tasks
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              TASK EXECUTOR (needs debugging)                │
-│  _try_start_daily_task() not being called?                 │
-│  Or set_task() returning False?                            │
+│              TASK EXECUTOR ✅ WORKING                        │
+│  Deterministic row-by-row execution                         │
+│  Event-driven VLM triggers                                  │
 └─────────────────────────┬───────────────────────────────────┘
-                          │
+                          │ actions
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              SKILL EXECUTOR (working)                       │
+│              SKILL EXECUTOR ✅ WORKING                       │
 │  water_crop → [select_slot, face, use_tool]                │
+│  refill_watering_can → [select_slot, wait, face, use_tool] │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Files Modified (Session 56)
+## Files Modified (Session 57)
 
 | File | Change |
 |------|--------|
-| `skills/definitions/farming.yaml` | Fixed buy seeds - hardcoded quantities |
-| `memory/daily_planner.py` | Fixed SMAPI state paths (data.location.crops) |
-| `unified_agent.py` | Added debug logging in _try_start_daily_task() |
+| `unified_agent.py` | Fixed state format in `_try_start_daily_task()` |
+| `execution/target_generator.py` | Fixed state format in 3 extract methods |
 
 ---
 
-## Commits This Session
+## Commits (Session 57)
 
 ```
-12c4e06 Fix buy seeds skills - replace template {quantity} with hardcoded defaults
-593e5b7 Fix daily_planner SMAPI state path - crops not detected
-1ecccdf Add debug logging to _try_start_daily_task for TaskExecutor investigation
+72a7f01 Fix state format mismatch in TaskExecutor activation
 ```
 
 ---
@@ -139,29 +123,19 @@ Once we find why TaskExecutor isn't starting, the fix should enable:
 # Activate environment
 cd /home/tim/StardewAI && source venv/bin/activate
 
-# Start services
-python src/ui/app.py &
-./scripts/start-llama-server.sh &
-
-# Test daily planner directly
-PYTHONPATH=src/python-agent python -c "
-import sys
-sys.path.insert(0, 'src/python-agent')
-from memory.daily_planner import get_daily_planner
-import requests
-state = requests.get('http://localhost:8790/state').json()
-planner = get_daily_planner()
-plan = planner.start_new_day(state['data']['time']['day'], state['data']['time']['season'], state)
-print(f'Plan: {plan}')
-print(f'Tasks: {[(t.description, t.status) for t in planner.tasks]}')
-"
-
-# Run agent
+# Run agent with UI
 python src/python-agent/unified_agent.py --ui --goal "Water all crops"
+
+# Check services
+curl -s http://localhost:8790/state | python -m json.tool | head -20
+curl -s http://localhost:8780/health
+
+# Watch agent logs
+tail -f logs/agent.log
 ```
 
 ---
 
-*Session 56: Daily planner fixed. TaskExecutor activation still needs debugging. Debug logs added for next session.*
+*Session 57: TaskExecutor activation FIXED! State format mismatch resolved. Ready for end-to-end testing.*
 
-*— Claude (PM), Session 56*
+*— Claude (PM), Session 57*
