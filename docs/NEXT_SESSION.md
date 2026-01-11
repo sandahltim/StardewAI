@@ -1,162 +1,143 @@
-# Session 60: Test Full Watering Flow
+# Session 60: Test Full Watering Flow + Bedtime Notes
 
 **Last Updated:** 2026-01-11 Session 59 by Claude
-**Status:** Navigate + refill tasks implemented, ready for live testing
+**Status:** Navigate/refill + /farm endpoint complete. Needs mod rebuild + testing.
 
 ---
 
 ## Session 59 Accomplishments
 
-### 1. Navigate Task Support (NEW)
+### 1. Navigate Task Support
 
-Added full support for `navigate` task type in TaskExecutor/TargetGenerator:
-
-**Flow:**
-```
-PrereqResolver adds: navigate_to_water (params: {target_coords: (58,16)})
-    ↓
-TargetGenerator._generate_navigate_target() → [Target(58, 16)]
-    ↓
-TaskExecutor moves to target
-    ↓
-At destination (distance=0): task auto-completes (no skill needed)
-```
-
-### 2. Refill Task Support (NEW)
-
-Added `refill_watering_can` task type with proper skill execution:
-
-**Flow:**
-```
-PrereqResolver adds: refill_watering_can (params: {target_direction: "south"})
-    ↓
-TargetGenerator._generate_refill_target() → [Target(current_pos, metadata={direction})]
-    ↓
-TaskExecutor at target: executes refill_watering_can skill with correct direction
-```
-
-### 3. Task Params Threading
-
-Connected params from PrereqResolver through the entire execution chain:
+Added full support for `navigate` task type:
 
 ```
-_try_start_daily_task()
-    → extracts resolved_task.params
-    → passes to set_task(task_params=...)
-        → passes to generate(task_params=...)
-            → _generate_navigate_target uses target_coords
-            → _generate_refill_target uses target_direction
+PrereqResolver: navigate_to_water (params: {target_coords: (58,16)})
+    → TargetGenerator._generate_navigate_target() → [Target(58, 16)]
+    → TaskExecutor moves to target
+    → At destination: auto-complete (no skill needed)
 ```
 
-### 4. No-Skill Task Handling
+### 2. Refill Task Support
 
-TaskExecutor now handles tasks that don't require skill execution:
+Added `refill_watering_can` with proper skill execution:
 
-- For `navigate` (skill=None): Auto-completes when player reaches destination
-- Updates `current_index`, `progress.completed_targets`, and `state`
-- Queues `TASK_COMPLETE` event for commentary
-
----
-
-## Bugs Found in Testing
-
-### 1. Can't See Crops From FarmHouse (CRITICAL)
-
-**Problem:** DailyPlanner runs at 6AM when Rusty is in FarmHouse. SMAPI only returns crops for current location → Farm crops = 0 during planning.
-
-**Evidence:**
 ```
-Location: FarmHouse, crops: 0  ← planning happens here
-...warp to Farm...
-Location: Farm, crops: 15     ← crops exist but too late
+PrereqResolver: refill_watering_can (params: {target_direction: "south"})
+    → TargetGenerator._generate_refill_target() → [Target(pos, direction)]
+    → TaskExecutor: executes refill_watering_can skill
 ```
 
-**Solutions:**
-- A) SMAPI endpoint for global farm state (all locations)
-- B) Memory: Store yesterday's farm state for planning
-- C) Warp to Farm first, plan, then proceed
+### 3. /farm SMAPI Endpoint (NEW)
 
-### 2. Need Bedtime Notes
+**Problem solved:** DailyPlanner runs at 6AM in FarmHouse where `location.crops=0`. Now uses `/farm` endpoint to get crops regardless of location.
 
-Rusty should document at end of day:
-- What crops he has planted (type, count, days to harvest)
-- What he harvested today
-- What he shipped
-- What's in inventory
-- Money earned/spent
+**SMAPI changes (need mod rebuild):**
+- `GameStateReader.ReadFarmState()`: Reads Farm crops/objects from any location
+- `FarmState` model: crops, objects, tilledTiles, shippingBin
+- `HttpServer`: GET /farm endpoint
+- `ModEntry`: GetFarmState delegate + caching
 
-This enables smarter morning planning.
+**Python changes:**
+- `ModBridgeController.get_farm()`: Fetch /farm endpoint
+- `unified_agent`: Pass farm_state to start_new_day()
+- `DailyPlanner._generate_farming_tasks()`: Use farm_state.crops if available
 
 ---
 
 ## Session 60 Priorities
 
-### 1. Fix Crop Visibility for Planning
+### 1. Rebuild SMAPI Mod
+
+```bash
+cd /home/tim/StardewAI/src/smapi-mod/StardewAI.GameBridge
+dotnet build
+# Copy to Stardew mods folder and restart game
+```
+
+### 2. Test /farm Endpoint
+
+```bash
+# With game running (even in FarmHouse)
+curl -s localhost:8790/farm | jq '{crops: (.data.crops | length), objects: (.data.objects | length)}'
+```
+
+### 3. Test Full Watering Flow
 
 ```bash
 cd /home/tim/StardewAI && source venv/bin/activate
 python src/python-agent/unified_agent.py --ui --goal "Water all crops"
 
-# Expected flow:
-# 1. Morning planning: water_crops needs water → PrereqResolver adds navigate + refill
-# 2. Resolved queue: [navigate_to_water, refill_watering_can, water_crops]
-# 3. TaskExecutor: Move to pond (58,16)
-# 4. TaskExecutor: Execute refill skill facing south
-# 5. TaskExecutor: Move to crops, water row-by-row
+# Expected logs:
+# 📊 Using /farm endpoint: 15 crops on farm
+# 🔧 PrereqResolver: [navigate_to_water, refill_watering_can, water_crops]
+# 🎯 Starting resolved task: navigate (prereq)
+# 🎯 Navigate complete: reached (58, 16)
+# 🎯 Starting resolved task: refill_watering_can (prereq)
+# 🎯 Starting resolved task: water_crops (main)
 ```
 
-### 2. Verify State Transitions
+### 4. Implement Bedtime Notes (Future)
 
-Watch logs for:
-```
-🎯 Starting resolved task: navigate (prereq) params={'destination': 'water', 'target_coords': (58, 16)}
-🎯 Navigate complete: reached (58, 16)
-✅ TaskExecutor: Navigate task COMPLETE
-🎯 Starting resolved task: refill_watering_can (prereq)
-...execute refill skill...
-🎯 Starting resolved task: water_crops (main)
-```
+Rusty should document at end of day:
+- Crops planted (type, count, days to harvest)
+- Harvested/shipped today
+- Money earned/spent
+- Inventory summary
 
-### 3. Edge Cases to Test
-
-- Rusty already at water source (navigate should complete immediately)
-- Watering can already full (PrereqResolver should skip prereqs)
-- Multiple tasks in resolved queue (verify sequential execution)
+**Implementation ideas:**
+- Hook into `go_to_bed` skill or time detection (10pm+)
+- Write summary to memory file
+- DailyPlanner reads it as `yesterday_notes`
 
 ---
 
 ## Files Modified (Session 59)
 
+### SMAPI (need rebuild)
 | File | Change |
 |------|--------|
-| `execution/target_generator.py` | Add task_params, _generate_navigate_target, _generate_refill_target |
-| `execution/task_executor.py` | Add task_params, navigate/refill in TASK_TO_SKILL, no-skill completion |
-| `unified_agent.py` | Extract and pass task_params from resolved queue |
+| `GameStateReader.cs` | Add ReadFarmState() method |
+| `Models/GameState.cs` | Add FarmState class |
+| `HttpServer.cs` | Add /farm endpoint + GetFarmState delegate |
+| `ModEntry.cs` | Wire up GetFarmState, add cache |
+
+### Python
+| File | Change |
+|------|--------|
+| `execution/target_generator.py` | Add navigate/refill target generators |
+| `execution/task_executor.py` | Add task_params, no-skill completion |
+| `unified_agent.py` | Add get_farm(), pass farm_state to planner |
+| `memory/daily_planner.py` | Accept farm_state, use for crop counting |
 
 ---
 
-## Architecture (Complete)
+## Architecture (Complete Flow)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    MORNING PLANNING                          │
-│  DailyPlanner → raw tasks → PrereqResolver → resolved queue │
-│  [water_crops] → [navigate, refill, water_crops]            │
+│                    6AM WAKE UP                               │
+│  Player in FarmHouse → get_farm() → see all Farm crops      │
 └─────────────────────────┬───────────────────────────────────┘
-                          │ resolved queue with params
+                          │ farm_state.crops
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              TASK EXECUTOR (with task_params)                │
-│  navigate: target_coords → move → auto-complete             │
-│  refill: target_direction → skill execution                  │
-│  water_crops: scan state → row-by-row execution             │
+│                    DAILY PLANNER                             │
+│  "15 crops need water" → generate water_crops task          │
 └─────────────────────────┬───────────────────────────────────┘
-                          │ actions
+                          │ raw tasks
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              SKILL EXECUTOR                                  │
-│  refill_watering_can → [select_slot, face, use_tool]        │
-│  water_crop → [select_slot, face, use_tool]                 │
+│                    PREREQ RESOLVER                           │
+│  water_crops (can=0) → [navigate_to_water, refill, water]   │
+└─────────────────────────┬───────────────────────────────────┘
+                          │ resolved queue
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    TASK EXECUTOR                             │
+│  1. navigate: move to pond (58,16) → auto-complete          │
+│  2. refill: execute skill facing south                       │
+│  3. water_crops: row-by-row execution                        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -166,6 +147,9 @@ Watch logs for:
 
 ```
 6b6c53c Add navigate and refill task support to TaskExecutor
+959dc8d Session 59: Document crop visibility bug and bedtime notes need
+fbad2a8 Add /farm endpoint for global farm state access
+45f84a1 Use /farm endpoint for morning planning
 ```
 
 ---
@@ -173,19 +157,19 @@ Watch logs for:
 ## Quick Test Commands
 
 ```bash
-# Test TargetGenerator navigate
+# Test Python /farm integration (after mod rebuild)
 cd /home/tim/StardewAI/src/python-agent
 python -c "
-from execution.target_generator import TargetGenerator
-gen = TargetGenerator()
-targets = gen.generate('navigate', {}, (10,10), task_params={'target_coords': (58,16)})
-print(targets)
+import sys; sys.path.insert(0, '.')
+from unified_agent import ModBridgeController
+c = ModBridgeController()
+farm = c.get_farm()
+print(f'Farm crops: {len(farm.get(\"crops\", [])) if farm else \"N/A\"}')
 "
 
-# Test full PrereqResolver + TaskExecutor flow
+# Test full PrereqResolver flow
 python -c "
 from planning.prereq_resolver import get_prereq_resolver
-from execution.task_executor import TaskExecutor, TaskState
 from dataclasses import dataclass
 
 @dataclass
@@ -195,7 +179,7 @@ class MockTask:
     estimated_time: int = 10
 
 resolver = get_prereq_resolver()
-result = resolver.resolve([MockTask('w1', 'Water crops')], {'data': {'player': {'wateringCanWater': 0}}})
+result = resolver.resolve([MockTask('w1', 'Water 15 crops')], {'data': {'player': {'wateringCanWater': 0}}})
 for t in result.resolved_queue:
     print(f'{t.task_type}: {t.description}')
 "
@@ -203,6 +187,6 @@ for t in result.resolved_queue:
 
 ---
 
-*Session 59: Navigate + refill task support complete. Ready for live testing.*
+*Session 59: /farm endpoint + navigate/refill complete. Ready for mod rebuild and testing.*
 
 *— Claude (PM), Session 59*
