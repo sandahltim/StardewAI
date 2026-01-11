@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from string import Formatter
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -14,9 +15,11 @@ class SkillExecutor:
 
     async def execute(self, skill: Skill, params: dict, state: Dict) -> ExecutionResult:
         actions_taken: List[str] = []
-        for action in skill.actions:
+        logging.debug(f"   ⚙️ Skill executor: {skill.name} with {len(skill.actions)} actions")
+        for i, action in enumerate(skill.actions):
             action_type = action.action_type
             resolved = self._resolve_params(action.params, params)
+            logging.info(f"      [{i+1}/{len(skill.actions)}] {action_type}: {resolved}")
             success = await self._dispatch(action_type, resolved, state)
             actions_taken.append(f"{action_type} {resolved}".strip())
             if not success:
@@ -48,6 +51,19 @@ class SkillExecutor:
             duration = params.get("value", params.get("seconds", 0.5))
             await asyncio.sleep(float(duration))
             return True
+        # Add delay after face action to let turn animation complete
+        if action_type == "face":
+            executor = self.action_executor
+            if hasattr(executor, "execute_action"):
+                result = bool(executor.execute_action(action_type, params))
+            elif hasattr(executor, "execute"):
+                result = bool(executor.execute({"action_type": action_type, "params": params}))
+            elif callable(executor):
+                result = bool(executor(action_type, params))
+            else:
+                result = False
+            await asyncio.sleep(0.15)  # Wait for turn animation
+            return result
         # Handle select_item_type: find slot by item type (e.g., "seed", "tool")
         if action_type == "select_item_type":
             item_type = params.get("type", params.get("value", ""))
@@ -57,12 +73,17 @@ class SkillExecutor:
             return await self._dispatch("select_slot", {"slot": slot}, state)
         executor = self.action_executor
         if hasattr(executor, "execute_action"):
-            return bool(executor.execute_action(action_type, params))
-        if hasattr(executor, "execute"):
-            return bool(executor.execute({"action_type": action_type, "params": params}))
-        if callable(executor):
-            return bool(executor(action_type, params))
-        return False
+            result = bool(executor.execute_action(action_type, params))
+        elif hasattr(executor, "execute"):
+            result = bool(executor.execute({"action_type": action_type, "params": params}))
+        elif callable(executor):
+            result = bool(executor(action_type, params))
+        else:
+            return False
+        # Add delay after use_tool to let tool animation complete
+        if action_type == "use_tool":
+            await asyncio.sleep(0.2)  # Wait for tool swing animation
+        return result
 
     def _find_slot_by_type(self, state: Optional[Dict], item_type: str) -> Optional[int]:
         """Find first inventory slot containing item of given type."""

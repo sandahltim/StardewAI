@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from typing import Any, Dict, List, Optional
 
-from .personalities import DEFAULT_PERSONALITY, PERSONALITIES
+from .personalities import DEFAULT_PERSONALITY, PERSONALITIES, PERSONALITY_VOICES
 
 
 class CommentaryGenerator:
@@ -25,6 +25,10 @@ class CommentaryGenerator:
 
     def get_personalities(self) -> Dict[str, Dict[str, List[str]]]:
         return PERSONALITIES
+
+    def get_voice(self) -> str:
+        """Get TTS voice for current personality."""
+        return PERSONALITY_VOICES.get(self.personality, "en_US-lessac-medium")
 
     def generate(self, action: Optional[str], state: Optional[Dict], mood: str = "") -> str:
         """Generate commentary with full context awareness."""

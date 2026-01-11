@@ -853,7 +853,7 @@ class ModBridgeController:
                     desc = f"{direction}: BLOCKED ({blocker})"
                 if direction == facing_dir:
                     if "water" in blocker.lower():
-                        front_info = f">>> 💧 WATER SOURCE! select_slot 2 (Watering Can), use_tool to REFILL! <<<"
+                        front_info = f">>> 💧 WATER SOURCE! DO: refill_watering_can direction={facing_dir} <<<"
                     elif blocker in ["Weeds", "Grass"]:
                         front_info = f"IN FRONT OF YOU: {blocker} - use SCYTHE to clear!"
                     elif blocker == "Stone":
@@ -923,19 +923,19 @@ class ModBridgeController:
                         break
 
                 if water_adjacent:
-                    # AT THE WATER - select watering can, then use_tool to refill!
+                    # AT THE WATER - use refill_watering_can skill
                     if "Watering" in current_tool:
-                        front_info = f">>> ⚠️ AT WATER! Face {water_adjacent}, use_tool to REFILL! <<<"
+                        front_info = f">>> ⚠️ AT WATER! DO: refill_watering_can direction={water_adjacent} <<<"
                     else:
-                        front_info = f">>> ⚠️ AT WATER! select_slot 2 (Watering Can), face {water_adjacent}, use_tool to REFILL! <<<"
+                        front_info = f">>> ⚠️ AT WATER! select_slot 2, then refill_watering_can direction={water_adjacent} <<<"
                 else:
                     nearest_water = data.get("nearestWater")
                     if nearest_water:
                         water_dir = normalize_direction(nearest_water.get("direction", "nearby"))
                         water_dist = nearest_water.get("distance", "?")
-                        front_info = f">>> ⚠️ WATERING CAN EMPTY! Go {water_dist} tiles {water_dir} to water, select_slot 2, use_tool to REFILL! <<<"
+                        front_info = f">>> ⚠️ WATERING CAN EMPTY! Move {water_dist} tiles {water_dir} to water, then refill_watering_can <<<"
                     else:
-                        front_info = ">>> ⚠️ WATERING CAN EMPTY! Find water (pond/river), select_slot 2, use_tool to REFILL! <<<"
+                        front_info = ">>> ⚠️ WATERING CAN EMPTY! Find water (pond/river), then refill_watering_can <<<"
             elif crop_here and crop_here.get("isReadyForHarvest"):
                 crop_name = crop_here.get("cropName", "crop")
                 front_info = f">>> 🌾 HARVEST TIME! {crop_name} is READY! DO: harvest (facing crop) <<<"
@@ -979,9 +979,9 @@ class ModBridgeController:
                         if nearest_water:
                             water_dir = normalize_direction(nearest_water.get("direction", "nearby"))
                             water_dist = nearest_water.get("distance", "?")
-                            front_info = f">>> WATERING CAN EMPTY! Water is {water_dist} tiles {water_dir} - go there and use_tool to REFILL! <<<"
+                            front_info = f">>> WATERING CAN EMPTY! Move {water_dist} tiles {water_dir} to water, then refill_watering_can <<<"
                         else:
-                            front_info = ">>> WATERING CAN EMPTY! Find water (pond/river) and use_tool to REFILL! <<<"
+                            front_info = ">>> WATERING CAN EMPTY! Find water (pond/river), then refill_watering_can <<<"
                     elif "Watering" in current_tool:
                         front_info = f">>> TILE: PLANTED - You have {current_tool} ({water_left}/{water_max}), use_tool to WATER! <<<"
                     else:
@@ -1061,21 +1061,9 @@ class ModBridgeController:
                                 dist = abs(dx) + abs(dy)
 
                                 # If crop is exactly 1 tile away, use FACE + use_tool (don't move onto the crop!)
-                                if dist == 1:
-                                    face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
-                                    front_info = f">>> TILE: WATERED ✓ - NEXT CROP 1 tile {face_dir.upper()}! DO: face {face_dir}, use_tool ({len(unwatered_others)} more) <<<"
-                                else:
-                                    dirs = []
-                                    if dy < 0:
-                                        dirs.append(f"{abs(dy)} NORTH")
-                                    elif dy > 0:
-                                        dirs.append(f"{abs(dy)} SOUTH")
-                                    if dx < 0:
-                                        dirs.append(f"{abs(dx)} WEST")
-                                    elif dx > 0:
-                                        dirs.append(f"{abs(dx)} EAST")
-                                    direction_str = " then ".join(dirs) if dirs else "nearby"
-                                    front_info = f">>> TILE: WATERED ✓ - NEXT CROP: move {direction_str}! ({len(unwatered_others)} more to water) <<<"
+                                # Use adjacent movement hint (stop 1 tile away from crop)
+                                adj_hint = self._calc_adjacent_hint(dx, dy, action="use_tool")
+                                front_info = f">>> TILE: WATERED ✓ - NEXT CROP: {adj_hint} ({len(unwatered_others)} more) <<<"
                             else:
                                 front_info = self._get_done_farming_hint(state, data)
                         else:
@@ -1100,22 +1088,9 @@ class ModBridgeController:
                     dy = nearest["y"] - player_y
                     dist = abs(dx) + abs(dy)
 
-                    # If crop is exactly 1 tile away, use FACE + use_tool
-                    if dist == 1:
-                        face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
-                        front_info = f">>> {len(unwatered)} CROPS NEED WATERING! One is 1 tile {face_dir.upper()}! DO: select_slot 2, face {face_dir}, use_tool <<<"
-                    else:
-                        dirs = []
-                        if dy < 0:
-                            dirs.append(f"{abs(dy)} NORTH")
-                        elif dy > 0:
-                            dirs.append(f"{abs(dy)} SOUTH")
-                        if dx < 0:
-                            dirs.append(f"{abs(dx)} WEST")
-                        elif dx > 0:
-                            dirs.append(f"{abs(dx)} EAST")
-                        direction_str = " and ".join(dirs) if dirs else "here"
-                        front_info = f">>> {len(unwatered)} CROPS NEED WATERING! Nearest: {direction_str}. GO THERE FIRST! <<<"
+                    # Use adjacent movement hint (stop 1 tile away from crop)
+                    adj_hint = self._calc_adjacent_hint(dx, dy, action="water")
+                    front_info = f">>> {len(unwatered)} CROPS NEED WATERING! {adj_hint} <<<"
                 elif "Hoe" in current_tool:
                     front_info = f">>> TILE: CLEAR DIRT - You have {current_tool}, use_tool to TILL! <<<"
                 else:
@@ -1134,19 +1109,9 @@ class ModBridgeController:
                     dx = nearest["x"] - player_x
                     dy = nearest["y"] - player_y
 
-                    # Build directional guidance
-                    dirs = []
-                    if dy < 0:
-                        dirs.append(f"{abs(dy)} tiles NORTH")
-                    elif dy > 0:
-                        dirs.append(f"{abs(dy)} tiles SOUTH")
-                    if dx < 0:
-                        dirs.append(f"{abs(dx)} tiles WEST")
-                    elif dx > 0:
-                        dirs.append(f"{abs(dx)} tiles EAST")
-
-                    direction_str = " and ".join(dirs) if dirs else "here"
-                    front_info = f">>> TILE: NOT FARMABLE - {len(unwatered)} UNWATERED CROPS! Nearest is {direction_str}. Move there to water! <<<"
+                    # Use adjacent movement hint (stop 1 tile away from crop)
+                    adj_hint = self._calc_adjacent_hint(dx, dy, action="water")
+                    front_info = f">>> TILE: NOT FARMABLE - {len(unwatered)} CROPS! {adj_hint} <<<"
                 else:
                     # Check for harvestable crops first
                     harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
@@ -1156,22 +1121,9 @@ class ModBridgeController:
                         dy = nearest_h["y"] - player_y
                         dist = abs(dx) + abs(dy)
 
-                        # If harvestable crop is exactly 1 tile away, use FACE + harvest
-                        if dist == 1:
-                            face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
-                            front_info = f">>> 🌾 HARVEST 1 tile {face_dir.upper()}! DO: face {face_dir}, harvest ({len(harvestable)} ready) <<<"
-                        else:
-                            dirs = []
-                            if dy < 0:
-                                dirs.append(f"{abs(dy)} NORTH")
-                            elif dy > 0:
-                                dirs.append(f"{abs(dy)} SOUTH")
-                            if dx < 0:
-                                dirs.append(f"{abs(dx)} WEST")
-                            elif dx > 0:
-                                dirs.append(f"{abs(dx)} EAST")
-                            direction_str = " and ".join(dirs) if dirs else "here"
-                            front_info = f">>> 🌾 {len(harvestable)} READY! Nearest: move {direction_str}, then harvest <<<"
+                        # Use adjacent movement hint (stop 1 tile away from crop)
+                        adj_hint = self._calc_adjacent_hint(dx, dy, action="harvest")
+                        front_info = f">>> 🌾 {len(harvestable)} READY! {adj_hint} <<<"
                     elif crops:
                         front_info = ">>> TILE: NOT FARMABLE - All crops watered, none ready to harvest. <<<"
                     else:
@@ -1424,6 +1376,70 @@ class ModBridgeController:
             return f">>> ✅ WATERING DONE! NOW CLEAR DEBRIS: {debris_name} {direction_str}. DO: move there, select_slot {tool_slot}, use_tool <<<"
 
         return ">>> ✅ ALL FARMING DONE! Use action 'go_to_bed' to end day. <<<"
+
+    def _calc_adjacent_hint(self, dx: int, dy: int, action: str = "water") -> str:
+        """
+        Calculate movement instructions to stop ADJACENT to a crop (not on it).
+        
+        In Stardew Valley, you must be 1 tile away from a crop to water/harvest it.
+        This method calculates the movement to get adjacent, then which direction to face.
+        
+        Args:
+            dx: Horizontal distance to crop (positive = east, negative = west)
+            dy: Vertical distance to crop (positive = south, negative = north)
+            action: What to do after reaching position ("water", "harvest", etc.)
+            
+        Returns:
+            Hint string like "Move 2N+1E (stop adjacent), face EAST, then water"
+        """
+        dist = abs(dx) + abs(dy)
+        
+        # Already adjacent - just face and act
+        if dist == 1:
+            face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
+            return f"face {face_dir}, {action}"
+        
+        # Calculate movement to stop 1 tile away
+        # Strategy: reduce the LARGER axis by 1, keep other axis full
+        # This ensures we end up adjacent to the crop
+        abs_dx, abs_dy = abs(dx), abs(dy)
+        
+        if abs_dy == 0:
+            # Pure horizontal movement
+            move_x = abs_dx - 1
+            face_dir = "east" if dx > 0 else "west"
+            x_dir = "E" if dx > 0 else "W"
+            return f"move {move_x}{x_dir}, face {face_dir.upper()}, {action}"
+        elif abs_dx == 0:
+            # Pure vertical movement  
+            move_y = abs_dy - 1
+            face_dir = "south" if dy > 0 else "north"
+            y_dir = "S" if dy > 0 else "N"
+            return f"move {move_y}{y_dir}, face {face_dir.upper()}, {action}"
+        else:
+            # Diagonal movement - reduce larger axis by 1
+            if abs_dy >= abs_dx:
+                # Reduce Y, keep X full
+                move_y = abs_dy - 1
+                move_x = abs_dx
+                face_dir = "south" if dy > 0 else "north"
+            else:
+                # Reduce X, keep Y full
+                move_y = abs_dy
+                move_x = abs_dx - 1
+                face_dir = "east" if dx > 0 else "west"
+            
+            y_dir = "S" if dy > 0 else "N"
+            x_dir = "E" if dx > 0 else "W"
+            
+            parts = []
+            if move_y > 0:
+                parts.append(f"{move_y}{y_dir}")
+            if move_x > 0:
+                parts.append(f"{move_x}{x_dir}")
+            
+            move_str = "+".join(parts) if parts else "0"
+            return f"move {move_str} (stop adjacent), face {face_dir.upper()}, {action}"
 
     def execute(self, action: Action) -> bool:
         """Execute an action via SMAPI mod API."""
@@ -2322,6 +2338,9 @@ class StardewAgent:
             return True
 
         elif skill_name in ["clear_weeds", "clear_stone", "clear_wood"]:
+            # Refresh surroundings for tile state (critical - must get fresh data!)
+            if hasattr(self.controller, "get_surroundings"):
+                self.last_surroundings = self.controller.get_surroundings()
             if self.last_surroundings:
                 target_dir = params.get("target_direction", "south")
                 tiles = self.last_surroundings.get("adjacentTiles", {})
@@ -2711,7 +2730,8 @@ class StardewAgent:
                 tts_text = ui_text
                 tts_text = re.sub(r'["\'\*\_\#\`\[\]\(\)\{\}]', '', tts_text)  # Remove quotes, markdown
                 tts_text = re.sub(r'\s+', ' ', tts_text).strip()  # Normalize whitespace
-                self.commentary_tts.speak(tts_text)
+                voice = self.commentary_generator.get_voice() if self.commentary_generator else None
+                self.commentary_tts.speak(tts_text, voice=voice)
                 self._last_tts_time = current_time
             except Exception:
                 pass
@@ -3034,14 +3054,29 @@ class StardewAgent:
             
             if dist == 1:
                 face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
-                hints.append(f"💧 {len(unwatered)} unwatered - nearest 1 tile {face_dir.upper()}")
+                hints.append(f"💧 {len(unwatered)} unwatered - face {face_dir.upper()}, water")
             elif dist > 0:
-                dirs = []
-                if dy < 0: dirs.append(f"{abs(dy)}N")
-                elif dy > 0: dirs.append(f"{abs(dy)}S")
-                if dx < 0: dirs.append(f"{abs(dx)}W")
-                elif dx > 0: dirs.append(f"{abs(dx)}E")
-                hints.append(f"💧 {len(unwatered)} unwatered - nearest {'+'.join(dirs)}")
+                # Calculate movement to stop ADJACENT (1 tile away), then face crop
+                abs_dx, abs_dy = abs(dx), abs(dy)
+                if abs_dy == 0:
+                    move_hint = f"{abs_dx-1}{'E' if dx > 0 else 'W'}"
+                    face_dir = "EAST" if dx > 0 else "WEST"
+                elif abs_dx == 0:
+                    move_hint = f"{abs_dy-1}{'S' if dy > 0 else 'N'}"
+                    face_dir = "SOUTH" if dy > 0 else "NORTH"
+                else:
+                    # Diagonal: reduce larger axis by 1
+                    if abs_dy >= abs_dx:
+                        my, mx = abs_dy - 1, abs_dx
+                        face_dir = "SOUTH" if dy > 0 else "NORTH"
+                    else:
+                        my, mx = abs_dy, abs_dx - 1
+                        face_dir = "EAST" if dx > 0 else "WEST"
+                    parts = []
+                    if my > 0: parts.append(f"{my}{'S' if dy > 0 else 'N'}")
+                    if mx > 0: parts.append(f"{mx}{'E' if dx > 0 else 'W'}")
+                    move_hint = "+".join(parts) if parts else "0"
+                hints.append(f"💧 {len(unwatered)} unwatered - move {move_hint}, face {face_dir}")
         
         if harvestable and tile_state != "planted":
             nearest_h = min(harvestable, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
@@ -3051,14 +3086,29 @@ class StardewAgent:
             
             if dist == 1:
                 face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
-                hints.append(f"🌾 {len(harvestable)} harvestable - one 1 tile {face_dir.upper()}")
+                hints.append(f"🌾 {len(harvestable)} harvestable - face {face_dir.upper()}, harvest")
             elif dist > 0:
-                dirs = []
-                if dy < 0: dirs.append(f"{abs(dy)}N")
-                elif dy > 0: dirs.append(f"{abs(dy)}S")
-                if dx < 0: dirs.append(f"{abs(dx)}W")
-                elif dx > 0: dirs.append(f"{abs(dx)}E")
-                hints.append(f"🌾 {len(harvestable)} harvestable - nearest {'+'.join(dirs)}")
+                # Calculate movement to stop ADJACENT (1 tile away), then face crop
+                abs_dx, abs_dy = abs(dx), abs(dy)
+                if abs_dy == 0:
+                    move_hint = f"{abs_dx-1}{'E' if dx > 0 else 'W'}"
+                    face_dir = "EAST" if dx > 0 else "WEST"
+                elif abs_dx == 0:
+                    move_hint = f"{abs_dy-1}{'S' if dy > 0 else 'N'}"
+                    face_dir = "SOUTH" if dy > 0 else "NORTH"
+                else:
+                    # Diagonal: reduce larger axis by 1
+                    if abs_dy >= abs_dx:
+                        my, mx = abs_dy - 1, abs_dx
+                        face_dir = "SOUTH" if dy > 0 else "NORTH"
+                    else:
+                        my, mx = abs_dy, abs_dx - 1
+                        face_dir = "EAST" if dx > 0 else "WEST"
+                    parts = []
+                    if my > 0: parts.append(f"{my}{'S' if dy > 0 else 'N'}")
+                    if mx > 0: parts.append(f"{mx}{'E' if dx > 0 else 'W'}")
+                    move_hint = "+".join(parts) if parts else "0"
+                hints.append(f"🌾 {len(harvestable)} harvestable - move {move_hint}, face {face_dir}")
         
         # --- PRIORITY 4: Time/Energy Warnings ---
         if hour >= 24 or hour < 2:

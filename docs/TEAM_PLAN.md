@@ -1,7 +1,7 @@
 # StardewAI Team Plan
 
 **Created:** 2026-01-08
-**Last Updated:** 2026-01-08 Session 10
+**Last Updated:** 2026-01-10 Session 45
 **Project Lead:** Claude (Opus) - Agent logic, architecture, coordination
 **UI/Memory:** Codex - User interface, memory systems, state persistence
 **Human Lead:** Tim - Direction, testing, hardware, final decisions
@@ -22,7 +22,7 @@
 
 ---
 
-## Current Status (Session 42)
+## Current Status (Session 44)
 
 ### What's Working
 | Component | Status | Session |
@@ -42,13 +42,21 @@
 | go_to_bed skill | ✅ Fixed | 41 |
 | Obstacle Failure Tolerance | ✅ New | 42 |
 | Crop Protection (till blocker) | ✅ New | 42 |
+| **State-Change Detection** | ✅ New | 44 |
+| **Daily Planning System** | ✅ New | 44 |
+| **VLM Text Reasoning** | ✅ New | 44 |
+| Daily Plan UI Panel | ✅ Codex | 44 |
+| Action Failure UI Panel | ✅ Codex | 44 |
 
 ### Current Focus
 | Task | Status |
 |------|--------|
 | Multi-day autonomy test | In progress |
-| State-change detection for tool failures | Planned |
-| Daily planning system (Rusty's inner monologue) | Not started |
+| State-change detection for tool failures | ✅ Implemented (Session 44) |
+| Daily planning system (Rusty's inner monologue) | ✅ Implemented (Session 44) |
+| **Fix positioning bug** | **CRITICAL** (Session 46) |
+| Verify daily planner triggers on day change | Testing |
+| Task completion tracking in planner | Not started |
 
 ---
 
@@ -130,8 +138,12 @@
 - [x] Bedtime warnings (go_to_bed at 11pm+)
 - [x] Energy monitoring
 - [x] Time management
+- [x] State-change detection (phantom failure tracking) - Session 44
+- [x] Daily task planning (priority queue) - Session 44
+- [x] VLM reasoning for planning - Session 44
+- [x] Standard daily routine (water→harvest→plant→clear) - Session 44
 - [ ] Wake up routine
-- [ ] Daily task planning (priority queue)
+- [ ] Task completion tracking in planner
 - [ ] 6+ day continuous run (Day 1 → harvest cycle)
 
 ### Phase 3: Exploration
@@ -287,4 +299,30 @@ curl -s localhost:8790/surroundings | jq .
 Final Logic- day starts- Rusty plans his day and creates todo list from day before and final summary before sleep and any inputs from user. then using different modules for each type of task and based on priority and further palnning cycles he completes all that he can and creates daily conclusion for next day. We need to play with model context to see how much of a complete day we can keep with a single model before compact/flush of context cache. We need to add more reasoning and palnning instead of just chaos. The project boils down to an ai model(any VLM we choose) becomes the eyes and brain for the farmer Rusty. He BECOMES the farmer and we hear his running inner monologue throughout the day for comedy genius. This will be evolving so keep updated and ask clarification questions when needed.
 *Make Rusty amazing. — Tim*
 
-*Updated Session 10 — Claude (PM)*
+---
+
+## Session 44 Highlights
+
+**State-Change Detection:**
+- Captures state snapshot before skill execution
+- Verifies actual state change after execution
+- Tracks consecutive phantom failures per skill
+- Hard-fails after 2 consecutive phantom failures
+- Records lessons for learning system
+
+**Daily Planning System:**
+- New module: `memory/daily_planner.py`
+- Auto-triggers on day change
+- Standard routine: incomplete→water→harvest→plant→clear
+- VLM reasoning for intelligent prioritization
+- Plan context added to VLM prompts
+
+**Code Locations:**
+| Feature | File | Lines |
+|---------|------|-------|
+| State capture | unified_agent.py | 2162-2219 |
+| State verify | unified_agent.py | 2221-2293 |
+| Daily planner | memory/daily_planner.py | All |
+| VLM reason | unified_agent.py | 416-446 |
+
+*Updated Session 44 — Claude (PM)*

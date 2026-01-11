@@ -1,119 +1,117 @@
-# Session 45: Test State Detection + Daily Planning
+# Session 47: Continue Multi-Day Testing
 
-**Last Updated:** 2026-01-10 Session 44 by Claude
-**Status:** Features implemented, ready for testing
+**Last Updated:** 2026-01-10 Session 46 by Claude
+**Status:** Positioning fix verified, ready for extended testing
 
 ---
 
-## Session 44 Summary
+## Session 46 Summary
 
 ### What Was Completed
 
-1. **State-Change Detection** ✅
-   - Captures state snapshot before skill execution
-   - Verifies actual state change after execution
-   - Adaptive threshold: 2 consecutive phantom failures → hard-fail
-   - Records lessons for learning
-   - Location: unified_agent.py:2162-2293 (capture), 2388-2432 (verify)
+1. **Positioning Bug Fixed** ✅ (CRITICAL)
+   - Added `_calc_adjacent_hint()` helper method
+   - Fixed 6 locations where hints said "move TO crop" instead of "move ADJACENT"
+   - Strategy: reduce larger axis by 1 to stop 1 tile away, then face crop
+   - Location: unified_agent.py lines 1379-1441 (helper), multiple hint locations
 
-2. **Daily Planning System** ✅
-   - New module: `memory/daily_planner.py`
-   - Auto-generates task list on day change
-   - **Standard daily routine:**
-     1. Incomplete from yesterday → complete first
-     2. Crops dry → water (CRITICAL)
-     3. Crops ready → harvest (HIGH)
-     4. Seeds in inventory → plant (HIGH)
-     5. Nothing else → clear debris (MEDIUM)
-   - VLM-based reasoning for intelligent planning
-   - Plan context added to VLM prompts
-   - Location: unified_agent.py:2472-2483 (trigger), 2450-2471 (reason wrapper)
+2. **Test Results** ✅
+   - Both test crops watered successfully
+   - No phantom failures during watering
+   - VLM correctly interpreted "move 1N+1W, face NORTH, water" hints
 
-3. **VLM Text Reasoning** ✅
-   - Added `reason()` method to UnifiedVLM for text-only planning
-   - Used by daily planner for intelligent task prioritization
-   - Location: unified_agent.py:416-446
+### Files Modified
 
-4. **Codex Tasks Assigned** ✅
-   - Daily Plan Panel (HIGH priority)
-   - Action Failure Panel (MEDIUM priority)
-   - Location: docs/CODEX_TASKS.md
+| File | Change |
+|------|--------|
+| `unified_agent.py` | Added `_calc_adjacent_hint()`, fixed 6 hint locations |
 
-### Features Added
+### Code Changes Detail
 
-| Feature | Description | Location |
-|---------|-------------|----------|
-| `_capture_state_snapshot()` | Captures before state for verification | unified_agent.py:2162 |
-| `_verify_state_change()` | Compares after state to detect phantom failures | unified_agent.py:2221 |
-| `_phantom_failures` | Tracks consecutive phantom failures per skill | unified_agent.py:1733 |
-| `DailyPlanner` | Task planning and management system | memory/daily_planner.py |
-| `VLM.reason()` | Text-only reasoning for planning | unified_agent.py:416 |
+**New method `_calc_adjacent_hint(dx, dy, action)`:**
+- Calculates movement to stop 1 tile away from target
+- Returns hint like "move 2N+3E (stop adjacent), face EAST, water"
+- Handles pure vertical, pure horizontal, and diagonal movement
+
+**Fixed hint patterns:**
+- Line ~1067: "NEXT CROP: move X" → uses `_calc_adjacent_hint()`
+- Line ~1093: "GO THERE FIRST!" → uses `_calc_adjacent_hint()`
+- Line ~1114: "Move there to water!" → uses `_calc_adjacent_hint()`
+- Line ~1127: "move X, then harvest" → uses `_calc_adjacent_hint()`
+- Line ~3063: `_build_dynamic_hints` unwatered → inline adjacent calc
+- Line ~3088: `_build_dynamic_hints` harvestable → inline adjacent calc
+
+---
+
+## Session 45 Summary (included in commit)
+
+1. **Clear_* Phantom Detection Fix** ✅
+   - Added `get_surroundings()` refresh before verification
+   - Location: unified_agent.py:2325-2327
+
+2. **Shipping Task in Daily Planner** ✅
+   - "Ship harvested crops" task added after harvest
+   - Location: memory/daily_planner.py:278-286
+
+3. **Refill Hints Updated** ✅
+   - Changed from "use_tool to REFILL" → "refill_watering_can direction=X"
+   - Location: unified_agent.py multiple lines
+
+4. **Skill Executor Timing** ✅
+   - Added 0.15s delay after `face` actions
+   - Added 0.2s delay after `use_tool` actions
+   - Location: skills/executor.py:51-63, 80-82
 
 ---
 
 ## Next Session Priorities
 
-### Priority 1: Test State-Change Detection
+### Priority 1: Extended Multi-Day Test
 
-Run multi-day test and verify:
-- Phantom failures are detected (look for 👻 in logs)
-- Hard-fail triggers after 2 consecutive failures (💀 in logs)
-- Lessons are recorded for phantom failures
+Now that positioning is fixed, run a longer test:
+- Let game run through Day 8 → Day 9
+- Verify daily planner triggers on day change
+- Test watering next morning
+- Check for any new issues
 
-Test with intentional failures:
+### Priority 2: Harvest Test (when crops ready)
+
+Parsnips planted ~Day 4-5 should be ready ~Day 9:
+1. Test harvest_crop skill with new positioning
+2. Verify ship task appears in daily planner
+3. Test ship_item skill
+
+### Priority 3: Plant More Crops
+
+After harvest, buy and plant more seeds to continue the cycle.
+
+---
+
+## Quick Reference
+
+### Test Commands
+
 ```bash
-# Plant on untilled ground - should detect phantom failure
-# Water empty tile - should be blocked by auto-targeting
-# Harvest non-ready crop - should detect phantom failure
+# Run agent
+python src/python-agent/unified_agent.py --goal "Water the crops"
+
+# Check crop status
+curl -s localhost:8790/state | jq '[.data.location.crops[] | {x, y, watered: .isWatered, ready: .isReadyForHarvest}]'
+
+# Check player position
+curl -s localhost:8790/state | jq '{x: .data.player.tileX, y: .data.player.tileY}'
 ```
 
-### Priority 2: Test Daily Planning
+### New Hint Format Examples
 
-Run agent at day start and verify:
-- 🌅 "New day detected" message appears
-- 📋 Daily plan is generated with tasks
-- 🧠 VLM reasoning is invoked (if llama-server running)
-- Plan context appears in VLM prompts
-
-### Priority 3: Continue Harvest Test
-
-- Crops from Session 43 should be ready for harvest
-- Test harvest_crop skill with state-change detection
-- Verify shipping works
+| Scenario | Old Hint | New Hint |
+|----------|----------|----------|
+| Crop 3N away | "move 3 NORTH, water" | "move 2N, face NORTH, water" |
+| Crop 2N+4E | "move 2N+4E, water" | "move 2N+3E (stop adjacent), face EAST, water" |
+| Crop 1 tile | "face NORTH, water" | "face NORTH, water" (unchanged) |
 
 ---
 
-## Code Reference
+*Session 46: Fixed positioning bug - crops now watered successfully!*
 
-| Feature | File | Line | Notes |
-|---------|------|------|-------|
-| State capture | unified_agent.py | 2162-2219 | Skill-specific snapshots |
-| State verify | unified_agent.py | 2221-2293 | Before/after comparison |
-| Phantom tracking | unified_agent.py | 1731-1734 | Consecutive failure count |
-| Daily planner | memory/daily_planner.py | All | Task management module |
-| VLM reason | unified_agent.py | 416-446 | Text-only reasoning |
-| Day trigger | unified_agent.py | 2472-2483 | Auto-plan on day change |
-
----
-
-## Known Issues
-
-1. **VLM spatial reasoning** - Often targets wrong tiles, mitigated by auto-targeting
-2. **Daily planner async issue** - VLM reasoning deferred in async context (see log message)
-3. **No task completion tracking** - Agent doesn't mark planner tasks as done yet
-
----
-
-## Commits Pending
-
-Session 44 changes ready for commit:
-- State-change detection (unified_agent.py)
-- Daily planner module (memory/daily_planner.py)
-- VLM text reasoning (unified_agent.py)
-- Codex tasks (docs/CODEX_TASKS.md)
-
----
-
-*Session 44: State-change detection + Daily planning system*
-
-*— Claude (PM), Session 44*
+*— Claude (PM), Session 46*

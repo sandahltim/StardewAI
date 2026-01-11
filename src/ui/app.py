@@ -40,6 +40,13 @@ except Exception:  # pragma: no cover - optional for UI
     SpatialMap = None
 
 try:
+    from commentary.personalities import PERSONALITIES as COMMENTARY_PERSONALITIES
+    from commentary.personalities import PERSONALITY_VOICES as COMMENTARY_VOICES
+except Exception:  # pragma: no cover - optional for UI
+    COMMENTARY_PERSONALITIES = None
+    COMMENTARY_VOICES = None
+
+try:
     from memory.rusty_memory import get_rusty_memory
 except Exception:  # pragma: no cover - optional for UI
     get_rusty_memory = None
@@ -63,6 +70,7 @@ _chroma_collection = None
 TTS_OUTPUT_DIR = Path("/home/tim/StardewAI/logs/ui/tts")
 TTS_CACHE_DIR = TTS_OUTPUT_DIR / "cache"
 TTS_MODEL_DIRS = [
+    Path("/Gary/models/piper"),  # Shared voice collection
     Path("/home/tim/StardewAI/models/tts"),
     Path.home() / ".local/share/piper-voices",
     Path("/usr/share/piper-voices"),
@@ -179,6 +187,7 @@ class StatusUpdate(BaseModel):
     navigation_attempts: Optional[int] = None
     commentary_text: Optional[str] = None
     commentary_personality: Optional[str] = None
+    commentary_voice: Optional[str] = None
     commentary_tts_enabled: Optional[bool] = None
     commentary_volume: Optional[int] = None
 
@@ -304,6 +313,7 @@ def _default_status() -> Dict[str, Any]:
         "navigation_attempts": 0,
         "commentary_text": "",
         "commentary_personality": "enthusiastic",
+        "commentary_voice": "",  # Empty = use personality default
         "commentary_tts_enabled": False,
         "commentary_volume": 70,
         "vlm_observation": None,
@@ -698,6 +708,7 @@ def get_commentary() -> Dict[str, Any]:
     return {
         "text": status.get("commentary_text", ""),
         "personality": status.get("commentary_personality", "enthusiastic"),
+        "voice": status.get("commentary_voice", ""),
         "tts_enabled": status.get("commentary_tts_enabled", False),
         "volume": status.get("commentary_volume", 70),
     }
@@ -705,7 +716,31 @@ def get_commentary() -> Dict[str, Any]:
 
 @app.get("/api/commentary/voices")
 def get_commentary_voices() -> Dict[str, Any]:
-    return {"personalities": ["sarcastic", "enthusiastic", "grumpy", "zen"]}
+    """Return available personalities, TTS voices, and their mappings."""
+    # Get personalities
+    if COMMENTARY_PERSONALITIES:
+        personalities = sorted(COMMENTARY_PERSONALITIES.keys())
+    else:
+        personalities = ["sarcastic", "enthusiastic", "grumpy", "zen"]
+    
+    # Get available TTS voices
+    available_voices = []
+    for model_dir in TTS_MODEL_DIRS:
+        if model_dir.exists():
+            for model in model_dir.glob("*.onnx"):
+                voice_name = model.stem
+                if voice_name not in available_voices:
+                    available_voices.append(voice_name)
+    available_voices.sort()
+    
+    # Get personality-to-voice mappings
+    voice_mappings = COMMENTARY_VOICES if COMMENTARY_VOICES else {}
+    
+    return {
+        "personalities": personalities,
+        "voices": available_voices,
+        "voice_mappings": voice_mappings,
+    }
 
 
 @app.post("/api/commentary")
@@ -723,6 +758,7 @@ async def update_commentary(payload: CommentaryUpdate) -> Dict[str, Any]:
     response = {
         "text": status.get("commentary_text", ""),
         "personality": status.get("commentary_personality", "enthusiastic"),
+        "voice": status.get("commentary_voice", ""),
         "tts_enabled": status.get("commentary_tts_enabled", False),
         "volume": status.get("commentary_volume", 70),
     }
@@ -736,6 +772,7 @@ async def update_commentary_personality(payload: CommentaryPersonalityUpdate) ->
     response = {
         "text": status.get("commentary_text", ""),
         "personality": status.get("commentary_personality", "enthusiastic"),
+        "voice": status.get("commentary_voice", ""),
         "tts_enabled": status.get("commentary_tts_enabled", False),
         "volume": status.get("commentary_volume", 70),
     }

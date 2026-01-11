@@ -266,6 +266,7 @@ function updateStatus(status) {
   const skillFailureList = document.getElementById("skillFailureList");
   const commentaryText = document.getElementById("commentaryText");
   const commentaryPersonality = document.getElementById("commentaryPersonality");
+  const commentaryVoice = document.getElementById("commentaryVoice");
   const commentaryTts = document.getElementById("commentaryTts");
   const commentaryVolume = document.getElementById("commentaryVolume");
   const sessionUptime = document.getElementById("sessionUptime");
@@ -639,6 +640,7 @@ function init() {
   const ttsTest = document.getElementById("ttsTest");
   const commentaryText = document.getElementById("commentaryText");
   const commentaryPersonality = document.getElementById("commentaryPersonality");
+  const commentaryVoice = document.getElementById("commentaryVoice");
   const commentaryTts = document.getElementById("commentaryTts");
   const commentaryVolume = document.getElementById("commentaryVolume");
   const pendingBannerApprove = document.getElementById("pendingBannerApprove");
@@ -656,7 +658,14 @@ function init() {
   let currentStatus = {};
   let latestState = null;
   let latestPlayer = null;
-  const defaultPersonalities = ["sarcastic", "enthusiastic", "grumpy", "zen"];
+  const defaultPersonalities = [
+    "sarcastic",
+    "enthusiastic",
+    "grumpy",
+    "zen",
+    "tars",
+    "rodney_dangerfield",
+  ];
 
   const updateMovementHistory = (events, actionEvents) => {
     if (!movementList || !movementStuck || !movementTrail) return;
@@ -1144,16 +1153,45 @@ function init() {
     }
   };
 
-  const updateCommentaryVoices = (voices) => {
-    if (!commentaryPersonality) return;
-    commentaryPersonality.innerHTML = "";
-    const list = Array.isArray(voices) && voices.length ? voices : defaultPersonalities;
-    list.forEach((voice) => {
-      const option = document.createElement("option");
-      option.value = voice;
-      option.textContent = voice;
-      commentaryPersonality.append(option);
-    });
+  // Store voice mappings globally for personality->voice lookup
+  let voiceMappings = {};
+
+  const updateCommentaryVoices = (data) => {
+    // Handle old format (array) or new format (object with personalities, voices, voice_mappings)
+    const personalities = Array.isArray(data) ? data : (data.personalities || []);
+    const voices = data.voices || [];
+    voiceMappings = data.voice_mappings || {};
+
+    // Populate personality dropdown
+    if (commentaryPersonality) {
+      commentaryPersonality.innerHTML = "";
+      const pList = personalities.length ? personalities : defaultPersonalities;
+      pList.forEach((p) => {
+        const option = document.createElement("option");
+        option.value = p;
+        option.textContent = p;
+        commentaryPersonality.append(option);
+      });
+    }
+
+    // Populate voice dropdowns
+    const populateVoiceDropdown = (el) => {
+      if (!el) return;
+      el.innerHTML = "";
+      voices.forEach((v) => {
+        const option = document.createElement("option");
+        option.value = v;
+        option.textContent = v;
+        el.append(option);
+      });
+    };
+    populateVoiceDropdown(ttsVoice);
+    populateVoiceDropdown(commentaryVoice);
+
+    // Set commentary voice based on current personality mapping
+    if (commentaryVoice && commentaryPersonality && voiceMappings[commentaryPersonality.value]) {
+      commentaryVoice.value = voiceMappings[commentaryPersonality.value];
+    }
   };
 
   const updateSpatialMap = (tiles, center) => {
@@ -1996,6 +2034,16 @@ function init() {
   if (commentaryPersonality) {
     commentaryPersonality.addEventListener("change", () => {
       postJSON("/api/commentary/personality", { personality: commentaryPersonality.value });
+      // Update voice dropdown to match personality's default voice
+      if (commentaryVoice && voiceMappings[commentaryPersonality.value]) {
+        commentaryVoice.value = voiceMappings[commentaryPersonality.value];
+      }
+    });
+  }
+
+  if (commentaryVoice) {
+    commentaryVoice.addEventListener("change", () => {
+      postJSON("/api/status", { commentary_voice: commentaryVoice.value });
     });
   }
 
@@ -2444,10 +2492,10 @@ function init() {
     fetch("/api/commentary/voices")
       .then((res) => res.json())
       .then((payload) => {
-        updateCommentaryVoices(payload.personalities || []);
+        updateCommentaryVoices(payload);
       })
       .catch(() => {
-        updateCommentaryVoices(defaultPersonalities);
+        updateCommentaryVoices({ personalities: defaultPersonalities, voices: [], voice_mappings: {} });
       });
   }
 

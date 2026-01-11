@@ -4,6 +4,115 @@ Coordination log between Claude (agent/prompt) and Codex (UI/memory).
 
 ---
 
+## 2026-01-10 - Session 45: Bug Fixes + Positioning Discovery
+
+**Agent: Claude (Opus)**
+
+### Major Progress
+
+1. **Clear_* Phantom Detection Fix** ✅
+   - Added `get_surroundings()` refresh before verification
+   - Clear actions now properly detect when debris isn't cleared
+
+2. **Shipping Task Added to Daily Planner** ✅
+   - "Ship harvested crops" task now added after harvest task
+   - Ensures Rusty knows to ship items after harvesting
+
+3. **Refill Hints Updated** ✅
+   - Changed "use_tool to REFILL" → "refill_watering_can direction=X"
+   - VLM should now output correct skill name
+
+4. **Skill Executor Timing** ✅
+   - Added 0.15s delay after `face` actions (turn animation)
+   - Added 0.2s delay after `use_tool` actions (swing animation)
+
+### Critical Bug Discovered
+
+**POSITIONING BUG (ROOT CAUSE of phantom failures):**
+- Agent moves TO crop tile instead of ADJACENT to it
+- Can't water/harvest a crop you're standing ON in Stardew Valley
+- Hints say "move to nearest crop" but should say "move NEXT TO crop"
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `unified_agent.py` | Clear_* detection fix, refill hints |
+| `memory/daily_planner.py` | Shipping task added |
+| `skills/executor.py` | Timing delays, logging |
+| `docs/NEXT_SESSION.md` | Updated for Session 46 |
+
+### Next Session Priority
+1. Fix positioning logic (CRITICAL)
+2. Test timing fixes
+3. Test harvest + ship flow
+
+---
+
+## 2026-01-10 - Session 44: State-Change Detection + Daily Planning
+
+**Agent: Claude (Opus)**
+
+### Major Progress
+
+1. **State-Change Detection** ✅
+   - Captures state snapshot before skill execution
+   - Verifies actual state change after execution
+   - Adaptive threshold: 2 consecutive phantom failures → hard-fail
+   - Records lessons for learning system
+   - Tested: `PHANTOM_FAIL: water_crop (34x)` confirmed detection working
+
+2. **Daily Planning System** ✅
+   - New module: `memory/daily_planner.py`
+   - Auto-generates task list on day change
+   - Standard daily routine (Tim's requirements):
+     1. Incomplete from yesterday → complete first
+     2. Crops dry → water (CRITICAL)
+     3. Crops ready → harvest (HIGH)
+     4. Seeds in inventory → plant (HIGH)
+     5. Nothing else → clear debris (MEDIUM)
+   - VLM-based reasoning for intelligent planning
+
+3. **VLM Text Reasoning** ✅
+   - Added `reason()` method to UnifiedVLM for text-only planning
+   - Used by daily planner for intelligent task prioritization
+
+4. **Codex UI Tasks** ✅
+   - Daily Plan Panel implemented
+   - Action Failure Panel implemented
+
+### Files Modified/Created
+| File | Change |
+|------|--------|
+| `src/python-agent/unified_agent.py` | State detection, VLM reason(), daily plan trigger |
+| `src/python-agent/memory/daily_planner.py` | NEW - Task planning module |
+| `src/python-agent/memory/__init__.py` | Added daily_planner exports |
+| `src/ui/app.py` | Daily plan API endpoint |
+| `src/ui/static/app.js` | Daily plan panel rendering |
+| `src/ui/static/app.css` | Panel styles |
+| `docs/CODEX_TASKS.md` | UI task assignments |
+
+### Key Code Locations
+| Feature | File | Lines |
+|---------|------|-------|
+| `_capture_state_snapshot()` | unified_agent.py | 2162-2219 |
+| `_verify_state_change()` | unified_agent.py | 2221-2293 |
+| `_phantom_failures` tracking | unified_agent.py | 1731-1734 |
+| `DailyPlanner` class | memory/daily_planner.py | All |
+| `VLM.reason()` | unified_agent.py | 416-446 |
+| Day change trigger | unified_agent.py | 2472-2483 |
+
+### Test Results (Session 45)
+- State detection confirmed working: 34 phantom failures caught
+- 203 actions, 119 VLM cycles in ~11 min test
+- Daily planner not yet tested (no day change during test)
+
+### What Needs Testing
+- [ ] Daily planner triggers on day change (🌅 marker)
+- [ ] Hard-fail after 2 consecutive phantom failures (💀 marker)
+- [ ] Task completion tracking
+
+---
+
 ## 2026-01-08 - Session 3: SMAPI Mod Movement System
 
 **Agent: Claude (Opus)**

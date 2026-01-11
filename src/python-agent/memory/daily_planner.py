@@ -275,6 +275,15 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 target_location="Farm",
                 estimated_time=len(harvestable) * 3,
             ))
+            # PRIORITY 3.5: Ship harvested items (HIGH - convert to money)
+            self.tasks.append(DailyTask(
+                id=f"ship_{self.current_day}_1",
+                description="Ship harvested crops at shipping bin",
+                category="farming",
+                priority=TaskPriority.HIGH.value,
+                target_location="Farm",
+                estimated_time=10,
+            ))
 
         # PRIORITY 4: Plant seeds if we have them (HIGH - grow more)
         seed_items = [item for item in inventory if item and "seed" in item.get("name", "").lower()]
