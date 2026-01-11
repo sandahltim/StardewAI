@@ -143,10 +143,12 @@ class DailyPlanner:
         - Consider weather, energy, time constraints
         - Predict outcomes and adjust accordingly
         """
+        # Handle SMAPI response structure
+        data = game_state.get("data") or game_state
         # Build reasoning prompt
-        time_data = game_state.get("time", {})
-        player = game_state.get("player", {})
-        crops = game_state.get("location", {}).get("crops", [])
+        time_data = data.get("time", {})
+        player = data.get("player", {})
+        crops = data.get("location", {}).get("crops", [])
 
         energy_pct = int((player.get("energy", 100) / player.get("maxEnergy", 100)) * 100)
         weather = time_data.get("weather", "sunny")
@@ -235,9 +237,12 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         4. Seeds in inventory → plant (HIGH - grow more crops)
         5. Nothing else → clear debris (MEDIUM - expand farm)
         """
-        location = state.get("location", {})
+        # Handle SMAPI response structure: {success, data: {...}, error}
+        # OR already-extracted data: {player, location, time, ...}
+        data = state.get("data") or state
+        location = data.get("location", {})
         crops = location.get("crops", [])
-        player = state.get("player", {})
+        player = data.get("player", {})
         inventory = player.get("inventory", [])
 
         # PRIORITY 1: Incomplete tasks from yesterday (carried over)
@@ -310,8 +315,10 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
 
     def _generate_maintenance_tasks(self, state: Dict[str, Any]) -> None:
         """Generate farm maintenance tasks."""
+        # Handle SMAPI response structure
+        data = state.get("data") or state
         # Check energy for whether to add strenuous tasks
-        player = state.get("player", {})
+        player = data.get("player", {})
         energy = player.get("energy", 100)
         max_energy = player.get("maxEnergy", 100)
         energy_pct = (energy / max_energy * 100) if max_energy > 0 else 100
@@ -328,8 +335,10 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
 
     def _generate_social_tasks(self, state: Dict[str, Any]) -> None:
         """Generate social/exploration tasks (lower priority)."""
+        # Handle SMAPI response structure
+        data = state.get("data") or state
         # Only add if we have time (early in day)
-        time_data = state.get("time", {})
+        time_data = data.get("time", {})
         hour = time_data.get("hour", 6)
 
         if hour < 12:  # Morning - might have time for social
