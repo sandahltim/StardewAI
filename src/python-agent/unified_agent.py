@@ -2502,6 +2502,144 @@ class StardewAgent:
         """Check if an action type is a skill name."""
         return action_type in self.skills_dict
 
+    def _filter_adjacent_crop_moves(self, actions: List[Action]) -> List[Action]:
+        """
+        Post-processing filter: Remove invalid move actions when already adjacent to a crop.
+
+        The VLM sometimes ignores "NO move!" hints and outputs move actions anyway.
+        This filter checks game state and removes moves that would land ON a crop.
+
+        Returns:
+            Filtered action list with invalid moves removed.
+        """
+        if not actions or not hasattr(self.controller, "get_state"):
+            return actions
+
+        # Only filter if first action is a move
+        if actions[0].action_type != "move":
+            return actions
+
+        # Check if followed by a crop skill
+        crop_skills = {"water_crop", "harvest_crop", "harvest"}
+        has_crop_skill = any(a.action_type in crop_skills for a in actions)
+        if not has_crop_skill:
+            return actions
+
+        # Get game state
+        state = self.controller.get_state()
+        if not state:
+            return actions
+
+        player_x = state.get("player", {}).get("tileX", 0)
+        player_y = state.get("player", {}).get("tileY", 0)
+        crops = state.get("location", {}).get("crops", [])
+
+        if not crops:
+            return actions
+
+        # Find nearest crop that needs attention
+        for crop in crops:
+            cx, cy = crop.get("x", 0), crop.get("y", 0)
+            dx, dy = cx - player_x, cy - player_y
+            dist = abs(dx) + abs(dy)
+
+            if dist <= 1:
+                # We're adjacent or ON a crop - filter out the move!
+                logging.info(f"🚫 FILTER: Removing move action - already adjacent to crop at ({cx},{cy}), dist={dist}")
+                # Remove the first move action, replace with face if needed
+                filtered = []
+                skipped_move = False
+                for a in actions:
+                    if a.action_type == "move" and not skipped_move:
+                        skipped_move = True
+                        # Add a face action instead if we have direction
+                        if dy < 0:
+                            face_dir = "north"
+                        elif dy > 0:
+                            face_dir = "south"
+                        elif dx < 0:
+                            face_dir = "west"
+                        else:
+                            face_dir = "east"
+                        filtered.append(Action("face", {"direction": face_dir}, f"Face crop (filtered move)"))
+                        logging.info(f"   → Replaced with: face {face_dir}")
+                    else:
+                        filtered.append(a)
+                return filtered
+
+        return actions
+
+    def _fix_empty_watering_can(self, actions: List[Action]) -> List[Action]:
+        """
+        Override: If watering can is empty AND at water, FORCE refill_watering_can.
+
+        The VLM often outputs wrong actions (water_crop, interact, wait) when the can is empty.
+        This override forces refill when conditions are right.
+        """
+        if not actions:
+            return actions
+
+        # Skip if already refilling
+        if any(a.action_type == "refill_watering_can" for a in actions):
+            return actions
+
+        # Get state to check watering can level
+        state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if not state:
+            return actions
+
+        water_left = state.get("player", {}).get("wateringCanWater", 40)
+        if water_left > 0:
+            return actions  # Can has water, no fix needed
+
+        # Watering can is empty - check if at water
+        surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
+        if not surroundings:
+            return actions
+
+        # Check directions for water
+        directions = surroundings.get("directions", {})
+        water_direction = None
+        for dir_name in ["south", "north", "east", "west"]:
+            dir_data = directions.get(dir_name, {})
+            blocker = dir_data.get("blocker", "")
+            tiles_until = dir_data.get("tilesUntilBlocked", 99)
+            if blocker and "water" in blocker.lower() and tiles_until == 0:
+                water_direction = dir_name
+                break
+
+        if not water_direction:
+            return actions  # Not at water
+
+        # OVERRIDE: Force refill regardless of what VLM output
+        logging.info(f"🔄 OVERRIDE: Empty can + at water → FORCING refill_watering_can direction={water_direction}")
+        return [Action("refill_watering_can", {"target_direction": water_direction}, "Auto-refill (can empty)")]
+
+    def _fix_late_night_bed(self, actions: List[Action]) -> List[Action]:
+        """
+        Override: If very late (hour >= 23) and not going to bed, force go_to_bed.
+        Game time: 2AM = hour 26, midnight = 24, 11PM = 23
+        """
+        if not actions:
+            return actions
+
+        # Check if already going to bed
+        if any(a.action_type == "go_to_bed" for a in actions):
+            return actions
+
+        # Get state to check time
+        state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if not state:
+            return actions
+
+        hour = state.get("time", {}).get("hour", 6)
+        if hour < 23:
+            return actions  # Not critical yet (before 11 PM)
+
+        # It's 11 PM or later - force go_to_bed
+        logging.info(f"🛏️ OVERRIDE: Hour {hour} >= 23, forcing go_to_bed")
+        return [Action("go_to_bed", {}, "Auto-bed (very late)")]
+
     def _vlm_reason(self, prompt: str) -> Optional[str]:
         """Use VLM for reasoning/planning (synchronous wrapper).
 
@@ -3639,9 +3777,14 @@ Recent: {recent}"""
                     self._ui_safe(self.ui.send_message, "agent", reply_text)
                 self.awaiting_user_reply = False
 
-            # Queue actions
+            # Queue actions (with post-processing filters)
             if self.config.mode in ("single", "splitscreen"):
-                self.action_queue = result.actions
+                # Apply action overrides in sequence
+                filtered_actions = result.actions
+                filtered_actions = self._fix_late_night_bed(filtered_actions)  # Midnight override
+                filtered_actions = self._fix_empty_watering_can(filtered_actions)  # Empty can override
+                filtered_actions = self._filter_adjacent_crop_moves(filtered_actions)  # Adjacent move filter
+                self.action_queue = filtered_actions
                 for i, a in enumerate(self.action_queue):
                     logging.info(f"   [{i+1}] {a.action_type}: {a.params}")
             else:

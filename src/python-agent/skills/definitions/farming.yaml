@@ -41,11 +41,13 @@ refill_watering_can:
     required:
       - type: adjacent_to
         target: water_source
-      - type: equipped
-        item: Watering Can
 
   actions:
+    # Auto-equip watering can (slot 2) before refilling
+    - select_slot: 2
+    - wait: 0.2
     - face: "{target_direction}"
+    - wait: 0.1
     - use_tool
 
   on_success:
@@ -55,9 +57,6 @@ refill_watering_can:
     not_adjacent:
       message: "Not adjacent to water"
       recovery_skill: navigate_to_water
-    wrong_tool:
-      message: "Watering Can not equipped"
-      recovery_skill: equip_watering_can
 
 equip_watering_can:
   description: "Select the watering can from toolbar"

@@ -75,6 +75,24 @@ class PreconditionChecker:
                     return True, "", None
             return False, "not adjacent to object", "Move next to object"
 
+        if target == "water_source":
+            # Check surroundings for water tiles adjacent to player
+            # Surroundings data uses "directions" key and "blocker" field
+            surroundings = state.get("surroundings") or {}
+            directions = surroundings.get("directions") or surroundings  # Handle both formats
+            for direction in ["north", "south", "east", "west"]:
+                dir_data = directions.get(direction) or {}
+                # Water shows as blocker="water" with tilesUntilBlocked=0
+                blocker = dir_data.get("blocker", "")
+                tiles_until = dir_data.get("tilesUntilBlocked", 99)
+                if blocker and "water" in blocker.lower() and tiles_until == 0:
+                    return True, "", None
+            # Also check if NearestWater is at distance 1 or less
+            nearest_water = surroundings.get("nearestWater") or loc.get("nearestWater") or {}
+            if nearest_water.get("distance", 99) <= 1:
+                return True, "", None
+            return False, "not adjacent to water", "Move next to water source"
+
         return False, f"unknown adjacent target: {target}", None
 
     def _equipped(self, params: Dict, state: Dict) -> Tuple[bool, str, Optional[str]]:

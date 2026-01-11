@@ -1,108 +1,159 @@
-# Session 47: VLM Following Positioning Hints
+# Session 48: Multi-Day Autonomy Testing
 
-**Last Updated:** 2026-01-10 Session 46b by Claude
-**Status:** Positioning hints improved, VLM still sometimes ignores "NO move" instructions
+**Last Updated:** 2026-01-10 Session 47 by Claude
+**Status:** Action overrides implemented, ready for extended testing
 
 ---
 
-## Session 46 Summary
+## Session 47 Summary
 
 ### What Was Completed
 
-1. **Positioning Bug Fixed** ✅ (CRITICAL)
-   - Added `_calc_adjacent_hint()` helper method
-   - Fixed 6 locations where hints said "move TO crop" instead of "move ADJACENT"
-   - Strategy: reduce larger axis by 1 to stop 1 tile away, then face crop
-   - Commits: `4f14327`, `7902730`
+1. **Adjacent Move Filter** ✅
+   - Added `_filter_adjacent_crop_moves()` method
+   - When player is adjacent to crop (dist<=1), removes move actions
+   - Replaces with face action toward crop
+   - File: `unified_agent.py:2505-2570`
 
-2. **Edge Cases Added** ✅
-   - `dist == 0`: "STEP BACK! move 1 tile any direction, then face crop"
-   - `dist == 1`: "ADJACENT! DO: face X, water_crop (NO move!)"
+2. **Water Source Precondition** ✅
+   - Fixed `adjacent_to: water_source` handler in precondition checker
+   - Now correctly checks `blocker == "water"` in surroundings
+   - File: `preconditions.py:78-94`
 
-3. **Crops Watered** ✅
-   - Day 9: Both parsnips were watered
-   - One harvested (parsnips in inventory at slots 5, 10)
+3. **Improved Refill Skill** ✅
+   - Auto-equips watering can (select_slot 2) before refilling
+   - Added animation delays between actions
+   - File: `skills/definitions/farming.yaml:35-59`
 
-### Remaining Issue
+4. **Empty Can Override** ✅ (NEW)
+   - When watering can empty + at water + VLM outputs water_crop
+   - Auto-replaces with `refill_watering_can`
+   - File: `unified_agent.py:2572-2623`
 
-**VLM sometimes ignores "NO move" hint and moves anyway.** When adjacent (dist==1), the hint says:
+5. **Late Night Bed Override** ✅ (NEW - FIXED)
+   - When hour >= 23 (11 PM), forces `go_to_bed`
+   - Triggers earlier to prevent passing out
+   - File: `unified_agent.py:2618-2648`
+
+6. **Empty Can Force Refill** ✅ (FIXED)
+   - When empty can + at water, FORCES refill regardless of VLM output
+   - Previously only triggered on water_crop, now triggers on ANY action
+   - File: `unified_agent.py:2572-2616`
+
+### Action Override Chain
+
+```python
+# Applied in sequence before action execution:
+filtered_actions = result.actions
+filtered_actions = self._fix_late_night_bed(filtered_actions)      # Midnight → bed
+filtered_actions = self._fix_empty_watering_can(filtered_actions)  # Empty can → refill
+filtered_actions = self._filter_adjacent_crop_moves(filtered_actions)  # Adjacent → face
 ```
-💧 ADJACENT! DO: face west, water_crop (NO move!)
-```
-
-But VLM still outputs:
-```
-[1] move: {'direction': 'west', 'tiles': 1}  ← WRONG! Should not move!
-[2] water_crop: {}
-```
-
-This causes the player to move ONTO the crop, then water_crop fails.
 
 ---
 
 ## Next Session Priorities
 
-### Priority 1: Fix VLM Hint Interpretation
+### Priority 1: Verify Overrides Working
 
-Options to try:
-1. **Stronger hint wording**: "⚠️ ALREADY ADJACENT - DO NOT ISSUE move ACTION!"
-2. **Prompt tuning**: Add explicit instruction about when NOT to move
-3. **Post-processing**: Filter out move actions when adjacent
+Check logs for these markers:
+- `🛏️ OVERRIDE: Hour X >= 24, forcing go_to_bed`
+- `🔄 OVERRIDE: Watering can empty + at water → replacing water_crop with refill_watering_can`
+- `🚫 FILTER: Removing move action - already adjacent to crop`
 
-### Priority 2: Test Ship Flow
+### Priority 2: Test Full Day Cycle
 
-Parsnips in inventory (slots 5, 10). Test:
-1. Navigate to shipping bin
-2. Execute ship_item skill
-3. Verify items shipped
+1. Start fresh day
+2. Water crops (with refill if needed)
+3. Harvest when ready
+4. Ship parsnips (slots 5, 10 have parsnips)
+5. Go to bed
 
-### Priority 3: Continue Multi-Day Test
+### Priority 3: Multi-Day Run
 
-- Crop at (64, 22) needs 2 more days → ready Day 11
-- Test harvest + ship cycle when ready
+- Current: Day 10
+- Crop at (64, 22): 1 day until harvest → ready Day 11
+- Goal: Run Day 10 → Day 12 with minimal intervention
 
 ---
 
-## Game State
+## Game State (End of Session 47)
 
-**Day 9, ~6PM**
-- 1 crop at (64, 22) - watered, 2 days until harvest
-- Parsnips in inventory: slots 5, 10 (ready to ship)
-- Shipping bin at (71, 14)
+| Item | Value |
+|------|-------|
+| Day | 10, hour 24+ (very late) |
+| Player | (75, 30), at water |
+| Tool | Watering Can (empty) |
+| Crop | (64, 22) - Parsnip, 1 day to harvest |
+| Inventory | Parsnips in slots 5, 10 |
+
+---
+
+## Code Changes This Session
+
+| File | Change |
+|------|--------|
+| `unified_agent.py` | Added 3 filter/override methods, wired to action queue |
+| `preconditions.py` | Fixed water_source detection (blocker field) |
+| `farming.yaml` | Improved refill_watering_can with auto-equip |
+
+---
+
+## Design Philosophy
+
+**VLM = Planner/Brain, Code = Executor**
+
+The VLM provides high-level decisions and planning. The code handles low-level execution details through:
+- **Action overrides**: Catch and fix common VLM mistakes (wrong action, bad timing)
+- **Skills**: Multi-step action sequences (face → use_tool → wait)
+- **State-based corrections**: Check game state and adjust actions accordingly
+
+This makes objectives easier - VLM just needs to decide WHAT to do, code handles HOW.
+
+---
+
+## Known Issues / Watch For
+
+1. **Slot 2 hardcoded** - Watering can assumed in slot 2. Could break if reorganized.
+2. **VLM interpretation** - Still outputs wrong actions sometimes, but overrides catch most cases.
+3. **Repetition loops** - Agent can get stuck doing same action. Overrides help but don't fully solve.
 
 ---
 
 ## Quick Reference
 
-### Current Hint Format
-
-| Scenario | Hint |
-|----------|------|
-| dist == 0 (ON crop) | "STEP BACK! move 1 tile any direction, then face crop, water" |
-| dist == 1 (adjacent) | "ADJACENT! DO: face west, water_crop (NO move!)" |
-| dist > 1 | "move 2N+1E (stop adjacent), face NORTH, water" |
-
 ### Test Commands
 
 ```bash
-# Check positions
-curl -s localhost:8790/state | jq '{player: {x: .data.player.tileX, y: .data.player.tileY}, crops: .data.location.crops}'
+# Check game state
+curl -s localhost:8790/state | jq '{day: .data.time.day, hour: .data.time.hour, player: {x: .data.player.tileX, y: .data.player.tileY, waterLeft: .data.player.wateringCanWater}}'
+
+# Check surroundings for water
+curl -s localhost:8790/surroundings | jq '.data.directions'
+
+# Watch agent logs
+tail -f /tmp/agent.log | grep -E "OVERRIDE|FILTER|Executing"
 
 # Run agent
-python src/python-agent/unified_agent.py --goal "Ship the parsnips"
+python src/python-agent/unified_agent.py --ui --goal "Farm autonomously"
 ```
+
+### Override Triggers
+
+| Override | Condition | Result |
+|----------|-----------|--------|
+| Late night | hour >= 24 | Force `go_to_bed` |
+| Empty can at water | waterLeft=0 + water adjacent + water_crop action | Replace with `refill_watering_can` |
+| Adjacent crop | dist<=1 to crop + move action | Replace with `face` |
 
 ---
 
 ## Commits This Session
 
-| Hash | Description |
-|------|-------------|
-| `4f14327` | Session 45-46: Positioning fix + Phantom detection + Skill timing |
-| `7902730` | Session 46b: Improved adjacent positioning hints |
+*(Pending - will commit at end of testing)*
 
 ---
 
-*Session 46: Positioning hints work but VLM still needs tuning to not move when adjacent*
+*Session 47: Action overrides for robustness - VLM outputs can now be corrected when they conflict with game state*
 
-*— Claude (PM), Session 46*
+*— Claude (PM), Session 47*
