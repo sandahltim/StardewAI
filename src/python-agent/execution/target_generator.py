@@ -31,20 +31,23 @@ class TargetGenerator:
         game_state: Dict[str, Any],
         player_pos: Tuple[int, int],
         strategy: SortStrategy = SortStrategy.ROW_BY_ROW,
+        task_params: Optional[Dict[str, Any]] = None,
     ) -> List[Target]:
         """
         Main entry point. Dispatches to task-specific generators.
 
         Args:
             task_type: "water_crops", "harvest_crops", "clear_debris",
-                      "till_soil", "plant_seeds"
+                      "till_soil", "plant_seeds", "navigate", "refill_watering_can"
             game_state: From SMAPI /state endpoint
             player_pos: (x, y) current player position
             strategy: How to sort targets
+            task_params: Optional params from PrereqResolver (e.g., destination coords)
 
         Returns:
             Ordered list of Target objects
         """
+        # Multi-target tasks (scan game state)
         dispatch = {
             "water_crops": self._generate_water_targets,
             "harvest_crops": self._generate_harvest_targets,
@@ -52,6 +55,13 @@ class TargetGenerator:
             "till_soil": self._generate_till_targets,
             "plant_seeds": self._generate_plant_targets,
         }
+        
+        # Single-target tasks (use params)
+        if task_type == "navigate":
+            return self._generate_navigate_target(player_pos, task_params)
+        elif task_type == "refill_watering_can":
+            return self._generate_refill_target(game_state, player_pos, task_params)
+        
         generator = dispatch.get(task_type)
         if not generator:
             return []
@@ -193,6 +203,67 @@ class TargetGenerator:
             predicate=self._is_plantable_tile,
         )
         return self._sort_targets(targets, pos, strategy)
+
+    def _generate_navigate_target(
+        self,
+        player_pos: Tuple[int, int],
+        task_params: Optional[Dict[str, Any]],
+    ) -> List[Target]:
+        """
+        Generate single target for navigation task.
+        
+        Destination comes from task_params (set by PrereqResolver).
+        Returns single Target at destination coords.
+        """
+        if not task_params:
+            return []
+        
+        # Get destination coords from params
+        target_coords = task_params.get("target_coords")
+        if not target_coords:
+            # Try destination as fallback (might be location name, not coords)
+            return []
+        
+        if isinstance(target_coords, (list, tuple)) and len(target_coords) >= 2:
+            x, y = int(target_coords[0]), int(target_coords[1])
+        else:
+            return []
+        
+        return [Target(
+            x=x,
+            y=y,
+            target_type="navigate",
+            metadata={
+                "destination": task_params.get("destination", "unknown"),
+            },
+        )]
+
+    def _generate_refill_target(
+        self,
+        game_state: Dict[str, Any],
+        player_pos: Tuple[int, int],
+        task_params: Optional[Dict[str, Any]],
+    ) -> List[Target]:
+        """
+        Generate single target for refill watering can task.
+        
+        Player should already be at water source (navigate completed first).
+        Returns target at current position - skill will face water and use tool.
+        """
+        # Target is current player position (already at water source)
+        # The refill_watering_can skill will handle facing the water
+        direction = "south"  # Default
+        if task_params:
+            direction = task_params.get("target_direction", "south")
+        
+        return [Target(
+            x=player_pos[0],
+            y=player_pos[1],
+            target_type="refill",
+            metadata={
+                "target_direction": direction,
+            },
+        )]
 
     def _tiles_from_state(
         self,

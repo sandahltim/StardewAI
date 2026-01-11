@@ -2808,11 +2808,13 @@ class StardewAgent:
                 task_id = resolved_task.original_task_id
                 description = resolved_task.description
                 is_prereq = resolved_task.is_prereq
+                task_params = resolved_task.params if hasattr(resolved_task, 'params') else {}
             else:
                 task_type = resolved_task.get('task_type', 'unknown')
                 task_id = resolved_task.get('original_task_id', f'resolved_{i}')
                 description = resolved_task.get('description', task_type)
                 is_prereq = resolved_task.get('is_prereq', False)
+                task_params = resolved_task.get('params', {})
 
             # Check if already completed
             if task_id and not task_id.endswith('_prereq'):
@@ -2830,13 +2832,15 @@ class StardewAgent:
                 continue
 
             # Try to start this task
-            logging.info(f"🎯 Starting resolved task: {task_type} ({'prereq' if is_prereq else 'main'})")
+            params_info = f" params={task_params}" if task_params else ""
+            logging.info(f"🎯 Starting resolved task: {task_type} ({'prereq' if is_prereq else 'main'}){params_info}")
 
             has_targets = self.task_executor.set_task(
                 task_id=task_id,
                 task_type=task_type,
                 game_state=state,
                 player_pos=player_pos,
+                task_params=task_params,
             )
 
             if has_targets:

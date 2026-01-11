@@ -111,6 +111,8 @@ class TaskExecutor:
         "clear_debris": None,  # Determined by debris type
         "till_soil": "till_soil",
         "plant_seeds": "plant_seed",
+        "navigate": None,  # No skill - just movement to destination
+        "refill_watering_can": "refill_watering_can",
     }
     
     # Map debris names to clearing skills
@@ -130,6 +132,7 @@ class TaskExecutor:
         self.tick_count: int = 0  # For hybrid VLM mode
         self._consecutive_failures: int = 0
         self._max_failures: int = 3  # Give up on target after 3 failures
+        self._task_params: Optional[Dict[str, Any]] = None  # Params from PrereqResolver
         # Event-driven commentary
         self._event_queue: List[Tuple[CommentaryEvent, str]] = []
         self._last_row: Optional[int] = None  # Track row changes
@@ -173,14 +176,19 @@ class TaskExecutor:
         game_state: Dict[str, Any],
         player_pos: Tuple[int, int],
         strategy: SortStrategy = SortStrategy.ROW_BY_ROW,
+        task_params: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """
         Initialize executor with a new task.
-        
+
+        Args:
+            task_params: Optional params from PrereqResolver (e.g., destination coords)
+
         Returns True if task has targets, False if nothing to do.
         """
+        self._task_params = task_params
         self.targets = self.target_gen.generate(
-            task_type, game_state, player_pos, strategy
+            task_type, game_state, player_pos, strategy, task_params
         )
         
         if not self.targets:
@@ -261,7 +269,29 @@ class TaskExecutor:
         if distance > 1:
             self.state = TaskState.MOVING_TO_TARGET
             return self._create_move_action(player_pos, target, dx, dy)
-        
+
+        # Check if this task type requires a skill at target
+        skill_name = self._get_skill_for_target(target)
+        if skill_name is None:
+            # No skill needed (e.g., navigate) - just reaching target completes it
+            logger.info(f"🎯 Navigate complete: reached ({target.x}, {target.y})")
+            # Manually complete this target (report_result only works for EXECUTING_AT_TARGET)
+            if self.progress:
+                self.progress.completed_targets += 1
+            self.current_index += 1
+            self._check_milestone()
+            # Check if there are more targets
+            if self.current_index >= len(self.targets):
+                self.state = TaskState.TASK_COMPLETE
+                self._queue_event(
+                    CommentaryEvent.TASK_COMPLETE,
+                    f"Reached destination"
+                )
+                logger.info(f"✅ TaskExecutor: Navigate task COMPLETE")
+                return None
+            # Return None to advance to next target on next tick
+            return None
+
         # Adjacent or on target - execute skill
         self.state = TaskState.EXECUTING_AT_TARGET
         return self._create_skill_action(player_pos, target, dx, dy)
@@ -353,18 +383,22 @@ class TaskExecutor:
         dy: int,
     ) -> ExecutorAction:
         """Create skill action when adjacent to target."""
-        # Determine facing direction (toward target)
-        if dx == 0 and dy == 0:
-            # Standing on target - pick a direction (shouldn't happen often)
-            direction = "south"
-        elif abs(dx) >= abs(dy):
-            direction = "east" if dx > 0 else "west"
-        else:
-            direction = "south" if dy > 0 else "north"
-        
+        # Check if direction is specified in target metadata (e.g., refill tasks)
+        direction = target.metadata.get("target_direction")
+
+        if not direction:
+            # Determine facing direction (toward target)
+            if dx == 0 and dy == 0:
+                # Standing on target - pick a direction (shouldn't happen often)
+                direction = "south"
+            elif abs(dx) >= abs(dy):
+                direction = "east" if dx > 0 else "west"
+            else:
+                direction = "south" if dy > 0 else "north"
+
         # Get skill name based on task and target
         skill_name = self._get_skill_for_target(target)
-        
+
         return ExecutorAction(
             action_type=skill_name,
             params={"target_direction": direction},
@@ -372,20 +406,24 @@ class TaskExecutor:
             reason=f"Executing {skill_name} on target at ({target.x}, {target.y})"
         )
     
-    def _get_skill_for_target(self, target: Target) -> str:
-        """Determine which skill to use for this target."""
+    def _get_skill_for_target(self, target: Target) -> Optional[str]:
+        """Determine which skill to use for this target. Returns None for navigate tasks."""
         if self.progress is None:
             return "interact"
-        
+
         task_type = self.progress.task_type
-        
+
         # Debris needs specific tool based on type
         if task_type == "clear_debris":
             debris_name = target.metadata.get("name", "")
             return self.DEBRIS_SKILLS.get(debris_name, "clear_weeds")
-        
-        # All other tasks have direct mapping
-        return self.TASK_TO_SKILL.get(task_type, "interact")
+
+        # Navigate returns None - no skill needed
+        skill = self.TASK_TO_SKILL.get(task_type)
+        if skill is None and task_type not in self.TASK_TO_SKILL:
+            # Unknown task type - fallback to interact
+            return "interact"
+        return skill  # May be None for navigate
     
     def report_result(self, success: bool, error: Optional[str] = None) -> None:
         """
