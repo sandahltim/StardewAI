@@ -1,112 +1,68 @@
-# Session 52: Overrides Working, Ready for Multi-Day Test
+# Session 53: Fix Harvest Loop
 
-**Last Updated:** 2026-01-11 Session 51 by Claude
-**Status:** Edge-stuck and no-seeds overrides added, collision fix deployed
+**Last Updated:** 2026-01-11 Session 52 by Claude
+**Status:** Harvest phantom-failing in loop, needs direction fix
 
 ---
 
-## Session 51 Summary
+## Session 52 Summary
 
 ### What Was Fixed
 
-1. **No-Seeds Override** ✅
-   - Detects when inventory has no seeds and Pierre's is open (9-17, not Wed)
-   - Overrides debris-clearing actions to force `go_to_pierre`
-   - Prevents endless debris loop when agent should buy seeds
-   - File: `unified_agent.py:2833-2877`
+1. **Pierre Navigation** ✅
+   - `go_to_pierre` now: warp Town → walk north → interact with door
+   - No more warping directly into SeedShop black area
+   - File: `navigation.yaml:310-338`
 
-2. **Edge-Stuck Override** ✅
-   - Detects when player is at map edge (x>72, x<8, y>45, y<10)
-   - Triggers when repeating move/debris actions 3+ times
-   - Forces retreat toward farm center (60, 20)
-   - At night (hour >= 20), forces `go_to_bed` instead
-   - File: `unified_agent.py:2885-2939`
+2. **Popup Handling** ✅
+   - Added `dismiss_menu` SMAPI action (exits menus, skips events)
+   - Added `_fix_active_popup` override in Python agent
+   - Added UI state fields: Menu, Event, DialogueUp, Paused
+   - Files: `ActionExecutor.cs`, `GameState.cs`, `unified_agent.py`
 
-3. **Collision Detection Fix** ✅
-   - `MoveDirection` was using only `isTilePassable()` - missed objects
-   - Now uses `_pathfinder.IsTilePassable()` which also checks:
-     - Map bounds
-     - Objects on tiles (rocks, wood, debris)
-   - Prevents clipping through obstacles
-   - File: `ActionExecutor.cs:177-188`
+3. **No-Seeds Override Expanded** ✅
+   - Now catches farming actions: `till_soil`, `plant_seed`, `water_crop`, `harvest`
+   - File: `unified_agent.py:2868-2871`
 
-### Override Chain (Current Order)
+### What's Broken
 
-```python
-filtered_actions = self._fix_late_night_bed(filtered_actions)      # Midnight → bed
-filtered_actions = self._fix_priority_shipping(filtered_actions)   # Sellables → ship
-filtered_actions = self._fix_no_seeds(filtered_actions)            # No seeds → Pierre's
-filtered_actions = self._fix_edge_stuck(filtered_actions)          # Edge stuck → retreat
-filtered_actions = self._fix_empty_watering_can(filtered_actions)  # Empty can → refill
-filtered_actions = self._filter_adjacent_crop_moves(filtered_actions)  # Adjacent move filter
+**Harvest Loop Bug:**
+```
+harvest_crop phantom-failed 32x consecutively
+harvest: {'value': 'east'}  ← WRONG! Should use facing direction
 ```
 
-### Test Results
-
-- Edge-stuck override triggered at (76, 26) → retreat west
-- No-seeds override correctly skipped on Wednesday (Pierre's closed)
-- Collision detection shows walls correctly in directions
-- Agent farming autonomously on Day 17
+The `harvest_crop` skill is hardcoding `east` instead of using the player's facing direction. Agent faces south but harvests east = phantom failure loop.
 
 ---
 
-## Game State (End of Session 51)
+## Next Session Priority
 
-| Item | Value |
-|------|-------|
-| Day | 17 (Wednesday) |
-| Location | Farm |
-| Seeds | None in inventory |
-| Money | 1033g |
+### Priority 1: Fix Harvest Direction
 
----
+The harvest skill needs to use the facing direction, not a hardcoded value.
 
-## Next Session Priorities
-
-### Priority 1: Multi-Day Autonomy Test
-
-Run extended test now that overrides are in place:
-1. Day starts → water crops
-2. Harvest ready crops (if any)
-3. Ship harvested crops
-4. **Thursday**: No-seeds override should trigger → go to Pierre's → buy seeds
-5. Plant new seeds
-6. Clear debris if time remains
-7. Sleep
-
+Check `farming.yaml` for `harvest_crop` skill definition:
 ```bash
-# Run agent
-source venv/bin/activate
-python src/python-agent/unified_agent.py --ui --goal "Farm autonomously"
+grep -A 20 "harvest_crop:" src/python-agent/skills/definitions/farming.yaml
 ```
 
-### Priority 2: Fix Phantom Watering Failures
+The `harvest` action should use the player's current facing direction from state, not a hardcoded value.
 
-Agent reports "phantom failures" - water_crop says success but crop not watered. Possible causes:
-- Facing wrong direction
-- Watering can empty (no water level in state)
-- Crop already watered
+### Priority 2: Test Full Flow
 
-Investigate in `unified_agent.py` state verification logic.
-
-### Priority 3: Test No-Seeds Override
-
-When it's not Wednesday, test the no-seeds → Pierre's flow:
-1. Ensure no seeds in inventory
-2. Agent should warp to SeedShop
-3. Buy seeds
-4. Return to farm and plant
+After fixing harvest:
+1. Agent harvests crops → gets produce
+2. Ships produce at bin
+3. No seeds → goes to Pierre's (through door)
+4. Buys seeds
+5. Returns to farm, plants
 
 ---
 
-## Key Code Locations
+## Commit
 
-| Feature | File | Lines |
-|---------|------|-------|
-| No-seeds override | unified_agent.py | 2833-2877 |
-| Edge-stuck override | unified_agent.py | 2885-2939 |
-| Collision fix | ActionExecutor.cs | 177-188 |
-| Override chain | unified_agent.py | 4094-4099 |
+`8de60b0` - Session 52: Proper Pierre navigation + popup handling
 
 ---
 
@@ -117,19 +73,15 @@ When it's not Wednesday, test the no-seeds → Pierre's flow:
 source venv/bin/activate
 python src/python-agent/unified_agent.py --ui --goal "Farm autonomously"
 
+# Check harvest skill
+grep -A 20 "harvest_crop:" src/python-agent/skills/definitions/farming.yaml
+
 # Check state
-curl -s localhost:8790/state | jq '{day: .data.time.day, hour: .data.time.hour, dayOfWeek: .data.time.dayOfWeek}'
-
-# Check for overrides in log
-grep -E "OVERRIDE" logs/agent.log | tail -10
-
-# Manual buy test (must be in SeedShop)
-curl -s -X POST localhost:8790/action -H "Content-Type: application/json" \
-  -d '{"action": "buy", "item": "parsnip seeds", "quantity": 5}'
+curl -s localhost:8790/state | jq '{day: .data.time.day, hour: .data.time.hour}'
 ```
 
 ---
 
-*Session 51: Edge-stuck and no-seeds overrides added. Collision detection fixed.*
+*Session 52: Pierre navigation fixed, harvest loop discovered.*
 
-*— Claude (PM), Session 51*
+*— Claude (PM), Session 52*

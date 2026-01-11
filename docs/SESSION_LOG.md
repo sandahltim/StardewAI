@@ -4,6 +4,50 @@ Coordination log between Claude (agent/prompt) and Codex (UI/memory).
 
 ---
 
+## 2026-01-11 - Session 52: Pierre Navigation & Popup Handling
+
+**Agent: Claude (Opus)**
+
+### Problem
+Agent warping directly into Pierre's shop landed in "black area" (invalid tile), causing stuck loop.
+
+### Fixes
+
+1. **Pierre Navigation** - `navigation.yaml:310-338`
+   - Changed from: `warp: SeedShop` (direct teleport inside)
+   - Changed to: warp Town → face north → move 1 → interact (enter through door)
+   - Game now places player correctly inside shop
+
+2. **Popup Handling** - `ActionExecutor.cs`, `unified_agent.py`
+   - Added `dismiss_menu` SMAPI action (exits menus, skips events, clears dialogue)
+   - Added `_fix_active_popup` override (top of chain)
+   - Added UI state fields: Menu, Event, DialogueUp, Paused
+
+3. **No-Seeds Override Expanded** - `unified_agent.py:2868-2871`
+   - Now catches farming actions: `till_soil`, `plant_seed`, `water_crop`, `harvest`
+   - Previously only caught debris actions
+
+### Override Chain (Updated)
+```
+1. _fix_active_popup       → dismiss popup FIRST (NEW)
+2. _fix_late_night_bed     → midnight bed
+3. _fix_priority_shipping  → sellables ship
+4. _fix_no_seeds           → Pierre's (EXPANDED)
+5. _fix_edge_stuck         → retreat
+6. _fix_empty_watering_can → refill
+7. _filter_adjacent_crop   → move filter
+```
+
+### Known Issue (Next Session)
+- `harvest_crop` phantom-failing 32x consecutively
+- Bug: skill uses `harvest: {'value': 'east'}` instead of facing direction
+- Agent faces south but harvest action goes east = loop
+
+### Commit
+`8de60b0` - Session 52: Proper Pierre navigation + popup handling
+
+---
+
 ## 2026-01-11 - Session 51: Edge-Stuck & No-Seeds Overrides
 
 **Agent: Claude (Opus)**
