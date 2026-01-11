@@ -1,7 +1,7 @@
 # StardewAI Team Plan
 
 **Created:** 2026-01-08
-**Last Updated:** 2026-01-11 Session 50
+**Last Updated:** 2026-01-11 Session 53
 **Project Lead:** Claude (Opus) - Agent logic, architecture, coordination
 **UI/Memory:** Codex - User interface, memory systems, state persistence
 **Human Lead:** Tim - Direction, testing, hardware, final decisions
@@ -22,7 +22,7 @@
 
 ---
 
-## Current Status (Session 51)
+## Current Status (Session 53)
 
 ### What's Working
 | Component | Status | Session |
@@ -53,18 +53,23 @@
 | Shipping Override (aggressive) | ✅ Fixed | 50 |
 | ship_item Skill | ✅ Fixed | 50 |
 | Synchronous Movement | ✅ Fixed | 50 |
-| **No-Seeds Override** | ✅ New | 51 |
-| **Edge-Stuck Override** | ✅ New | 51 |
-| **Collision Detection Fix** | ✅ Fixed | 51 |
+| No-Seeds Override | ✅ New | 51 |
+| Edge-Stuck Override | ✅ New | 51 |
+| Collision Detection Fix | ✅ Fixed | 51 |
+| **Popup/Menu Handling** | ✅ New | 52 |
+| **Harvest Direction Fix** | ✅ Fixed | 52 |
+| **Warp Case-Sensitivity Fix** | ✅ Fixed | 53 |
+| **SeedShop Buy Override** | ✅ New | 53 |
+| **Pierre Navigation (direct warp)** | ✅ Fixed | 53 |
 
 ### Current Focus
 | Task | Status |
 |------|--------|
 | Shipping workflow | ✅ COMPLETE |
 | Edge-stuck recovery | ✅ COMPLETE |
-| No-seeds → Pierre's | ✅ COMPLETE |
+| No-seeds → Pierre's → Buy | ✅ COMPLETE |
+| Full seeds flow | ✅ COMPLETE |
 | Multi-day autonomy test | Ready to test |
-| Buy seeds flow | Next priority |
 
 ---
 
