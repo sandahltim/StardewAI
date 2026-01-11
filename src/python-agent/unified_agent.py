@@ -1394,10 +1394,14 @@ class ModBridgeController:
         """
         dist = abs(dx) + abs(dy)
         
-        # Already adjacent - just face and act
+        # Standing ON the crop - need to step back first
+        if dist == 0:
+            return f"STEP BACK! move 1 tile any direction, then face crop, {action}"
+        
+        # Already adjacent - just face and act (NO MOVEMENT NEEDED!)
         if dist == 1:
             face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
-            return f"face {face_dir}, {action}"
+            return f"ADJACENT! DO: face {face_dir}, {action} (NO move needed!)"
         
         # Calculate movement to stop 1 tile away
         # Strategy: reduce the LARGER axis by 1, keep other axis full
@@ -2730,8 +2734,7 @@ class StardewAgent:
                 tts_text = ui_text
                 tts_text = re.sub(r'["\'\*\_\#\`\[\]\(\)\{\}]', '', tts_text)  # Remove quotes, markdown
                 tts_text = re.sub(r'\s+', ' ', tts_text).strip()  # Normalize whitespace
-                voice = self.commentary_generator.get_voice() if self.commentary_generator else None
-                self.commentary_tts.speak(tts_text, voice=voice)
+                self.commentary_tts.speak(tts_text)
                 self._last_tts_time = current_time
             except Exception:
                 pass
@@ -3052,10 +3055,13 @@ class StardewAgent:
             dy = nearest["y"] - player_y
             dist = abs(dx) + abs(dy)
             
-            if dist == 1:
+            if dist == 0:
+                # Standing ON crop - step back first
+                hints.append(f"💧 ON CROP! DO: move 1 tile back, face crop, water")
+            elif dist == 1:
                 face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
-                hints.append(f"💧 {len(unwatered)} unwatered - face {face_dir.upper()}, water")
-            elif dist > 0:
+                hints.append(f"💧 ADJACENT! DO: face {face_dir}, water_crop (NO move!)")
+            elif dist > 1:
                 # Calculate movement to stop ADJACENT (1 tile away), then face crop
                 abs_dx, abs_dy = abs(dx), abs(dy)
                 if abs_dy == 0:
@@ -3084,10 +3090,13 @@ class StardewAgent:
             dy = nearest_h["y"] - player_y
             dist = abs(dx) + abs(dy)
             
-            if dist == 1:
+            if dist == 0:
+                # Standing ON crop - step back first
+                hints.append(f"🌾 ON CROP! DO: move 1 tile back, face crop, harvest")
+            elif dist == 1:
                 face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
-                hints.append(f"🌾 {len(harvestable)} harvestable - face {face_dir.upper()}, harvest")
-            elif dist > 0:
+                hints.append(f"🌾 ADJACENT! DO: face {face_dir}, harvest_crop (NO move!)")
+            elif dist > 1:
                 # Calculate movement to stop ADJACENT (1 tile away), then face crop
                 abs_dx, abs_dy = abs(dx), abs(dy)
                 if abs_dy == 0:
