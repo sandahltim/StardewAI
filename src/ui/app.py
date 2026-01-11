@@ -133,6 +133,7 @@ class SkillHistoryCreate(BaseModel):
 class CommentaryUpdate(BaseModel):
     text: Optional[str] = None
     personality: Optional[str] = None
+    voice: Optional[str] = None
     tts_enabled: Optional[bool] = None
     volume: Optional[int] = None
 
@@ -750,6 +751,8 @@ async def update_commentary(payload: CommentaryUpdate) -> Dict[str, Any]:
         update["commentary_text"] = payload.text
     if payload.personality is not None:
         update["commentary_personality"] = payload.personality
+    if payload.voice is not None:
+        update["commentary_voice"] = payload.voice
     if payload.tts_enabled is not None:
         update["commentary_tts_enabled"] = payload.tts_enabled
     if payload.volume is not None:

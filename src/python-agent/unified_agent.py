@@ -1111,15 +1111,22 @@ class ModBridgeController:
                     nearest = min(unwatered, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
                     dx = nearest["x"] - player_x
                     dy = nearest["y"] - player_y
-                    dist = abs(dx) + abs(dy)
 
                     # Use adjacent movement hint (stop 1 tile away from crop)
                     adj_hint = self._calc_adjacent_hint(dx, dy, action="water")
                     front_info = f">>> {len(unwatered)} CROPS NEED WATERING! {adj_hint} <<<"
-                elif "Hoe" in current_tool:
-                    front_info = f">>> TILE: CLEAR DIRT - You have {current_tool}, use_tool to TILL! <<<"
                 else:
-                    front_info = ">>> TILE: CLEAR DIRT - select_slot 1 for HOE, then use_tool to TILL! <<<"
+                    # Check if we have seeds before suggesting tilling
+                    inventory = state.get("inventory", []) if state else []
+                    has_seeds = any(item and "seed" in item.get("name", "").lower() for item in inventory)
+                    if has_seeds:
+                        if "Hoe" in current_tool:
+                            front_info = f">>> TILE: CLEAR DIRT - You have {current_tool}, use_tool to TILL! <<<"
+                        else:
+                            front_info = ">>> TILE: CLEAR DIRT - select_slot 1 for HOE, then use_tool to TILL! <<<"
+                    else:
+                        # No seeds - use done farming hint (will suggest shipping/clearing)
+                        front_info = self._get_done_farming_hint(state, data)
             elif tile_state == "clear" or tile_state == "blocked":
                 # Check if there are crops nearby that need watering
                 crops = state.get("location", {}).get("crops", []) if state else []
@@ -1350,6 +1357,34 @@ class ModBridgeController:
                     dirs.append(f"{abs(dx)} EAST")
                 direction_str = " and ".join(dirs) if dirs else "here"
                 return f">>> 🌾 {len(harvestable)} READY TO HARVEST! Move {direction_str}, then harvest <<<"
+
+        # Check for sellable items in inventory (harvested crops)
+        inventory = state.get("inventory", [])
+        sellable_items = ["Parsnip", "Potato", "Cauliflower", "Green Bean", "Kale", "Melon", "Blueberry",
+                         "Corn", "Tomato", "Pumpkin", "Cranberry", "Eggplant", "Grape", "Radish"]
+        sellables = [item for item in inventory if item.get("name") in sellable_items and item.get("stack", 0) > 0]
+        if sellables:
+            total_count = sum(item.get("stack", 0) for item in sellables)
+            shipping_bin = state.get("location", {}).get("shippingBin", {})
+            bin_x = shipping_bin.get("x", 71)
+            bin_y = shipping_bin.get("y", 14)
+            dx = bin_x - player_x
+            dy = bin_y - player_y
+            dist = abs(dx) + abs(dy)
+            dirs = []
+            if dy < 0:
+                dirs.append(f"{abs(dy)} NORTH")
+            elif dy > 0:
+                dirs.append(f"{abs(dy)} SOUTH")
+            if dx < 0:
+                dirs.append(f"{abs(dx)} WEST")
+            elif dx > 0:
+                dirs.append(f"{abs(dx)} EAST")
+            bin_dir_str = " and ".join(dirs) if dirs else "here"
+            if dist <= 1:
+                return f">>> 📦 SHIP {total_count} ITEMS! At shipping bin! DO: ship_item <<<"
+            else:
+                return f">>> 📦 SHIP {total_count} CROPS! Move {bin_dir_str} to shipping bin, then ship_item <<<"
 
         # Check for nearby debris in surroundings
         nearby_debris = []

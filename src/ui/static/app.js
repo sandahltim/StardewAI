@@ -1,3 +1,58 @@
+// Global SMAPI state (shared between updateStatus and init)
+let smapiOnline = false;
+let smapiLastOk = null;
+let lastRustyMemory = null;
+
+function updateSmapiStatus(online, note) {
+  const smapiStatus = document.getElementById("smapiStatus");
+  const smapiLastSeen = document.getElementById("smapiLastSeen");
+  if (typeof online === "boolean") {
+    smapiOnline = online;
+    if (online) smapiLastOk = new Date();
+  }
+  if (smapiStatus) {
+    smapiStatus.textContent = smapiOnline ? "Online" : "Offline";
+    smapiStatus.classList.toggle("offline", !smapiOnline);
+    smapiStatus.classList.toggle("online", smapiOnline);
+    if (note) smapiStatus.textContent = note;
+  }
+  if (smapiLastSeen) {
+    if (!smapiLastOk) {
+      smapiLastSeen.textContent = "";
+    } else {
+      const time = smapiLastOk.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      smapiLastSeen.textContent = `(${time})`;
+    }
+  }
+}
+
+function applySmapiEmptyState() {
+  const compassNote = document.getElementById("compassNote");
+  const tileStatus = document.getElementById("tileStatus");
+  const tileNote = document.getElementById("tileNote");
+  const waterStatus = document.getElementById("waterStatus");
+  const waterSourceStatus = document.getElementById("waterSourceStatus");
+  const waterSourceNote = document.getElementById("waterSourceNote");
+  const shippingStatus = document.getElementById("shippingStatus");
+  const cropStatus = document.getElementById("cropStatus");
+  const cropStatusNote = document.getElementById("cropStatusNote");
+  const harvestStatus = document.getElementById("harvestStatus");
+  const harvestNote = document.getElementById("harvestNote");
+  const staminaStatus = document.getElementById("staminaStatus");
+  if (compassNote) compassNote.textContent = "SMAPI offline";
+  if (tileStatus) tileStatus.textContent = "No tile data";
+  if (tileNote) tileNote.textContent = "SMAPI offline";
+  if (waterStatus) waterStatus.textContent = "No state data";
+  if (waterSourceStatus) waterSourceStatus.textContent = "No surroundings data";
+  if (waterSourceNote) waterSourceNote.textContent = "SMAPI offline";
+  if (shippingStatus) shippingStatus.textContent = "No state data";
+  if (cropStatus) cropStatus.textContent = "No crop data";
+  if (cropStatusNote) cropStatusNote.textContent = "SMAPI offline";
+  if (harvestStatus) harvestStatus.textContent = "No crop data";
+  if (harvestNote) harvestNote.textContent = "SMAPI offline";
+  if (staminaStatus) staminaStatus.textContent = "No state data";
+}
+
 function postJSON(url, data) {
   return fetch(url, {
     method: "POST",
@@ -398,46 +453,6 @@ function updateStatus(status) {
     latencyStats.textContent = `Avg ${Math.round(avg)}ms | Max ${Math.round(max)}ms`;
   };
 
-  let smapiOnline = false;
-  let smapiLastOk = null;
-  let lastRustyMemory = null;
-
-  const updateSmapiStatus = (online, note) => {
-    if (typeof online === "boolean") {
-      smapiOnline = online;
-      if (online) smapiLastOk = new Date();
-    }
-    if (smapiStatus) {
-      smapiStatus.textContent = smapiOnline ? "Online" : "Offline";
-      smapiStatus.classList.toggle("offline", !smapiOnline);
-      smapiStatus.classList.toggle("online", smapiOnline);
-      if (note) smapiStatus.textContent = note;
-    }
-    if (smapiLastSeen) {
-      if (!smapiLastOk) {
-        smapiLastSeen.textContent = "";
-      } else {
-        const time = smapiLastOk.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-        smapiLastSeen.textContent = `(${time})`;
-      }
-    }
-  };
-
-  const applySmapiEmptyState = () => {
-    if (compassNote) compassNote.textContent = "SMAPI offline";
-    if (tileStatus) tileStatus.textContent = "No tile data";
-    if (tileNote) tileNote.textContent = "SMAPI offline";
-    if (waterStatus) waterStatus.textContent = "No state data";
-    if (waterSourceStatus) waterSourceStatus.textContent = "No surroundings data";
-    if (waterSourceNote) waterSourceNote.textContent = "SMAPI offline";
-    if (shippingStatus) shippingStatus.textContent = "No state data";
-    if (cropStatus) cropStatus.textContent = "No crop data";
-    if (cropStatusNote) cropStatusNote.textContent = "SMAPI offline";
-    if (harvestStatus) harvestStatus.textContent = "No crop data";
-    if (harvestNote) harvestNote.textContent = "SMAPI offline";
-    if (staminaStatus) staminaStatus.textContent = "No state data";
-  };
-
   const formatAction = (value) => {
     if (!value) return "-";
     if (typeof value === "string") return value;
@@ -495,6 +510,9 @@ function updateStatus(status) {
   }
   if (commentaryPersonality && status.commentary_personality) {
     commentaryPersonality.value = status.commentary_personality;
+  }
+  if (commentaryVoice && status.commentary_voice) {
+    commentaryVoice.value = status.commentary_voice;
   }
   if (commentaryTts && status.commentary_tts_enabled !== undefined) {
     commentaryTts.checked = Boolean(status.commentary_tts_enabled);
@@ -2033,17 +2051,20 @@ function init() {
 
   if (commentaryPersonality) {
     commentaryPersonality.addEventListener("change", () => {
-      postJSON("/api/commentary/personality", { personality: commentaryPersonality.value });
+      const newPersonality = commentaryPersonality.value;
+      const newVoice = voiceMappings[newPersonality] || "";
       // Update voice dropdown to match personality's default voice
-      if (commentaryVoice && voiceMappings[commentaryPersonality.value]) {
-        commentaryVoice.value = voiceMappings[commentaryPersonality.value];
+      if (commentaryVoice && newVoice) {
+        commentaryVoice.value = newVoice;
       }
+      // POST both personality and voice together
+      postJSON("/api/commentary", { personality: newPersonality, voice: newVoice });
     });
   }
 
   if (commentaryVoice) {
     commentaryVoice.addEventListener("change", () => {
-      postJSON("/api/status", { commentary_voice: commentaryVoice.value });
+      postJSON("/api/commentary", { voice: commentaryVoice.value });
     });
   }
 

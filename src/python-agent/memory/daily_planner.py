@@ -275,13 +275,20 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 target_location="Farm",
                 estimated_time=len(harvestable) * 3,
             ))
-            # PRIORITY 3.5: Ship harvested items (HIGH - convert to money)
+
+        # PRIORITY 3.5: Ship items if we have sellable crops in inventory
+        sellable_crops = ["Parsnip", "Potato", "Cauliflower", "Green Bean", "Kale", "Melon",
+                         "Blueberry", "Corn", "Tomato", "Pumpkin", "Cranberry", "Eggplant", "Grape", "Radish"]
+        sellables = [item for item in inventory if item and item.get("name") in sellable_crops and item.get("stack", 0) > 0]
+        if sellables or harvestable:
+            total_to_ship = sum(item.get("stack", 0) for item in sellables)
             self.tasks.append(DailyTask(
                 id=f"ship_{self.current_day}_1",
-                description="Ship harvested crops at shipping bin",
+                description=f"Ship {total_to_ship if sellables else 'harvested'} crops at shipping bin",
                 category="farming",
                 priority=TaskPriority.HIGH.value,
                 target_location="Farm",
+                target_coords=(71, 14),  # Shipping bin location
                 estimated_time=10,
             ))
 
