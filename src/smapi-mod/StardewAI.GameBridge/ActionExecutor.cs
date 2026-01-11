@@ -1077,7 +1077,8 @@ public class ActionExecutor
     }
 
     // Default spawn points for common locations (for debug/testing)
-    private static readonly Dictionary<string, (int x, int y)> LocationSpawns = new()
+    // Use case-insensitive comparer since Python sends lowercase location names
+    private static readonly Dictionary<string, (int x, int y)> LocationSpawns = new(StringComparer.OrdinalIgnoreCase)
     {
         ["Farm"] = (64, 15),
         ["FarmHouse"] = (9, 9),

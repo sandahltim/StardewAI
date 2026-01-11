@@ -1,7 +1,28 @@
-# Session 53: Fix Harvest Loop
+# Session 53: Warp Case-Sensitivity Fix
 
-**Last Updated:** 2026-01-11 Session 52 by Claude
-**Status:** Harvest phantom-failing in loop, needs direction fix
+**Last Updated:** 2026-01-11 Session 53 by Claude
+**Status:** Warp bug fixed, game restart required
+
+---
+
+## Session 53 Summary
+
+### Fixed: Warp Location Case-Sensitivity Bug
+
+**Problem:** Agent was warping to (10, 10) - a walled playground area - instead of proper Town location (43, 57).
+
+**Root Cause:**
+- Python sends lowercase location names: `"town"`
+- C# `LocationSpawns` dictionary had PascalCase keys: `"Town"`
+- Case-sensitive lookup failed → fell back to default (10, 10)
+
+**Fix:** Made dictionary case-insensitive:
+```csharp
+private static readonly Dictionary<string, (int x, int y)> LocationSpawns =
+    new(StringComparer.OrdinalIgnoreCase) { ... }
+```
+
+File: `ActionExecutor.cs:1080-1081`
 
 ---
 
@@ -24,30 +45,35 @@
    - Now catches farming actions: `till_soil`, `plant_seed`, `water_crop`, `harvest`
    - File: `unified_agent.py:2868-2871`
 
-### What's Broken
+### Fixed This Session
 
-**Harvest Loop Bug:**
+**Harvest Direction Bug:** ✅ FIXED
 ```
-harvest_crop phantom-failed 32x consecutively
-harvest: {'value': 'east'}  ← WRONG! Should use facing direction
+Before: harvest: {'value': 'east'}   ← loader put value in wrong key
+After:  harvest: {'direction': 'south'} ← correct
 ```
 
-The `harvest_crop` skill is hardcoding `east` instead of using the player's facing direction. Agent faces south but harvests east = phantom failure loop.
+Fix: Added `harvest` to loader.py's direction-mapping actions (line 82-83).
+
+### Remaining Issue
+
+**Harvest Phantom Failures:**
+Crop count unchanged after harvest action. Possible causes:
+- Player not actually adjacent to crop
+- SMAPI harvest action not working correctly
+- Crop state detection issue
 
 ---
 
 ## Next Session Priority
 
-### Priority 1: Fix Harvest Direction
+### Priority 1: Debug Harvest Phantom Failures
 
-The harvest skill needs to use the facing direction, not a hardcoded value.
+The direction is now correct, but crops aren't being harvested. Need to investigate:
 
-Check `farming.yaml` for `harvest_crop` skill definition:
-```bash
-grep -A 20 "harvest_crop:" src/python-agent/skills/definitions/farming.yaml
-```
-
-The `harvest` action should use the player's current facing direction from state, not a hardcoded value.
+1. Is player actually adjacent to crop? Check surroundings state.
+2. Is SMAPI `Harvest` action working? Test manually with curl.
+3. Is crop detection correct? Check terrainFeatures lookup.
 
 ### Priority 2: Test Full Flow
 
@@ -60,9 +86,11 @@ After fixing harvest:
 
 ---
 
-## Commit
+## Commits
 
-`8de60b0` - Session 52: Proper Pierre navigation + popup handling
+- `8de60b0` - Session 52: Proper Pierre navigation + popup handling
+- `d10bf51` - Update docs for Session 52 handoff
+- `198f0e8` - Fix harvest direction bug in skill loader
 
 ---
 
