@@ -936,9 +936,34 @@ class ModBridgeController:
                         front_info = f">>> ⚠️ WATERING CAN EMPTY! Move {water_dist} tiles {water_dir} to water, then refill_watering_can <<<"
                     else:
                         front_info = ">>> ⚠️ WATERING CAN EMPTY! Find water (pond/river), then refill_watering_can <<<"
-            elif crop_here and crop_here.get("isReadyForHarvest"):
+            elif crop_here:
+                # Standing ON a crop tile - handle all crop states
                 crop_name = crop_here.get("cropName", "crop")
-                front_info = f">>> 🌾 HARVEST TIME! {crop_name} is READY! DO: harvest (facing crop) <<<"
+                if crop_here.get("isReadyForHarvest"):
+                    front_info = f">>> 🌾 HARVEST TIME! {crop_name} is READY! DO: harvest (facing crop) <<<"
+                elif crop_here.get("isWatered"):
+                    # Crop is growing and watered - find something else to do
+                    days_left = crop_here.get("daysUntilHarvest", "?")
+                    # Check for other unwatered crops
+                    other_unwatered = [c for c in crops if not c.get("isWatered", False)
+                                      and (c.get("x") != player_x or c.get("y") != player_y)]
+                    # Check for harvestable crops elsewhere
+                    other_harvestable = [c for c in crops if c.get("isReadyForHarvest", False)
+                                        and (c.get("x") != player_x or c.get("y") != player_y)]
+                    if other_unwatered:
+                        nearest = min(other_unwatered, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+                        adj_hint = self._calc_adjacent_hint(nearest["x"] - player_x, nearest["y"] - player_y, action="water")
+                        front_info = f">>> 🌱 {crop_name} growing ({days_left} days). Move to water other crops! {adj_hint} <<<"
+                    elif other_harvestable:
+                        nearest = min(other_harvestable, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+                        adj_hint = self._calc_adjacent_hint(nearest["x"] - player_x, nearest["y"] - player_y, action="harvest")
+                        front_info = f">>> 🌱 {crop_name} growing ({days_left} days). {adj_hint} <<<"
+                    else:
+                        # All crops watered, none ready - suggest useful activities
+                        front_info = f">>> 🌱 {crop_name} growing ({days_left} days). Crops watered! Ship items or explore. <<<"
+                else:
+                    # Crop needs watering - but we're ON it, need to step off and face it
+                    front_info = f">>> 🌱 {crop_name} needs water! Step off crop, face it, then water_crop. <<<"
             elif tile_state == "tilled":
                 # Check if player has seeds before showing plant message
                 inventory = state.get("inventory", []) if state else []
@@ -2831,11 +2856,13 @@ class StardewAgent:
         personality = None
         tts_enabled = None
         volume = None
+        voice_override = None
         try:
             settings = self.ui.get_commentary()
             personality = settings.get("personality")
             tts_enabled = settings.get("tts_enabled")
             volume = settings.get("volume")
+            voice_override = settings.get("voice")  # Manual voice override from UI
         except Exception:
             settings = {}
 
@@ -2872,7 +2899,13 @@ class StardewAgent:
                 tts_text = ui_text
                 tts_text = re.sub(r'["\'\*\_\#\`\[\]\(\)\{\}]', '', tts_text)  # Remove quotes, markdown
                 tts_text = re.sub(r'\s+', ' ', tts_text).strip()  # Normalize whitespace
-                self.commentary_tts.speak(tts_text)
+
+                # Get voice: UI override > personality mapping > default
+                voice = voice_override
+                if not voice and self.commentary_generator:
+                    voice = self.commentary_generator.get_voice()
+
+                self.commentary_tts.speak(tts_text, voice=voice)
                 self._last_tts_time = current_time
             except Exception:
                 pass

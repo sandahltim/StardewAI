@@ -1,159 +1,122 @@
-# Session 48: Multi-Day Autonomy Testing
+# Session 49: Harvest Testing & Multi-Day Autonomy
 
-**Last Updated:** 2026-01-10 Session 47 by Claude
-**Status:** Action overrides implemented, ready for extended testing
+**Last Updated:** 2026-01-10 Session 48 by Claude
+**Status:** Harvest fix applied, Day 12 in progress
 
 ---
 
-## Session 47 Summary
+## Session 48 Summary
 
 ### What Was Completed
 
-1. **Adjacent Move Filter** ✅
-   - Added `_filter_adjacent_crop_moves()` method
-   - When player is adjacent to crop (dist<=1), removes move actions
-   - Replaces with face action toward crop
-   - File: `unified_agent.py:2505-2570`
+1. **Growing Crop Tile Hint Fix** ✅
+   - Fixed bug where standing ON a growing crop showed "CLEAR DIRT - TILL!" hint
+   - Now correctly shows crop status with days remaining and next action
+   - File: `unified_agent.py:939-966`
 
-2. **Water Source Precondition** ✅
-   - Fixed `adjacent_to: water_source` handler in precondition checker
-   - Now correctly checks `blocker == "water"` in surroundings
-   - File: `preconditions.py:78-94`
+2. **Multi-Day Autonomy Verified** ✅
+   - Agent successfully went from Day 11 → Day 12
+   - Bedtime behavior working (went to FarmHouse, slept)
+   - All crops watered, agent cleared debris productively
 
-3. **Improved Refill Skill** ✅
-   - Auto-equips watering can (select_slot 2) before refilling
-   - Added animation delays between actions
-   - File: `skills/definitions/farming.yaml:35-59`
+3. **Harvest Skill Fixed** ✅
+   - Changed `harvest_crop` skill from `interact` → `harvest` action
+   - The `interact` action uses `checkAction()` which doesn't harvest crops
+   - The `harvest` action uses proper SMAPI `Harvest()` method
+   - File: `skills/definitions/farming.yaml:95-97`
 
-4. **Empty Can Override** ✅ (NEW)
-   - When watering can empty + at water + VLM outputs water_crop
-   - Auto-replaces with `refill_watering_can`
-   - File: `unified_agent.py:2572-2623`
+### Code Changes
 
-5. **Late Night Bed Override** ✅ (NEW - FIXED)
-   - When hour >= 23 (11 PM), forces `go_to_bed`
-   - Triggers earlier to prevent passing out
-   - File: `unified_agent.py:2618-2648`
+| File | Change |
+|------|--------|
+| `unified_agent.py:939-966` | Comprehensive crop_here handling for all states |
+| `farming.yaml:95-97` | harvest_crop uses `harvest` action instead of `interact` |
 
-6. **Empty Can Force Refill** ✅ (FIXED)
-   - When empty can + at water, FORCES refill regardless of VLM output
-   - Previously only triggered on water_crop, now triggers on ANY action
-   - File: `unified_agent.py:2572-2616`
+---
 
-### Action Override Chain
+## Session 48 Milestones
 
-```python
-# Applied in sequence before action execution:
-filtered_actions = result.actions
-filtered_actions = self._fix_late_night_bed(filtered_actions)      # Midnight → bed
-filtered_actions = self._fix_empty_watering_can(filtered_actions)  # Empty can → refill
-filtered_actions = self._filter_adjacent_crop_moves(filtered_actions)  # Adjacent → face
-```
+- ✅ **Day 11 → Day 12 transition** - Agent slept and woke up correctly
+- ✅ **Crop ready detection** - Parsnip at (64, 22) correctly showed as harvestable
+- ✅ **Productive time use** - Agent cleared debris while waiting for crops
 
 ---
 
 ## Next Session Priorities
 
-### Priority 1: Verify Overrides Working
+### Priority 1: Test Harvest Action
+The harvest_crop skill now uses `harvest: "{target_direction}"`. Need to verify this works when a crop is ready.
 
-Check logs for these markers:
-- `🛏️ OVERRIDE: Hour X >= 24, forcing go_to_bed`
-- `🔄 OVERRIDE: Watering can empty + at water → replacing water_crop with refill_watering_can`
-- `🚫 FILTER: Removing move action - already adjacent to crop`
+Test scenario:
+1. Plant seeds
+2. Water until ready
+3. Verify harvest works without human intervention
 
-### Priority 2: Test Full Day Cycle
+### Priority 2: Shipping Parsnips
+The agent has parsnips in inventory (slots 5, 10) that should be shipped.
 
-1. Start fresh day
-2. Water crops (with refill if needed)
-3. Harvest when ready
-4. Ship parsnips (slots 5, 10 have parsnips)
-5. Go to bed
+Test:
+- Navigate to shipping bin (71, 14)
+- Execute ship action
+- Verify items shipped
 
-### Priority 3: Multi-Day Run
+### Priority 3: Multi-Day Autonomy
+Goal: Run Day 12 → Day 15+ with minimal intervention
 
-- Current: Day 10
-- Crop at (64, 22): 1 day until harvest → ready Day 11
-- Goal: Run Day 10 → Day 12 with minimal intervention
+Monitor for:
+- `🔄 OVERRIDE` - Action overrides triggering
+- `🛏️ OVERRIDE` - Bedtime override
+- `🎯 Executing skill` - Skills working
+- `👻 PHANTOM` - Phantom failure detection
 
 ---
 
-## Game State (End of Session 47)
+## Game State (End of Session 48)
 
 | Item | Value |
 |------|-------|
-| Day | 10, hour 24+ (very late) |
-| Player | (75, 30), at water |
-| Tool | Watering Can (empty) |
-| Crop | (64, 22) - Parsnip, 1 day to harvest |
-| Inventory | Parsnips in slots 5, 10 |
+| Day | 12, 9 AM |
+| Location | Farm |
+| Crops | None (harvested) |
+| Inventory | Parsnips (slots 5: 1, slot 10: 13) |
+| Energy | ~179 |
 
 ---
 
-## Code Changes This Session
+## Known Issues
 
-| File | Change |
-|------|--------|
-| `unified_agent.py` | Added 3 filter/override methods, wired to action queue |
-| `preconditions.py` | Fixed water_source detection (blocker field) |
-| `farming.yaml` | Improved refill_watering_can with auto-equip |
+1. **Harvest timing** - Need to verify new `harvest` action works correctly
+2. **No seeds** - Agent can't plant (no seeds in inventory)
+3. **Shipping untested** - Parsnips in inventory but not yet shipped
 
 ---
 
-## Design Philosophy
+## Design Philosophy (Session 47)
 
 **VLM = Planner/Brain, Code = Executor**
 
-The VLM provides high-level decisions and planning. The code handles low-level execution details through:
-- **Action overrides**: Catch and fix common VLM mistakes (wrong action, bad timing)
-- **Skills**: Multi-step action sequences (face → use_tool → wait)
-- **State-based corrections**: Check game state and adjust actions accordingly
-
-This makes objectives easier - VLM just needs to decide WHAT to do, code handles HOW.
-
----
-
-## Known Issues / Watch For
-
-1. **Slot 2 hardcoded** - Watering can assumed in slot 2. Could break if reorganized.
-2. **VLM interpretation** - Still outputs wrong actions sometimes, but overrides catch most cases.
-3. **Repetition loops** - Agent can get stuck doing same action. Overrides help but don't fully solve.
+The VLM provides high-level decisions. The code handles execution through:
+- **Action overrides**: Catch and fix common VLM mistakes
+- **Skills**: Multi-step action sequences
+- **State-based corrections**: Check game state and adjust
 
 ---
 
 ## Quick Reference
 
-### Test Commands
-
 ```bash
 # Check game state
-curl -s localhost:8790/state | jq '{day: .data.time.day, hour: .data.time.hour, player: {x: .data.player.tileX, y: .data.player.tileY, waterLeft: .data.player.wateringCanWater}}'
-
-# Check surroundings for water
-curl -s localhost:8790/surroundings | jq '.data.directions'
+curl -s localhost:8790/state | jq '{day: .data.time.day, hour: .data.time.hour, crops: .data.location.crops}'
 
 # Watch agent logs
-tail -f /tmp/agent.log | grep -E "OVERRIDE|FILTER|Executing"
+tail -f /tmp/agent.log | grep -E "OVERRIDE|harvest|ship|🎯"
 
 # Run agent
 python src/python-agent/unified_agent.py --ui --goal "Farm autonomously"
 ```
 
-### Override Triggers
-
-| Override | Condition | Result |
-|----------|-----------|--------|
-| Late night | hour >= 24 | Force `go_to_bed` |
-| Empty can at water | waterLeft=0 + water adjacent + water_crop action | Replace with `refill_watering_can` |
-| Adjacent crop | dist<=1 to crop + move action | Replace with `face` |
-
 ---
 
-## Commits This Session
+*Session 48: Growing crop hint fix + harvest action fix*
 
-*(Pending - will commit at end of testing)*
-
----
-
-*Session 47: Action overrides for robustness - VLM outputs can now be corrected when they conflict with game state*
-
-*— Claude (PM), Session 47*
+*— Claude (PM), Session 48*

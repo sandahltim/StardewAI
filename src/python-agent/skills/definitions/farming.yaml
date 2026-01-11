@@ -94,7 +94,7 @@ harvest_crop:
 
   actions:
     - face: "{target_direction}"
-    - interact
+    - harvest: "{target_direction}"
 
   on_success:
     message: "Harvested {crop_name}"
