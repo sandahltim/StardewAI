@@ -707,7 +707,10 @@ class UnifiedVLM:
                 result.menu_open = perception.get("menu_open", False)
 
                 # Inner monologue (generated first in JSON for creativity) or legacy mood
-                result.mood = data.get("inner_monologue") or data.get("mood", "")
+                inner = data.get("inner_monologue", "")
+                result.mood = inner or data.get("mood", "")
+                if inner:
+                    logging.info(f"🧠 Inner monologue: {inner[:60]}...")
                 result.reasoning = data.get("reasoning", "")
 
                 # Actions
@@ -2734,6 +2737,76 @@ class StardewAgent:
         logging.info(f"🛏️ OVERRIDE: Hour {hour} >= 23, forcing go_to_bed")
         return [Action("go_to_bed", {}, "Auto-bed (very late)")]
 
+    def _fix_priority_shipping(self, actions: List[Action]) -> List[Action]:
+        """
+        Override: If we have sellable crops in inventory, prioritize shipping over other tasks.
+        This ensures agent ships crops before clearing debris or tilling.
+        """
+        if not actions:
+            return actions
+
+        # Check if already shipping or doing important tasks
+        skip_actions = {"ship_item", "go_to_bed", "harvest", "water_crop", "refill_watering_can"}
+        if any(a.action_type in skip_actions for a in actions):
+            return actions
+
+        # Get state to check inventory and location
+        state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if not state:
+            return actions
+
+        location = state.get("location", {}).get("name", "")
+        if location not in ["Farm", "FarmHouse"]:
+            return actions  # Only apply on farm areas
+
+        # Check for sellable items
+        inventory = state.get("inventory", [])
+        sellable_items = ["Parsnip", "Potato", "Cauliflower", "Green Bean", "Kale", "Melon",
+                         "Blueberry", "Corn", "Tomato", "Pumpkin", "Cranberry", "Eggplant", "Grape", "Radish"]
+        sellables = [item for item in inventory if item and item.get("name") in sellable_items and item.get("stack", 0) > 0]
+
+        if not sellables:
+            return actions  # No sellables, proceed normally
+
+        total_to_ship = sum(item.get("stack", 0) for item in sellables)
+
+        # Get player and bin positions
+        player_x = state.get("player", {}).get("tileX", 0)
+        player_y = state.get("player", {}).get("tileY", 0)
+        shipping_bin = state.get("location", {}).get("shippingBin") or {}
+        bin_x = shipping_bin.get("x", 71)
+        bin_y = shipping_bin.get("y", 14)
+        dx = bin_x - player_x
+        dy = bin_y - player_y
+        dist = abs(dx) + abs(dy)
+
+        # If in FarmHouse, override to warp to Farm first
+        if location == "FarmHouse":
+            logging.info(f"📦 OVERRIDE: Have {total_to_ship} sellables in FarmHouse → warp to Farm")
+            return [Action("warp", {"location": "Farm"}, f"Auto-warp to ship {total_to_ship} crops")]
+
+        # If adjacent to shipping bin, ship
+        if dist <= 1:
+            face_dir = "north" if dy < 0 else "south" if dy > 0 else "west" if dx < 0 else "east"
+            logging.info(f"📦 OVERRIDE: At shipping bin → ship_item")
+            return [Action("face", {"direction": face_dir}, "Face bin"),
+                    Action("ship_item", {}, f"Ship {total_to_ship} crops")]
+
+        # If doing non-shipping task (till, clear), override to move toward bin
+        non_priority_tasks = {"till_soil", "clear_stone", "clear_twig", "clear_weeds", "clear_wood", "use_tool"}
+        if any(a.action_type in non_priority_tasks for a in actions):
+            # Calculate direction to shipping bin
+            if abs(dy) > abs(dx):
+                direction = "north" if dy < 0 else "south"
+                tiles = min(abs(dy), 5)  # Move up to 5 tiles at a time
+            else:
+                direction = "west" if dx < 0 else "east"
+                tiles = min(abs(dx), 5)
+            logging.info(f"📦 OVERRIDE: Have {total_to_ship} sellables → move {direction} toward bin (dist={dist})")
+            return [Action("move", {"direction": direction, "tiles": tiles}, f"Move to ship {total_to_ship} crops")]
+
+        return actions
+
     def _vlm_reason(self, prompt: str) -> Optional[str]:
         """Use VLM for reasoning/planning (synchronous wrapper).
 
@@ -2942,10 +3015,10 @@ class StardewAgent:
         # TTS will only read first sentence (handled separately below)
         if self.last_mood and len(self.last_mood) > 10:
             ui_text = self.last_mood  # Full commentary for display
-            logging.debug(f"Using VLM mood: {ui_text[:50]}...")
+            logging.info(f"💭 VLM: {ui_text[:80]}...")
         else:
             ui_text = self.commentary_generator.generate(action.action_type, state_data, "")
-            logging.debug(f"Using template (no VLM mood): {ui_text[:50]}...")
+            logging.info(f"📝 Template: {ui_text[:80]}...")
 
         self._ui_safe(
             self.ui.update_commentary,
@@ -3887,6 +3960,7 @@ Recent: {recent}"""
                 # Apply action overrides in sequence
                 filtered_actions = result.actions
                 filtered_actions = self._fix_late_night_bed(filtered_actions)  # Midnight override
+                filtered_actions = self._fix_priority_shipping(filtered_actions)  # Shipping priority
                 filtered_actions = self._fix_empty_watering_can(filtered_actions)  # Empty can override
                 filtered_actions = self._filter_adjacent_crop_moves(filtered_actions)  # Adjacent move filter
                 self.action_queue = filtered_actions

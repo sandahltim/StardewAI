@@ -1,53 +1,50 @@
-# Session 49: Shipping Hint Debug & Multi-Day Autonomy
+# Session 50: Shipping Override Needs Strengthening
 
-**Last Updated:** 2026-01-10 Session 48 by Claude
-**Status:** Shipping hint in progress, needs debugging
+**Last Updated:** 2026-01-10 Session 49 by Claude
+**Status:** Shipping hints and override added, VLM still ignores them
 
 ---
 
-## Session 48 Summary
+## Session 49 Summary
 
 ### What Was Completed
 
-1. **Growing Crop Tile Hint Fix** ✅
-   - Fixed bug where standing ON a growing crop showed "CLEAR DIRT - TILL!" hint
-   - Now correctly shows crop status with days remaining and next action
-   - File: `unified_agent.py:939-966`
+1. **Fixed NOT FARMABLE Hint Logic** ✅
+   - Line 1160-1162: Now calls `_get_done_farming_hint()` instead of static message
+   - This ensures shipping hint appears when on non-farmable ground with sellables
 
-2. **Multi-Day Autonomy Verified** ✅
-   - Agent successfully went from Day 11 → Day 12
-   - Bedtime behavior working
-   - Crop was ready to harvest on Day 12
+2. **Added Priority Shipping Action** ✅
+   - Lines 1297-1327: New `priority_action` variable added to nav header
+   - Shows `⭐ PRIORITY ACTION: SHIP X CROPS! Move Y north, Z east...`
+   - Appears above tile-specific hints
 
-3. **Harvest Action Fixed** ✅
-   - Changed `harvest_crop` skill from `interact` → `harvest` action
-   - File: `skills/definitions/farming.yaml:95-97`
+3. **Added Shipping Action Override** ✅
+   - Lines 2740-2808: New `_fix_priority_shipping()` method
+   - Added to override chain at line 3963
+   - Override logic:
+     - If in FarmHouse with sellables → warp to Farm
+     - If adjacent to bin → face + ship_item
+     - If doing till/clear → override to move toward bin
 
-4. **Tilling Logic Improved** (Partial)
-   - Clear dirt hint now checks for seeds before suggesting till
-   - Tilled soil hint calls `_get_done_farming_hint` when no seeds
-   - File: `unified_agent.py:1103-1130, 985-991`
+4. **Fixed Bugs** ✅
+   - `logger.debug` → `logging.debug` (lines 2912, 2915)
+   - `shipping_bin` None handling with `or {}` (lines 1307, 1402, 2776)
 
-### What Needs Investigation
+### What's NOT Working
 
-**Shipping Hint Not Triggering**
-- Added sellable items check in `_get_done_farming_hint` (lines 1362-1388)
-- Parsnips are in inventory (slots 5, 10 - 15 total)
-- The shipping hint (`📦 SHIP X CROPS!`) should appear but doesn't
-- Possible issues:
-  1. `state.get("inventory")` might return wrong data
-  2. Function might not be called when expected
-  3. Sellables list might not match item names exactly
+**VLM Ignores Shipping Hints**
+- The hints are showing clearly:
+  ```
+  ⭐ PRIORITY ACTION: SHIP 15 CROPS! Move 1 north, 3 east to bin, then ship_item
+  >>> 📦 SHIP 15 CROPS! Move 1 NORTH and 3 EAST to shipping bin, then ship_item <<<
+  ```
+- But VLM says: "There are no visible tilled plots... I need to find farmable ground"
+- VLM outputs `move right` instead of following directions
 
-Debug logging added at line 1367:
-```python
-logging.info(f"   📊 _get_done_farming_hint: inventory={len(inventory)}, sellables={len(sellables)}")
-```
-
-To investigate:
-```bash
-grep "📊.*_get_done" /tmp/agent.log
-```
+**Override Not Catching All Cases**
+- Override only triggers for `till_soil`, `clear_*`, `use_tool`
+- VLM is outputting `move` which isn't blocked
+- Need to expand override or change VLM prompt
 
 ---
 
@@ -55,45 +52,53 @@ grep "📊.*_get_done" /tmp/agent.log
 
 | Commit | Files | Description |
 |--------|-------|-------------|
-| `dd82dfb` | unified_agent.py, farming.yaml, NEXT_SESSION.md | Growing crop hint fix, harvest action fix |
-| `01e5e78` | unified_agent.py | Shipping hint WIP, seed check, debug logging |
+| (unstaged) | unified_agent.py | Priority action, shipping override, bug fixes |
 
 ### Key Code Locations
 
 | Feature | File | Lines |
 |---------|------|-------|
-| crop_here handling | unified_agent.py | 939-966 |
-| Shipping hint check | unified_agent.py | 1362-1388 |
-| Seed check before till | unified_agent.py | 1119-1129 |
-| Tilled soil no seeds | unified_agent.py | 985-991 |
-| Daily planner ship task | memory/daily_planner.py | 279-293 |
+| Priority action in nav | unified_agent.py | 1297-1327 |
+| `_fix_priority_shipping()` | unified_agent.py | 2740-2808 |
+| Override chain | unified_agent.py | 3960-3965 |
+| Fixed NOT FARMABLE branch | unified_agent.py | 1160-1162 |
 
 ---
 
-## Game State (End of Session 48)
+## Game State (End of Session 49)
 
 | Item | Value |
 |------|-------|
-| Day | 12 |
+| Day | 14 |
 | Location | Farm |
-| Crops | None (harvested by Tim) |
-| Inventory | Parsnips (slot 5: 1, slot 10: 14), tools, materials |
-| Agent | Running, needs to ship parsnips |
+| Position | Near shipping bin (68, 15) |
+| Inventory | 15 Parsnips (slots 5, 10) |
+| Agent | Running but not shipping |
 
 ---
 
 ## Next Session Priorities
 
-### Priority 1: Debug Shipping Hint
-1. Check if `_get_done_farming_hint` is being called
-2. Verify inventory data is accessible via `state.get("inventory")`
-3. Ensure sellables list matches actual item names
+### Priority 1: Force VLM to Follow Shipping Directions
 
-### Priority 2: Test Harvest Action
-With the new `harvest` action in farming.yaml, test when next crop is ready.
+Options:
+1. **Expand override**: Catch ALL actions when sellables exist, not just till/clear
+2. **Stronger prompt**: Add "MUST FOLLOW ⭐ PRIORITY ACTION" in system prompt
+3. **Direct action injection**: Bypass VLM entirely when adjacent to bin
 
-### Priority 3: Multi-Day Run
-Once shipping works, run Day 12 → Day 15+ with minimal intervention.
+### Priority 2: Test Complete Shipping Flow
+
+Once agent reaches bin:
+1. Verify `ship_item` action works
+2. Confirm inventory is cleared
+3. Check gold increases
+
+### Priority 3: Multi-Day Test
+
+After shipping works:
+1. Day 14-15+ autonomous run
+2. Monitor for regressions
+3. Test harvest → ship → clear flow
 
 ---
 
@@ -102,39 +107,43 @@ Once shipping works, run Day 12 → Day 15+ with minimal intervention.
 **VLM = Planner/Brain, Code = Executor**
 
 The VLM provides high-level decisions. The code handles execution through:
-- **Action overrides**: Catch and fix common VLM mistakes
+- **Action overrides**: Catch and fix VLM mistakes
 - **Skills**: Multi-step action sequences
-- **Hint system**: Guide VLM to correct actions based on state
-- **Daily planner**: Task prioritization and planning
+- **Hint system**: Guide VLM to correct actions
+- **Daily planner**: Task prioritization
+
+**Current Problem**: VLM ignores hints even when shown prominently. Need stronger override or prompt modification.
 
 ---
 
 ## Quick Reference
 
 ```bash
-# Check inventory for sellables
-curl -s localhost:8790/state | jq '[.data.inventory[] | select(.name | test("Parsnip|Potato|etc"))]'
-
-# Watch for debug output
-tail -f /tmp/agent.log | grep -E "📊|SHIP|sellable"
+# Run agent
+source venv/bin/activate
+python src/python-agent/unified_agent.py --ui --goal "Ship parsnips"
 
 # Check game state
 curl -s localhost:8790/state | jq '{day: .data.time.day, hour: .data.time.hour}'
 
-# Run agent
-python src/python-agent/unified_agent.py --ui --goal "Ship parsnips"
+# Check inventory
+curl -s localhost:8790/state | jq '[.data.inventory[] | select(.name == "Parsnip")]'
+
+# Watch agent log
+tail -f /tmp/agent.log | grep -E "OVERRIDE|SHIP|📦|⭐"
 ```
 
 ---
 
-## Known Issues
+## Files Modified (Unstaged)
 
-1. **Shipping hint not triggering** - Parsnips in inventory but hint shows "All crops watered!" instead of shipping direction
-2. **VLM confusion** - Without proper hints, VLM wanders and tries to till (wastes energy)
-3. **Harvest untested with new action** - Changed from `interact` to `harvest`, needs verification
+```
+M src/python-agent/unified_agent.py  # Priority action, shipping override
+M docs/NEXT_SESSION.md               # This file
+```
 
 ---
 
-*Session 48: Growing crop fix done, shipping hint needs debug*
+*Session 49: Shipping hints working but VLM ignores them. Override added but needs strengthening.*
 
-*— Claude (PM), Session 48*
+*— Claude (PM), Session 49*
