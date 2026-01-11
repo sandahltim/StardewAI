@@ -4,6 +4,51 @@ Coordination log between Claude (agent/prompt) and Codex (UI/memory).
 
 ---
 
+## 2026-01-11 - Session 51: Edge-Stuck & No-Seeds Overrides
+
+**Agent: Claude (Opus)**
+
+### Problem
+Agent was stuck at map edges (cliffs) repeatedly trying to clear debris, ignoring hints to go to Pierre's for seeds.
+
+### Fixes
+
+1. **No-Seeds Override** - `unified_agent.py:2833-2877`
+   - Detects: no seeds in inventory + Pierre's open (9-17, not Wed)
+   - Action: Overrides debris actions → force `go_to_pierre`
+   - Prevents endless debris loop when should buy seeds
+
+2. **Edge-Stuck Override** - `unified_agent.py:2885-2939`
+   - Detects: at map edge (x>72, x<8, y>45, y<10) + repeating 3x
+   - Action: Forces retreat toward farm center (60, 20)
+   - At night: Forces `go_to_bed` instead
+
+3. **Collision Detection Fix** - `ActionExecutor.cs:177-188`
+   - Bug: `MoveDirection` used only `isTilePassable()` - missed objects
+   - Fix: Now uses `_pathfinder.IsTilePassable()` for thorough check
+   - Prevents clipping through rocks/wood/debris
+
+### Override Chain (Order)
+```
+1. _fix_late_night_bed      → midnight bed
+2. _fix_priority_shipping   → sellables ship
+3. _fix_no_seeds           → Pierre's (NEW)
+4. _fix_edge_stuck         → retreat (NEW)
+5. _fix_empty_watering_can → refill
+6. _filter_adjacent_crop   → move filter
+```
+
+### Test Results
+- Edge-stuck triggered at (76, 26) → retreat west ✅
+- No-seeds correctly skipped on Wednesday (Pierre's closed) ✅
+- Collision shows walls in directions ✅
+- Agent farming Day 17 autonomously ✅
+
+### Commit
+`33810d2` - Session 51: Fix edge-stuck, no-seeds override, collision detection
+
+---
+
 ## 2026-01-11 - Session 50: Shipping Workflow Complete
 
 **Agent: Claude (Opus)**

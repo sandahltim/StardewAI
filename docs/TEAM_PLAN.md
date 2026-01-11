@@ -22,7 +22,7 @@
 
 ---
 
-## Current Status (Session 50)
+## Current Status (Session 51)
 
 ### What's Working
 | Component | Status | Session |
@@ -50,17 +50,21 @@
 | Growing Crop Hint Fix | ✅ Fixed | 48 |
 | Harvest Action (proper SMAPI) | ✅ Fixed | 48 |
 | Shipping Hint System | ✅ Working | 49 |
-| **Shipping Override (aggressive)** | ✅ Fixed | 50 |
-| **ship_item Skill** | ✅ Fixed | 50 |
-| **Synchronous Movement** | ✅ Fixed | 50 |
+| Shipping Override (aggressive) | ✅ Fixed | 50 |
+| ship_item Skill | ✅ Fixed | 50 |
+| Synchronous Movement | ✅ Fixed | 50 |
+| **No-Seeds Override** | ✅ New | 51 |
+| **Edge-Stuck Override** | ✅ New | 51 |
+| **Collision Detection Fix** | ✅ Fixed | 51 |
 
 ### Current Focus
 | Task | Status |
 |------|--------|
-| **Shipping workflow** | ✅ COMPLETE |
+| Shipping workflow | ✅ COMPLETE |
+| Edge-stuck recovery | ✅ COMPLETE |
+| No-seeds → Pierre's | ✅ COMPLETE |
 | Multi-day autonomy test | Ready to test |
 | Buy seeds flow | Next priority |
-| Full farming loop | In progress |
 
 ---
 

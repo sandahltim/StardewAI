@@ -1,100 +1,101 @@
-# Session 51: Shipping Complete, Ready for Buy/Plant
+# Session 52: Overrides Working, Ready for Multi-Day Test
 
-**Last Updated:** 2026-01-11 Session 50 by Claude
-**Status:** Shipping workflow fully working, ready for seed buying/planting
+**Last Updated:** 2026-01-11 Session 51 by Claude
+**Status:** Edge-stuck and no-seeds overrides added, collision fix deployed
 
 ---
 
-## Session 50 Summary
+## Session 51 Summary
 
 ### What Was Fixed
 
-1. **Shipping Override - Aggressive Mode** ✅
-   - Changed from blocklist to allowlist approach
-   - Now overrides ALL actions except: `ship_item`, `go_to_bed`, `harvest`, `water_crop`, `refill_watering_can`, `warp`
-   - VLM can't escape to do random tasks when sellables exist
-   - File: `unified_agent.py:2739-2807`
+1. **No-Seeds Override** ✅
+   - Detects when inventory has no seeds and Pierre's is open (9-17, not Wed)
+   - Overrides debris-clearing actions to force `go_to_pierre`
+   - Prevents endless debris loop when agent should buy seeds
+   - File: `unified_agent.py:2833-2877`
 
-2. **SMAPI Movement - Synchronous** ✅
-   - `MoveDirection()` now teleports directly to target tile
-   - No longer relies on game loop processing `setMoving()` flags
-   - Works even when game window is unfocused
-   - File: `ActionExecutor.cs:164-214`
+2. **Edge-Stuck Override** ✅
+   - Detects when player is at map edge (x>72, x<8, y>45, y<10)
+   - Triggers when repeating move/debris actions 3+ times
+   - Forces retreat toward farm center (60, 20)
+   - At night (hour >= 20), forces `go_to_bed` instead
+   - File: `unified_agent.py:2885-2939`
 
-3. **ship_item Skill - Uses ship Action** ✅
-   - Changed from `interact` (didn't work) to `ship: -1` (uses current slot)
-   - File: `skills/definitions/farming.yaml:378-380`
+3. **Collision Detection Fix** ✅
+   - `MoveDirection` was using only `isTilePassable()` - missed objects
+   - Now uses `_pathfinder.IsTilePassable()` which also checks:
+     - Map bounds
+     - Objects on tiles (rocks, wood, debris)
+   - Prevents clipping through obstacles
+   - File: `ActionExecutor.cs:177-188`
 
-4. **ModBridgeController - Added ship Handler** ✅
-   - New `elif action_type == "ship":` case
-   - Sends `{"action": "ship", "slot": slot}` to SMAPI
-   - File: `unified_agent.py:1639-1643`
+### Override Chain (Current Order)
+
+```python
+filtered_actions = self._fix_late_night_bed(filtered_actions)      # Midnight → bed
+filtered_actions = self._fix_priority_shipping(filtered_actions)   # Sellables → ship
+filtered_actions = self._fix_no_seeds(filtered_actions)            # No seeds → Pierre's
+filtered_actions = self._fix_edge_stuck(filtered_actions)          # Edge stuck → retreat
+filtered_actions = self._fix_empty_watering_can(filtered_actions)  # Empty can → refill
+filtered_actions = self._filter_adjacent_crop_moves(filtered_actions)  # Adjacent move filter
+```
 
 ### Test Results
 
-- Agent successfully shipped 14 Parsnips
-- Override triggered correctly: `📦 OVERRIDE: At shipping bin (dist=1) → ship_item`
-- Skill executed: `["select_item_type", "face", "ship"]`
-- Money increases at end of day (shipped items go to bin)
+- Edge-stuck override triggered at (76, 26) → retreat west
+- No-seeds override correctly skipped on Wednesday (Pierre's closed)
+- Collision detection shows walls correctly in directions
+- Agent farming autonomously on Day 17
 
 ---
 
-## Files Modified (Unstaged)
-
-```
-M src/python-agent/skills/definitions/farming.yaml  # ship_item uses ship action
-M src/python-agent/unified_agent.py                 # shipping override + ship handler
-M src/smapi-mod/StardewAI.GameBridge/ActionExecutor.cs  # synchronous movement
-```
-
-**IMPORTANT:** SMAPI mod was rebuilt - changes already deployed to game.
-
----
-
-## Game State (End of Session 50)
+## Game State (End of Session 51)
 
 | Item | Value |
 |------|-------|
-| Day | 15 |
+| Day | 17 (Wednesday) |
 | Location | Farm |
-| Inventory | Parsnips shipped, basic tools |
-| Money | 600g (+ shipping value tomorrow) |
+| Seeds | None in inventory |
+| Money | 1033g |
 
 ---
 
 ## Next Session Priorities
 
-### Priority 1: Test Buy Seeds Flow
+### Priority 1: Multi-Day Autonomy Test
 
-The `buy` action exists and worked in Session 26. Test full flow:
-1. Warp to SeedShop
-2. Buy parsnip seeds (or seasonal seeds)
-3. Return to farm
-4. Plant seeds
-
-```bash
-# Test buy directly
-curl -s -X POST localhost:8790/action -H "Content-Type: application/json" \
-  -d '{"action": "buy", "item": "parsnip seeds", "quantity": 10}'
-```
-
-### Priority 2: Multi-Day Autonomy Test
-
-Now that shipping works, run extended test:
+Run extended test now that overrides are in place:
 1. Day starts → water crops
-2. Harvest ready crops
+2. Harvest ready crops (if any)
 3. Ship harvested crops
-4. Buy seeds with money
+4. **Thursday**: No-seeds override should trigger → go to Pierre's → buy seeds
 5. Plant new seeds
 6. Clear debris if time remains
 7. Sleep
 
-### Priority 3: Commit Session 50 Fixes
-
 ```bash
-git add -A
-git commit -m "Session 50: Fix shipping workflow (override, movement, skill)"
+# Run agent
+source venv/bin/activate
+python src/python-agent/unified_agent.py --ui --goal "Farm autonomously"
 ```
+
+### Priority 2: Fix Phantom Watering Failures
+
+Agent reports "phantom failures" - water_crop says success but crop not watered. Possible causes:
+- Facing wrong direction
+- Watering can empty (no water level in state)
+- Crop already watered
+
+Investigate in `unified_agent.py` state verification logic.
+
+### Priority 3: Test No-Seeds Override
+
+When it's not Wednesday, test the no-seeds → Pierre's flow:
+1. Ensure no seeds in inventory
+2. Agent should warp to SeedShop
+3. Buy seeds
+4. Return to farm and plant
 
 ---
 
@@ -102,10 +103,10 @@ git commit -m "Session 50: Fix shipping workflow (override, movement, skill)"
 
 | Feature | File | Lines |
 |---------|------|-------|
-| Shipping override | unified_agent.py | 2739-2807 |
-| Ship action handler | unified_agent.py | 1639-1643 |
-| Synchronous movement | ActionExecutor.cs | 164-214 |
-| ship_item skill | farming.yaml | 366-392 |
+| No-seeds override | unified_agent.py | 2833-2877 |
+| Edge-stuck override | unified_agent.py | 2885-2939 |
+| Collision fix | ActionExecutor.cs | 177-188 |
+| Override chain | unified_agent.py | 4094-4099 |
 
 ---
 
@@ -117,11 +118,10 @@ source venv/bin/activate
 python src/python-agent/unified_agent.py --ui --goal "Farm autonomously"
 
 # Check state
-curl -s localhost:8790/state | jq '{day: .data.time.day, money: .data.player.money}'
+curl -s localhost:8790/state | jq '{day: .data.time.day, hour: .data.time.hour, dayOfWeek: .data.time.dayOfWeek}'
 
-# Manual ship test
-curl -s -X POST localhost:8790/action -H "Content-Type: application/json" \
-  -d '{"action": "ship", "slot": 5}'
+# Check for overrides in log
+grep -E "OVERRIDE" logs/agent.log | tail -10
 
 # Manual buy test (must be in SeedShop)
 curl -s -X POST localhost:8790/action -H "Content-Type: application/json" \
@@ -130,6 +130,6 @@ curl -s -X POST localhost:8790/action -H "Content-Type: application/json" \
 
 ---
 
-*Session 50: Shipping workflow complete. Movement and skill execution fixed.*
+*Session 51: Edge-stuck and no-seeds overrides added. Collision detection fixed.*
 
-*— Claude (PM), Session 50*
+*— Claude (PM), Session 51*
