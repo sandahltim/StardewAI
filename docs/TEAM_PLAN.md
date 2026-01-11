@@ -1,7 +1,7 @@
 # StardewAI Team Plan
 
 **Created:** 2026-01-08
-**Last Updated:** 2026-01-11 Session 53
+**Last Updated:** 2026-01-11 Session 54
 **Project Lead:** Claude (Opus) - Agent logic, architecture, coordination
 **UI/Memory:** Codex - User interface, memory systems, state persistence
 **Human Lead:** Tim - Direction, testing, hardware, final decisions
@@ -22,7 +22,48 @@
 
 ---
 
-## Current Status (Session 53)
+## Current Status (Session 54)
+
+### 🚨 NEW: Task Execution Layer (Session 54)
+
+**Problem Identified:** Rusty is tick-reactive, not task-driven. Each VLM call picks random targets instead of working systematically. Result: chaotic "ADHD crackhead" farming.
+
+**Solution:** Add Task Execution Layer between Daily Planner and Skill Executor.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    DAILY PLANNER                        │
+│  "Water crops" | "Harvest ready" | "Clear debris"       │
+└─────────────────────────┬───────────────────────────────┘
+                          │ picks next task
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│              TASK EXECUTOR (NEW)                        │
+│  Current Task: "Water crops"                            │
+│  Targets: [(12,15), (13,15), (14,15)] ← row-by-row     │
+│  Progress: 2/3 complete                                 │
+│                                                         │
+│  VLM consulted: every 5th tick (hybrid commentary)     │
+│  Priority interrupts: enabled (flexible)                │
+└─────────────────────────┬───────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│              SKILL EXECUTOR (existing)                  │
+│  water_crop → [select_slot, face, use_tool]            │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Key Design Decisions (Tim approved):**
+- **Sorting:** Row-by-row (like reading a book) - systematic farmer
+- **VLM Role:** Hybrid - commentary every ~5 ticks during execution
+- **Flexibility:** Can interrupt for higher priority tasks
+
+**Assignments:**
+- Claude: `execution/task_executor.py` - state machine, daily planner integration
+- Codex: `execution/target_generator.py` - spatial target sorting
+
+---
 
 ### What's Working
 | Component | Status | Session |
@@ -69,7 +110,12 @@
 | Edge-stuck recovery | ✅ COMPLETE |
 | No-seeds → Pierre's → Buy | ✅ COMPLETE |
 | Full seeds flow | ✅ COMPLETE |
-| Multi-day autonomy test | Ready to test |
+| **Task Execution Layer** | ✅ COMPLETE (Session 54) |
+| Target Generator (Codex) | ✅ COMPLETE |
+| Task Executor (Claude) | ✅ COMPLETE |
+| Multi-day autonomy test | 🔄 READY TO TEST |
+| Wake-up routine | 📋 NEXT |
+| Periodic re-planning | 📋 NEXT |
 
 ---
 
@@ -155,8 +201,15 @@
 - [x] Daily task planning (priority queue) - Session 44
 - [x] VLM reasoning for planning - Session 44
 - [x] Standard daily routine (water→harvest→plant→clear) - Session 44
-- [ ] Wake up routine
-- [ ] Task completion tracking in planner
+- [x] **Task Execution Layer** - Session 54 ✅
+  - [x] Target Generator (Codex) - sorted spatial targets
+  - [x] Task Executor (Claude) - deterministic execution
+  - [x] Daily planner integration - completion tracking
+  - [x] Hybrid VLM mode - commentary every 5 ticks
+  - [x] Priority interruption - flexible task switching
+- [ ] Wake up routine + morning planning
+- [ ] Periodic re-planning (every 2 game hours)
+- [ ] Memory integration (yesterday's lessons → today's plan)
 - [ ] 6+ day continuous run (Day 1 → harvest cycle)
 
 ### Phase 3: Exploration
@@ -311,6 +364,30 @@ curl -s localhost:8790/surroundings | jq .
 ---
 Final Logic- day starts- Rusty plans his day and creates todo list from day before and final summary before sleep and any inputs from user. then using different modules for each type of task and based on priority and further palnning cycles he completes all that he can and creates daily conclusion for next day. We need to play with model context to see how much of a complete day we can keep with a single model before compact/flush of context cache. We need to add more reasoning and palnning instead of just chaos. The project boils down to an ai model(any VLM we choose) becomes the eyes and brain for the farmer Rusty. He BECOMES the farmer and we hear his running inner monologue throughout the day for comedy genius. This will be evolving so keep updated and ask clarification questions when needed.
 *Make Rusty amazing. — Tim*
+
+---
+
+## Session 54 Highlights
+
+**Task Execution Layer Architecture:**
+- Identified root cause of chaotic behavior: tick-reactive, not task-driven
+- Designed new layer: Daily Planner → Task Executor → Skill Executor
+- Tim decisions: row-by-row sorting, hybrid VLM (every 5 ticks), flexible interrupts
+
+**Codex Assignment:**
+- Target Generator module (`execution/target_generator.py`)
+- Converts tasks to sorted spatial target lists
+- Foundation for deterministic execution
+
+**Claude Assignment:**
+- Task Executor module (`execution/task_executor.py`)
+- State machine for task focus persistence
+- Daily planner integration for completion tracking
+
+**Research Findings:**
+- `daily_planner.complete_task()` exists but NEVER called - orphaned code
+- SMAPI provides all spatial data needed (crop positions, objects, etc.)
+- VLM sees daily plan but no "FOCUS NOW" task guidance
 
 ---
 

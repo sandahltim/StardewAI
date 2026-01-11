@@ -2,7 +2,216 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-10 Session 44
+**Last Updated:** 2026-01-11 Session 54
+
+---
+
+## ✅ COMPLETED: Target Generator Module (Session 54)
+
+### TASK: Target Generator (NEW - Session 54)
+
+**Priority:** HIGH - Foundation for Task Execution Layer
+**Assigned:** 2026-01-11 Session 54
+**Status:** ✅ Complete
+
+#### Background
+
+Session 54 research revealed Rusty's chaotic behavior stems from tick-reactive execution - each VLM call picks random targets instead of working systematically. We're building a **Task Execution Layer** that needs a **Target Generator** to convert high-level tasks into ordered spatial target lists.
+
+This is CORE LOGIC, not UI - a pure function module that Claude's Task Executor will consume.
+
+#### Requirements
+
+**1. Create `src/python-agent/execution/target_generator.py`**
+
+```python
+from typing import List, Tuple, Optional, Dict, Any
+from dataclasses import dataclass
+from enum import Enum
+
+class SortStrategy(Enum):
+    ROW_BY_ROW = "row_by_row"      # y asc, x asc - like reading a book
+    NEAREST_FIRST = "nearest"      # Manhattan distance from player
+    SPIRAL_OUT = "spiral"          # Center outward (future)
+
+@dataclass
+class Target:
+    x: int
+    y: int
+    target_type: str              # "crop", "debris", "tile", "object"
+    metadata: Dict[str, Any]      # crop_name, is_watered, etc.
+
+class TargetGenerator:
+    """
+    Generates sorted target lists for task execution.
+    Pure function - no side effects, no state.
+    """
+    
+    def generate(
+        self,
+        task_type: str,
+        game_state: Dict[str, Any],
+        player_pos: Tuple[int, int],
+        strategy: SortStrategy = SortStrategy.ROW_BY_ROW
+    ) -> List[Target]:
+        """
+        Main entry point. Dispatches to task-specific generators.
+        
+        Args:
+            task_type: "water_crops", "harvest_crops", "clear_debris", 
+                      "till_soil", "plant_seeds"
+            game_state: From SMAPI /state endpoint
+            player_pos: (x, y) current player position
+            strategy: How to sort targets
+            
+        Returns:
+            Ordered list of Target objects
+        """
+        pass
+    
+    def _generate_water_targets(self, state, pos, strategy) -> List[Target]:
+        """Get unwatered crops from state.crops, sort by strategy."""
+        pass
+    
+    def _generate_harvest_targets(self, state, pos, strategy) -> List[Target]:
+        """Get ready crops from state.crops where isReadyForHarvest=True."""
+        pass
+    
+    def _generate_debris_targets(self, state, pos, strategy) -> List[Target]:
+        """Get debris objects (Stone, Weeds, Twig) from state.objects."""
+        pass
+    
+    def _generate_till_targets(self, state, pos, strategy) -> List[Target]:
+        """Get tillable tiles - clear ground that canTill=True."""
+        # May need spatial_map data or surroundings scan
+        pass
+    
+    def _generate_plant_targets(self, state, pos, strategy) -> List[Target]:
+        """Get plantable tiles - tilled but empty."""
+        pass
+    
+    def _sort_targets(
+        self, 
+        targets: List[Target], 
+        player_pos: Tuple[int, int],
+        strategy: SortStrategy
+    ) -> List[Target]:
+        """Apply sorting strategy to target list."""
+        if strategy == SortStrategy.ROW_BY_ROW:
+            return sorted(targets, key=lambda t: (t.y, t.x))
+        elif strategy == SortStrategy.NEAREST_FIRST:
+            return sorted(targets, key=lambda t: abs(t.x - player_pos[0]) + abs(t.y - player_pos[1]))
+        return targets
+```
+
+**2. Data Sources**
+
+Use data from SMAPI `/state` endpoint:
+
+```python
+# Crops (for water/harvest)
+state["data"]["crops"] = [
+    {"x": 12, "y": 15, "cropName": "Parsnip", "isWatered": False, "isReadyForHarvest": False},
+    {"x": 13, "y": 15, "cropName": "Parsnip", "isWatered": True, "isReadyForHarvest": False},
+    ...
+]
+
+# Objects (for debris)
+state["data"]["objects"] = [
+    {"x": 10, "y": 20, "name": "Stone", "type": "debris"},
+    {"x": 11, "y": 20, "name": "Weeds", "type": "debris"},
+    ...
+]
+
+# Player position
+state["data"]["player"]["tileX"], state["data"]["player"]["tileY"]
+```
+
+**3. Test File: `src/python-agent/execution/test_target_generator.py`**
+
+```python
+def test_water_targets_row_by_row():
+    """Crops sorted by y then x."""
+    gen = TargetGenerator()
+    state = {
+        "data": {
+            "crops": [
+                {"x": 14, "y": 15, "isWatered": False, "cropName": "Parsnip"},
+                {"x": 12, "y": 15, "isWatered": False, "cropName": "Parsnip"},
+                {"x": 13, "y": 16, "isWatered": False, "cropName": "Parsnip"},
+            ]
+        }
+    }
+    targets = gen.generate("water_crops", state, (10, 10), SortStrategy.ROW_BY_ROW)
+    
+    # Should be sorted: (12,15), (14,15), (13,16)
+    assert targets[0].x == 12 and targets[0].y == 15
+    assert targets[1].x == 14 and targets[1].y == 15
+    assert targets[2].x == 13 and targets[2].y == 16
+
+def test_water_excludes_watered():
+    """Already watered crops not included."""
+    gen = TargetGenerator()
+    state = {
+        "data": {
+            "crops": [
+                {"x": 12, "y": 15, "isWatered": True, "cropName": "Parsnip"},
+                {"x": 13, "y": 15, "isWatered": False, "cropName": "Parsnip"},
+            ]
+        }
+    }
+    targets = gen.generate("water_crops", state, (10, 10))
+    
+    assert len(targets) == 1
+    assert targets[0].x == 13
+
+def test_harvest_targets():
+    """Only ready crops included."""
+    pass
+
+def test_nearest_first_sorting():
+    """Nearest to player comes first."""
+    pass
+```
+
+**4. Integration Point**
+
+Claude will create `execution/task_executor.py` that imports your generator:
+
+```python
+from execution.target_generator import TargetGenerator, SortStrategy
+
+class TaskExecutor:
+    def __init__(self):
+        self.target_gen = TargetGenerator()
+    
+    def set_task(self, task_type: str, game_state: dict):
+        player_pos = (state["data"]["player"]["tileX"], state["data"]["player"]["tileY"])
+        self.targets = self.target_gen.generate(task_type, game_state, player_pos)
+        self.target_index = 0
+```
+
+#### Files to Create
+- `src/python-agent/execution/__init__.py` - Package init
+- `src/python-agent/execution/target_generator.py` - Main module
+- `src/python-agent/execution/test_target_generator.py` - Tests
+
+#### Test Command
+```bash
+cd /home/tim/StardewAI
+source venv/bin/activate
+python -m pytest src/python-agent/execution/test_target_generator.py -v
+```
+
+#### Acceptance Criteria
+- [ ] `generate("water_crops", ...)` returns unwatered crops sorted row-by-row
+- [ ] `generate("harvest_crops", ...)` returns ready-to-harvest crops
+- [ ] `generate("clear_debris", ...)` returns Stone/Weeds/Twig objects
+- [ ] `SortStrategy.NEAREST_FIRST` sorts by Manhattan distance
+- [ ] All tests pass
+- [ ] No external dependencies (pure Python + dataclasses)
+
+---
 
 ---
 

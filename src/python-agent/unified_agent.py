@@ -67,6 +67,14 @@ except ImportError:
     HAS_SKILLS = False
 
 try:
+    from execution import TaskExecutor, SortStrategy
+    HAS_TASK_EXECUTOR = True
+except ImportError:
+    TaskExecutor = None
+    SortStrategy = None
+    HAS_TASK_EXECUTOR = False
+
+try:
     from commentary import CommentaryGenerator, PiperTTS
     HAS_COMMENTARY = True
 except ImportError:
@@ -1984,6 +1992,16 @@ class StardewAgent:
             except Exception as e:
                 logging.warning(f"Daily planner failed to load: {e}")
 
+        # Task Executor (deterministic task execution)
+        self.task_executor = None
+        self._vlm_commentary_interval = 5  # VLM commentary every N ticks during task execution
+        if HAS_TASK_EXECUTOR and TaskExecutor:
+            try:
+                self.task_executor = TaskExecutor()
+                logging.info("🎯 Task Executor initialized (deterministic execution enabled)")
+            except Exception as e:
+                logging.warning(f"Task Executor failed to load: {e}")
+
         # Memory trigger tracking
         self.last_location: str = ""
         self.last_nearby_npcs: List[str] = []
@@ -2739,6 +2757,94 @@ class StardewAgent:
         # OVERRIDE: Force refill regardless of what VLM output
         logging.info(f"🔄 OVERRIDE: Empty can + at water → FORCING refill_watering_can direction={water_direction}")
         return [Action("refill_watering_can", {"target_direction": water_direction}, "Auto-refill (can empty)")]
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # TASK EXECUTOR HELPERS
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _try_start_daily_task(self) -> bool:
+        """
+        Try to start the next pending task from daily planner.
+        
+        Maps daily planner task categories to TaskExecutor task types.
+        Returns True if a task was started, False otherwise.
+        """
+        if not self.task_executor or not self.daily_planner:
+            return False
+        
+        # Don't start if executor is already active
+        if self.task_executor.is_active():
+            return False
+        
+        # Get current game state for target generation
+        state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if not state:
+            return False
+        
+        player_pos = self.last_position or (0, 0)
+        
+        # Map daily planner categories to executor task types
+        CATEGORY_TO_TASK = {
+            "water": "water_crops",
+            "harvest": "harvest_crops", 
+            "plant": "plant_seeds",
+            "clear": "clear_debris",
+            "till": "till_soil",
+        }
+        
+        # Find next pending task that maps to an executor task type
+        for task in self.daily_planner.tasks:
+            if task.status != "pending":
+                continue
+            
+            # Check task description for keywords
+            task_lower = task.description.lower()
+            task_type = None
+            
+            for keyword, executor_task in CATEGORY_TO_TASK.items():
+                if keyword in task_lower:
+                    task_type = executor_task
+                    break
+            
+            if not task_type:
+                continue
+            
+            # Try to start this task
+            has_targets = self.task_executor.set_task(
+                task_id=task.id,
+                task_type=task_type,
+                game_state=state,
+                player_pos=player_pos,
+            )
+            
+            if has_targets:
+                # Mark task as in progress in daily planner
+                try:
+                    self.daily_planner.start_task(task.id)
+                except Exception:
+                    pass  # start_task might not exist
+                
+                logging.info(f"🎯 Started task: {task_type} ({self.task_executor.progress.total_targets} targets)")
+                return True
+            else:
+                # No targets for this task - mark complete
+                logging.info(f"✅ No targets for {task_type} - marking complete")
+                try:
+                    self.daily_planner.complete_task(task.id)
+                except Exception as e:
+                    logging.warning(f"Failed to mark task complete: {e}")
+        
+        return False
+
+    def _get_task_executor_context(self) -> str:
+        """Get context string for VLM about current task execution."""
+        if not self.task_executor:
+            return ""
+        
+        if self.task_executor.is_active():
+            return self.task_executor.get_context_for_vlm()
+        
+        return ""
 
     def _fix_active_popup(self, actions: List[Action]) -> List[Action]:
         """
@@ -3912,9 +4018,67 @@ Recent: {recent}"""
             # Update execution outcome for UI debug panel
             self.executed_action = {"type": action.action_type, "params": action.params}
             self.executed_outcome = "success" if success else "failed"
+            
+            # Report result to Task Executor if active
+            if self.task_executor and self.task_executor.is_active():
+                self.task_executor.report_result(success, error=None if success else "execution failed")
+            
             await asyncio.sleep(self.config.action_delay)
             self._send_ui_status()
             return
+
+        # ═══════════════════════════════════════════════════════════════════════
+        # TASK EXECUTOR: Deterministic execution (skip VLM when task is active)
+        # ═══════════════════════════════════════════════════════════════════════
+        
+        # Try to start a task from daily planner if executor is idle
+        if self.task_executor and not self.task_executor.is_active():
+            if self._try_start_daily_task():
+                # Task started - executor will handle it next iteration
+                pass
+        
+        if self.task_executor and self.task_executor.is_active():
+            # Get player position for navigation
+            player_pos = self.last_position or (0, 0)
+            
+            # Get next deterministic action from executor
+            executor_action = self.task_executor.get_next_action(player_pos)
+            
+            if executor_action:
+                # Check if VLM should provide commentary this tick (hybrid mode)
+                if self.task_executor.should_vlm_comment(self._vlm_commentary_interval):
+                    logging.info(f"🎭 Hybrid mode: VLM commentary tick {self.task_executor.tick_count}")
+                    # Don't skip VLM - let it provide commentary, but still queue executor action
+                else:
+                    # Queue the executor's action and skip VLM
+                    action = Action(
+                        action_type=executor_action.action_type,
+                        params=executor_action.params,
+                        description=executor_action.reason
+                    )
+                    self.action_queue.append(action)
+                    logging.info(f"🎯 TaskExecutor: {executor_action.action_type} → {executor_action.reason}")
+                    
+                    # Update UI status
+                    self.vlm_status = f"Executing task: {self.task_executor.progress.task_type if self.task_executor.progress else 'unknown'}"
+                    self._send_ui_status()
+                    return  # Skip VLM thinking this tick
+            else:
+                # Task complete - let VLM pick next task
+                if self.task_executor.is_complete() and self.task_executor.progress:
+                    task_id = self.task_executor.progress.task_id
+                    task_type = self.task_executor.progress.task_type
+                    completed = self.task_executor.progress.completed_targets
+                    total = self.task_executor.progress.total_targets
+                    logging.info(f"✅ Task complete: {task_type} ({completed}/{total} targets)")
+                    
+                    # Mark task complete in daily planner
+                    if self.daily_planner:
+                        try:
+                            self.daily_planner.complete_task(task_id)
+                            logging.info(f"📋 Daily planner: marked {task_id} complete")
+                        except Exception as e:
+                            logging.warning(f"Failed to mark task complete: {e}")
 
         # Time to think?
         if now - self.last_think_time >= self.config.think_interval:
@@ -3967,6 +4131,12 @@ Recent: {recent}"""
             if time_hint:
                 action_context_parts.append(time_hint)
                 logging.info(f"   ⏰ Time urgency: hour >= 22, warning added")
+
+            # Add task executor context (current task, progress, next target)
+            task_context = self._get_task_executor_context()
+            if task_context:
+                action_context_parts.append(task_context)
+                logging.info(f"   🎯 Task context added: {self.task_executor.progress.task_type if self.task_executor and self.task_executor.progress else 'none'}")
 
             # Add farm plan context if active
             if self.plot_manager and self.plot_manager.is_active() and self.last_position:
