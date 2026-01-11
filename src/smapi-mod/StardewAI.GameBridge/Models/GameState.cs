@@ -9,6 +9,12 @@ public class GameState
     public LocationState Location { get; set; }
     public Dictionary<string, LandmarkInfo> Landmarks { get; set; } = new();
     public List<InventoryItem> Inventory { get; set; } = new();
+
+    // UI state - for detecting popups, menus, events
+    public string Menu { get; set; }        // Active menu type (null if none)
+    public string Event { get; set; }       // Active event/cutscene (null if none)
+    public bool DialogueUp { get; set; }    // True if dialogue box is showing
+    public bool Paused { get; set; }        // True if game is paused
 }
 
 /// <summary>Player position, energy, tools</summary>

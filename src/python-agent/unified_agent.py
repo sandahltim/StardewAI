@@ -1636,6 +1636,9 @@ class ModBridgeController:
             elif action_type == "cancel":
                 return self._send_action({"action": "cancel"})
 
+            elif action_type == "dismiss_menu":
+                return self._send_action({"action": "dismiss_menu"})
+
             elif action_type == "sleep" or action_type == "go_to_bed":
                 return self._send_action({"action": "go_to_bed"})
 
@@ -2737,6 +2740,29 @@ class StardewAgent:
         logging.info(f"🔄 OVERRIDE: Empty can + at water → FORCING refill_watering_can direction={water_direction}")
         return [Action("refill_watering_can", {"target_direction": water_direction}, "Auto-refill (can empty)")]
 
+    def _fix_active_popup(self, actions: List[Action]) -> List[Action]:
+        """
+        Override: If menu/event is active, dismiss it before continuing.
+        This handles level-up screens, shipping summaries, dialogue boxes, etc.
+        """
+        state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if not state:
+            return actions
+
+        # Check for active menu or event
+        menu = state.get("menu")
+        event = state.get("event")
+        dialogue_up = state.get("dialogueUp", False)
+        paused = state.get("paused", False)
+
+        if menu or event or dialogue_up or paused:
+            what = menu or event or ("dialogue" if dialogue_up else "pause")
+            logging.info(f"🚫 POPUP OVERRIDE: {what} active → dismiss_menu first")
+            # Return dismiss_menu as the only action - we'll resume normal actions next tick
+            return [Action("dismiss_menu", {}, f"Dismiss {what}")]
+
+        return actions
+
     def _fix_late_night_bed(self, actions: List[Action]) -> List[Action]:
         """
         Override: If very late (hour >= 23) and not going to bed, force go_to_bed.
@@ -2834,19 +2860,20 @@ class StardewAgent:
     def _fix_no_seeds(self, actions: List[Action]) -> List[Action]:
         """
         Override: If we have no seeds and Pierre's is open, force go_to_pierre.
-        This prevents the agent from endlessly clearing debris when it should buy seeds.
+        This prevents the agent from endlessly farming or clearing when it should buy seeds.
         """
         if not actions:
             return actions
 
-        # Only override debris-clearing actions
-        debris_actions = {"clear_stone", "clear_wood", "clear_weeds", "clear_debris", 
-                         "chop_tree", "mine_boulder", "break_stone"}
-        
-        # Check if first action is debris clearing
+        # Override farming AND debris actions when no seeds
+        override_actions = {"clear_stone", "clear_wood", "clear_weeds", "clear_debris",
+                           "chop_tree", "mine_boulder", "break_stone",
+                           "till_soil", "plant_seed", "water_crop", "harvest"}
+
+        # Check if first action should be overridden
         first_action = actions[0].action_type if actions else ""
-        if first_action not in debris_actions:
-            return actions  # Not a debris action, let it through
+        if first_action not in override_actions:
+            return actions  # Not a farming/debris action, let it through
 
         # Get state to check inventory and time
         state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
@@ -4097,6 +4124,7 @@ Recent: {recent}"""
             if self.config.mode in ("single", "splitscreen"):
                 # Apply action overrides in sequence
                 filtered_actions = result.actions
+                filtered_actions = self._fix_active_popup(filtered_actions)  # Popup/menu dismiss first
                 filtered_actions = self._fix_late_night_bed(filtered_actions)  # Midnight override
                 filtered_actions = self._fix_priority_shipping(filtered_actions)  # Shipping priority
                 filtered_actions = self._fix_no_seeds(filtered_actions)  # No seeds → go to Pierre's

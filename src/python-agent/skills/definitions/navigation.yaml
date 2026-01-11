@@ -321,7 +321,14 @@ go_to_pierre:
         day: Wednesday  # Pierre's closed Wednesday
 
   actions:
-    - warp: SeedShop
+    - warp: Town          # Warp to town center (43, 57)
+    - wait: 0.5           # Let warp complete
+    - face: north         # Pierre's door is north of town center
+    - move:
+        direction: north
+        tiles: 1          # Walk to door
+    - wait: 0.3
+    - interact            # Enter through door (game places player correctly inside)
 
   on_success:
     message: "Arrived at Pierre's"

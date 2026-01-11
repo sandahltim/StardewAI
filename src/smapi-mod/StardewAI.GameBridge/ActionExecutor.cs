@@ -67,6 +67,7 @@ public class ActionExecutor
                 "cancel" => Cancel(),
                 "toolbar_next" => ToolbarNext(),
                 "toolbar_prev" => ToolbarPrev(),
+                "dismiss_menu" => DismissMenu(),
                 _ => new ActionResult { Success = false, Error = $"Unknown action: {command.Action}", State = ActionState.Failed }
             };
         }
@@ -914,6 +915,59 @@ public class ActionExecutor
         };
     }
 
+    private ActionResult DismissMenu()
+    {
+        var messages = new List<string>();
+
+        // Handle active menu (dialogs, popups, level-up screens, shipping summary)
+        if (Game1.activeClickableMenu != null)
+        {
+            var menuType = Game1.activeClickableMenu.GetType().Name;
+            Game1.exitActiveMenu();
+            messages.Add($"Dismissed {menuType}");
+        }
+
+        // Handle active event (cutscenes, festivals)
+        if (Game1.eventUp && Game1.currentLocation?.currentEvent != null)
+        {
+            var evt = Game1.currentLocation.currentEvent;
+            evt.skipEvent();
+            messages.Add("Skipped event");
+        }
+
+        // Handle dialogue boxes
+        if (Game1.dialogueUp)
+        {
+            Game1.dialogueUp = false;
+            Game1.currentSpeaker = null;
+            messages.Add("Dismissed dialogue");
+        }
+
+        // Handle pause menu
+        if (Game1.paused)
+        {
+            Game1.paused = false;
+            messages.Add("Unpaused");
+        }
+
+        if (messages.Count == 0)
+        {
+            return new ActionResult
+            {
+                Success = true,
+                Message = "No menu/event to dismiss",
+                State = ActionState.Complete
+            };
+        }
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = string.Join(", ", messages),
+            State = ActionState.Complete
+        };
+    }
+
     private ActionResult ToolbarNext()
     {
         Game1.player.shiftToolbar(true);
@@ -1037,7 +1091,7 @@ public class ActionExecutor
         ["Woods"] = (8, 8),
         ["Backwoods"] = (14, 10),
         ["Railroad"] = (32, 40),
-        ["SeedShop"] = (4, 19),
+        ["SeedShop"] = (5, 20),  // Near door, not behind counter
         ["Saloon"] = (13, 18),
         ["Blacksmith"] = (3, 15),
         ["Hospital"] = (10, 19),

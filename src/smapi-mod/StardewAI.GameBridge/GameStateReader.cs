@@ -34,7 +34,14 @@ public class GameStateReader
             Time = ReadTimeState(),
             Location = ReadLocationState(),
             Landmarks = ReadLandmarks(),
-            Inventory = ReadInventory()
+            Inventory = ReadInventory(),
+            // UI state for popup detection
+            Menu = Game1.activeClickableMenu?.GetType().Name,
+            Event = Game1.eventUp && Game1.currentLocation?.currentEvent != null
+                ? Game1.currentLocation.currentEvent.id
+                : null,
+            DialogueUp = Game1.dialogueUp,
+            Paused = Game1.paused
         };
     }
 
