@@ -75,6 +75,14 @@ except ImportError:
     HAS_TASK_EXECUTOR = False
 
 try:
+    from constants import TOOL_SLOTS, DEFAULT_LOCATIONS
+    HAS_CONSTANTS = True
+except ImportError:
+    TOOL_SLOTS = {"Axe": 0, "Hoe": 1, "Watering Can": 2, "Pickaxe": 3, "Scythe": 4}
+    DEFAULT_LOCATIONS = {"shipping_bin": (71, 14), "water_pond": (72, 31)}
+    HAS_CONSTANTS = False
+
+try:
     from commentary import CommentaryGenerator, PiperTTS
     HAS_COMMENTARY = True
 except ImportError:
@@ -88,6 +96,19 @@ try:
 except ImportError:
     PlotManager = None
     HAS_PLANNING = False
+
+# Cell-by-cell farming (Session 62+)
+try:
+    from planning.farm_surveyor import FarmSurveyor, CellFarmingPlan, get_farm_surveyor
+    from execution.cell_coordinator import CellFarmingCoordinator, CellAction
+    HAS_CELL_FARMING = True
+except ImportError:
+    FarmSurveyor = None
+    CellFarmingPlan = None
+    CellFarmingCoordinator = None
+    CellAction = None
+    get_farm_surveyor = None
+    HAS_CELL_FARMING = False
 
 # =============================================================================
 # Optional Input Methods
@@ -911,8 +932,8 @@ class ModBridgeController:
         # EXPLICIT TOOL CONTEXT - VLM must know what's equipped!
         tool_info = f"🔧 EQUIPPED: {current_tool} (slot {current_slot})"
 
-        # Tool slot mapping for switch instructions
-        tool_slots = {"Axe": 0, "Hoe": 1, "Watering Can": 2, "Pickaxe": 3, "Scythe": 4}
+        # Tool slot mapping for switch instructions (from constants)
+        tool_slots = TOOL_SLOTS
 
         if current_tile:
             tile_state = current_tile.get("state", "unknown")
@@ -2015,6 +2036,14 @@ class StardewAgent:
             except Exception as e:
                 logging.warning(f"Task Executor failed to load: {e}")
 
+        # Cell Farming Coordinator (cell-by-cell execution for plant_seeds)
+        self.cell_coordinator: Optional[CellFarmingCoordinator] = None
+        self._cell_farming_plan: Optional[CellFarmingPlan] = None
+        self._current_cell_actions: List[CellAction] = []
+        self._cell_action_index = 0
+        if HAS_CELL_FARMING:
+            logging.info("🌱 Cell-by-cell farming available")
+
         # Memory trigger tracking
         self.last_location: str = ""
         self.last_nearby_npcs: List[str] = []
@@ -2775,6 +2804,234 @@ class StardewAgent:
     # TASK EXECUTOR HELPERS
     # ═══════════════════════════════════════════════════════════════════════
 
+    def _start_cell_farming(
+        self,
+        game_state: Dict[str, Any],
+        player_pos: Tuple[int, int],
+        task_id: str,
+        description: str,
+    ) -> bool:
+        """
+        Start cell-by-cell farming for plant_seeds task.
+
+        Surveys the farm, creates a cell farming plan, and initializes
+        the CellFarmingCoordinator for execution.
+
+        Returns:
+            True if cell farming started successfully, False otherwise
+        """
+        if not HAS_CELL_FARMING or not get_farm_surveyor:
+            return False
+
+        try:
+            # Get farm state from /farm endpoint
+            farm_state = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
+            if not farm_state:
+                logging.warning("🌱 Cell farming: No farm state available")
+                return False
+
+            # Count seeds in inventory
+            data = game_state.get("data") or game_state
+            inventory = data.get("inventory", [])
+            seed_items = [item for item in inventory if item and "seed" in item.get("name", "").lower()]
+            if not seed_items:
+                logging.warning("🌱 Cell farming: No seeds in inventory")
+                return False
+
+            total_seeds = sum(item.get("stack", 1) for item in seed_items)
+            seed_type = seed_items[0].get("name", "Parsnip Seeds")  # Use first seed type
+
+            logging.info(f"🌱 Cell farming: Surveying farm for {total_seeds} {seed_type}")
+
+            # Survey and create plan
+            surveyor = get_farm_surveyor()
+            self._cell_farming_plan = surveyor.create_farming_plan(
+                farm_state=farm_state,
+                seed_count=total_seeds,
+                seed_type=seed_type,
+            )
+
+            if not self._cell_farming_plan or not self._cell_farming_plan.cells:
+                logging.warning("🌱 Cell farming: No optimal cells found")
+                return False
+
+            # Create coordinator
+            self.cell_coordinator = CellFarmingCoordinator(self._cell_farming_plan)
+            self._current_cell_actions = []
+            self._cell_action_index = 0
+
+            # Log plan summary
+            cell_count = len(self._cell_farming_plan.cells)
+            needs_clear = sum(1 for c in self._cell_farming_plan.cells if c.needs_clear)
+            needs_till = sum(1 for c in self._cell_farming_plan.cells if c.needs_till)
+            logging.info(
+                f"🌱 Cell farming started: {cell_count} cells "
+                f"({needs_clear} need clearing, {needs_till} need tilling)"
+            )
+
+            return True
+
+        except Exception as e:
+            logging.error(f"🌱 Cell farming failed to start: {e}")
+            return False
+
+    def _process_cell_farming(self) -> Optional[Action]:
+        """
+        Process one tick of cell-by-cell farming.
+
+        Called each tick when cell_coordinator is active.
+        Returns an Action to queue, or None if waiting.
+        """
+        if not self.cell_coordinator:
+            return None
+
+        # Get current game state and player position
+        game_state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if not game_state:
+            return None
+
+        data = game_state.get("data") or game_state
+        player = data.get("player") or {}
+        tile_x = player.get("tileX")
+        tile_y = player.get("tileY")
+        if tile_x is None or tile_y is None:
+            return None
+        player_pos = (tile_x, tile_y)
+
+        # Get current cell
+        cell = self.cell_coordinator.get_current_cell()
+        if not cell:
+            # All cells complete - finish cell farming
+            self._finish_cell_farming()
+            return None
+
+        # Check if we need to navigate to this cell
+        nav_target = self.cell_coordinator.get_navigation_target(cell, player_pos)
+        if player_pos != nav_target:
+            # Need to move to adjacent position
+            dx = nav_target[0] - player_pos[0]
+            dy = nav_target[1] - player_pos[1]
+            if abs(dx) > abs(dy):
+                direction = "east" if dx > 0 else "west"
+            else:
+                direction = "south" if dy > 0 else "north"
+
+            logging.debug(f"🌱 Cell ({cell.x},{cell.y}): Moving {direction} to {nav_target}")
+            return Action(
+                action_type="move",
+                params={"direction": direction},
+                description=f"Moving to cell ({cell.x},{cell.y})"
+            )
+
+        # We're at the right position - execute cell actions
+        if not self._current_cell_actions or self._cell_action_index >= len(self._current_cell_actions):
+            # Need to start or restart cell execution
+            # Compute facing direction
+            facing = self.cell_coordinator.get_facing_direction(cell, player_pos)
+            cell.target_direction = facing
+            self._current_cell_actions = self.cell_coordinator.get_cell_actions(cell)
+            self._cell_action_index = 0
+
+            if not self._current_cell_actions:
+                # No actions needed for this cell (already complete?)
+                logging.info(f"🌱 Cell ({cell.x},{cell.y}): No actions needed, skipping")
+                self.cell_coordinator.mark_cell_complete(cell)
+                return None
+
+            logging.info(f"🌱 Cell ({cell.x},{cell.y}): Starting {len(self._current_cell_actions)} actions (facing {facing})")
+
+        # Get next action
+        if self._cell_action_index < len(self._current_cell_actions):
+            cell_action = self._current_cell_actions[self._cell_action_index]
+            self._cell_action_index += 1
+
+            # Convert CellAction to Action
+            action_dict = cell_action.to_dict()
+            action_type = list(action_dict.keys())[0] if action_dict else "unknown"
+            action_value = action_dict.get(action_type)
+
+            # Build params based on action type
+            params = {}
+            if action_type == "select_slot":
+                params = {"slot": action_value}
+                action_type = "select_slot"
+            elif action_type == "select_item":
+                params = {"item": action_value}
+                action_type = "select_item"
+            elif action_type == "face":
+                params = {"direction": action_value}
+                action_type = "face"
+            elif action_type == "use_tool":
+                params = {}
+                action_type = "use_tool"
+
+            progress = f"({self._cell_action_index}/{len(self._current_cell_actions)})"
+            logging.debug(f"🌱 Cell ({cell.x},{cell.y}): Action {progress} - {action_type}")
+
+            return Action(
+                action_type=action_type,
+                params=params,
+                description=f"Cell ({cell.x},{cell.y}): {action_type}"
+            )
+
+        # All actions for this cell complete
+        logging.info(f"🌱 Cell ({cell.x},{cell.y}): Complete!")
+        self.cell_coordinator.mark_cell_complete(cell)
+        self._current_cell_actions = []
+        self._cell_action_index = 0
+        return None  # Will process next cell on next tick
+
+    def _finish_cell_farming(self) -> None:
+        """
+        Complete cell-by-cell farming and clean up.
+        """
+        if not self.cell_coordinator:
+            return
+
+        completed, total = self.cell_coordinator.get_progress()
+        logging.info(f"🌱 Cell farming complete: {completed}/{total} cells processed")
+
+        # Mark the plant_seeds task as complete
+        if self.daily_planner:
+            for task in self.daily_planner.tasks:
+                if "plant" in task.description.lower() and task.status == "in_progress":
+                    self.daily_planner.complete_task(task.id, f"Planted {completed} cells")
+                    break
+
+        # Clean up
+        self.cell_coordinator = None
+        self._cell_farming_plan = None
+        self._current_cell_actions = []
+        self._cell_action_index = 0
+
+    def _remove_plant_prereqs_from_queue(self) -> None:
+        """
+        Remove plant_seeds prereqs from resolved queue.
+
+        When cell farming takes over, we don't need the separate
+        clear_debris and till_soil tasks since they're handled per-cell.
+        """
+        if not self.daily_planner:
+            return
+
+        queue = self.daily_planner.resolved_queue
+        # Find tasks that are prereqs for plant_seeds (clear_debris, till_soil)
+        prereq_indices = []
+        for i, rt in enumerate(queue):
+            prereq_for = rt.prereq_for if hasattr(rt, 'prereq_for') else rt.get('prereq_for', '')
+            is_prereq = rt.is_prereq if hasattr(rt, 'is_prereq') else rt.get('is_prereq', False)
+            task_type = rt.task_type if hasattr(rt, 'task_type') else rt.get('task_type', '')
+
+            # Remove clear_debris and till_soil prereqs for plant_seeds
+            if is_prereq and task_type in ("clear_debris", "till_soil"):
+                prereq_indices.append(i)
+
+        # Remove in reverse order to maintain indices
+        for i in reversed(prereq_indices):
+            removed = queue.pop(i)
+            task_type = removed.task_type if hasattr(removed, 'task_type') else removed.get('task_type', '?')
+            logging.info(f"🌱 Removed prereq from queue: {task_type} (handled by cell farming)")
+
     def _try_start_daily_task(self) -> bool:
         """
         Try to start the next task from the RESOLVED queue.
@@ -2793,6 +3050,32 @@ class StardewAgent:
         # Don't start if executor is already active
         if self.task_executor.is_active():
             return False
+
+        # Check if cell farming should take over for plant_seeds
+        # This bypasses the separate clear_debris, till_soil, plant_seeds prereqs
+        if HAS_CELL_FARMING and not self.cell_coordinator:
+            resolved_queue = self.daily_planner.resolved_queue
+            for rt in resolved_queue:
+                task_type = rt.task_type if hasattr(rt, 'task_type') else rt.get('task_type', '')
+                is_prereq = rt.is_prereq if hasattr(rt, 'is_prereq') else rt.get('is_prereq', False)
+                # Look for main plant_seeds task (not prereqs)
+                if task_type == "plant_seeds" and not is_prereq:
+                    # Get game state for cell farming
+                    state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+                    if state:
+                        data = state.get("data") or state
+                        player = data.get("player") or {}
+                        tile_x = player.get("tileX")
+                        tile_y = player.get("tileY")
+                        player_pos = (tile_x, tile_y) if tile_x is not None else (0, 0)
+                        task_id = rt.original_task_id if hasattr(rt, 'original_task_id') else rt.get('original_task_id', '')
+
+                        # Start cell farming - this handles clear/till/plant/water per cell
+                        if self._start_cell_farming(state, player_pos, task_id, "Cell-by-cell farming"):
+                            # Remove plant_seeds prereqs from queue (clear_debris, till_soil)
+                            self._remove_plant_prereqs_from_queue()
+                            return True
+                    break  # Only check first plant_seeds task
 
         # Get current game state for target generation
         state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
@@ -2850,6 +3133,18 @@ class StardewAgent:
             # Try to start this task
             params_info = f" params={task_params}" if task_params else ""
             logging.info(f"🎯 Starting resolved task: {task_type} ({'prereq' if is_prereq else 'main'}){params_info}")
+
+            # Special case: Use cell-by-cell farming for plant_seeds
+            if task_type == "plant_seeds" and HAS_CELL_FARMING and not is_prereq:
+                started = self._start_cell_farming(state, player_pos, task_id, description)
+                if started:
+                    # Mark task as in progress
+                    try:
+                        self.daily_planner.start_task(task_id)
+                    except Exception:
+                        pass
+                    return True
+                # Fall through to normal path if cell farming couldn't start
 
             has_targets = self.task_executor.set_task(
                 task_id=task_id,
@@ -3714,8 +4009,8 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
         unwatered = [c for c in crops if not c.get("isWatered", False)]
         harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
         
-        # Tool slots for reference
-        tool_slots = {"Axe": 0, "Hoe": 1, "Watering Can": 2, "Pickaxe": 3, "Scythe": 4}
+        # Tool slots for reference (from constants)
+        tool_slots = TOOL_SLOTS
         
         # --- PRIORITY 1: Empty Watering Can ---
         if water_left <= 0 and unwatered:
@@ -4171,13 +4466,59 @@ Recent: {recent}"""
         # ═══════════════════════════════════════════════════════════════════════
         # TASK EXECUTOR: Deterministic execution (skip VLM when task is active)
         # ═══════════════════════════════════════════════════════════════════════
-        
-        # Try to start a task from daily planner if executor is idle
+
+        # STEP 1: Handle completed tasks FIRST (remove from queue before starting new)
+        # This runs when state is TASK_COMPLETE - cleanup must happen before starting next task
+        if self.task_executor and self.task_executor.is_complete() and self.task_executor.progress:
+            task_id = self.task_executor.progress.task_id
+            task_type = self.task_executor.progress.task_type
+            completed = self.task_executor.progress.completed_targets
+            total = self.task_executor.progress.total_targets
+            logging.info(f"✅ Task complete: {task_type} ({completed}/{total} targets)")
+
+            # Mark task complete in daily planner and remove from resolved queue
+            if self.daily_planner:
+                try:
+                    self.daily_planner.complete_task(task_id)
+                    logging.info(f"📋 Daily planner: marked {task_id} complete")
+                    # Remove from resolved queue to prevent re-execution
+                    resolved_queue = getattr(self.daily_planner, 'resolved_queue', [])
+                    # Log queue IDs (handle both ResolvedTask objects and dicts)
+                    rt_ids = [getattr(rt, 'original_task_id', None) or (rt.get('original_task_id', '?') if isinstance(rt, dict) else '?') for rt in resolved_queue[:5]]
+                    logging.info(f"📋 Queue before removal: {rt_ids}")
+                    removed = False
+                    for i, rt in enumerate(resolved_queue):
+                        rt_id = rt.original_task_id if hasattr(rt, 'original_task_id') else rt.get('original_task_id', '')
+                        if rt_id == task_id:
+                            resolved_queue.pop(i)
+                            logging.info(f"📋 Removed {task_id} from resolved queue ({len(resolved_queue)} remaining)")
+                            removed = True
+                            break
+                    if not removed:
+                        logging.warning(f"⚠️ Could not find {task_id} in resolved queue to remove!")
+                except Exception as e:
+                    logging.warning(f"Failed to mark task complete: {e}")
+
+            # Reset executor state to IDLE so next task can start
+            self.task_executor.state = TaskState.IDLE
+            self.task_executor.progress = None
+            logging.info(f"📋 TaskExecutor reset to IDLE, ready for next task")
+
+        # STEP 2a: Cell-by-cell farming execution (if active)
+        if self.cell_coordinator and not self.cell_coordinator.is_complete():
+            cell_action = self._process_cell_farming()
+            if cell_action:
+                self.action_queue.append(cell_action)
+                self.vlm_status = f"Cell farming: {self.cell_coordinator.get_status_summary()}"
+                self._send_ui_status()
+                return  # Cell farming takes priority, skip VLM
+
+        # STEP 2b: Try to start a task from daily planner if executor is idle
         if self.task_executor and not self.task_executor.is_active():
             if self._try_start_daily_task():
                 # Task started - executor will handle it next iteration
                 pass
-        
+
         if self.task_executor and self.task_executor.is_active():
             # Get FRESH game state for position and precondition checks
             game_state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
@@ -4251,38 +4592,7 @@ Recent: {recent}"""
             else:
                 # No executor action - VLM should run normally
                 self._task_executor_commentary_only = False  # Ensure flag is cleared
-                # Task complete - let VLM pick next task
-                if self.task_executor.is_complete() and self.task_executor.progress:
-                    task_id = self.task_executor.progress.task_id
-                    task_type = self.task_executor.progress.task_type
-                    completed = self.task_executor.progress.completed_targets
-                    total = self.task_executor.progress.total_targets
-                    logging.info(f"✅ Task complete: {task_type} ({completed}/{total} targets)")
-                    
-                    # Mark task complete in daily planner and remove from resolved queue
-                    if self.daily_planner:
-                        try:
-                            self.daily_planner.complete_task(task_id)
-                            logging.info(f"📋 Daily planner: marked {task_id} complete")
-                            # Remove from resolved queue to prevent re-execution
-                            resolved_queue = getattr(self.daily_planner, 'resolved_queue', [])
-                            logging.info(f"📋 Queue before removal: {[getattr(rt, 'original_task_id', rt.get('original_task_id', '?')) for rt in resolved_queue[:5]]}")
-                            removed = False
-                            for i, rt in enumerate(resolved_queue):
-                                rt_id = rt.original_task_id if hasattr(rt, 'original_task_id') else rt.get('original_task_id', '')
-                                if rt_id == task_id:
-                                    resolved_queue.pop(i)
-                                    logging.info(f"📋 Removed {task_id} from resolved queue ({len(resolved_queue)} remaining)")
-                                    removed = True
-                                    # Immediately start next task to prevent VLM from moving player
-                                    if resolved_queue and self._try_start_daily_task():
-                                        logging.info(f"⚡ Chained to next prereq task immediately")
-                                        return  # Skip VLM this tick - prereq chain continues
-                                    break
-                            if not removed:
-                                logging.warning(f"⚠️ Could not find {task_id} in resolved queue to remove!")
-                        except Exception as e:
-                            logging.warning(f"Failed to mark task complete: {e}")
+                # Note: Task completion handling is now done in STEP 1 above (before is_active check)
 
         # Time to think?
         if now - self.last_think_time >= self.config.think_interval:

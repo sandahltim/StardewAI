@@ -27,6 +27,15 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from enum import Enum
 
+# Import centralized constants
+try:
+    from constants import SEED_PRICES, RESERVED_CROPS, DEFAULT_LOCATIONS
+except ImportError:
+    # Fallback if constants not available
+    SEED_PRICES = {"parsnip": 20, "potato": 50, "cauliflower": 80}
+    RESERVED_CROPS = ["Parsnip", "Green Bean", "Cauliflower", "Potato"]
+    DEFAULT_LOCATIONS = {"water_pond": (72, 31)}
+
 logger = logging.getLogger(__name__)
 
 
@@ -75,36 +84,6 @@ class PrereqResolver:
     and returns an ordered queue with all prerequisite actions baked in.
     """
 
-    # Seed prices for money calculations
-    SEED_PRICES = {
-        "parsnip": 20,
-        "potato": 50,
-        "cauliflower": 80,
-        "green bean": 60,
-        "kale": 70,
-        "melon": 80,
-        "blueberry": 80,
-        "corn": 150,
-        "tomato": 50,
-        "pumpkin": 100,
-        "cranberry": 240,
-        "eggplant": 20,
-        "grape": 60,
-        "radish": 40,
-    }
-
-    # Crops that should NOT be sold (reserved for bundles, gifts, etc.)
-    RESERVED_CROPS = [
-        # Community center bundles - Spring
-        "Parsnip", "Green Bean", "Cauliflower", "Potato",
-        # Community center bundles - Summer
-        "Melon", "Blueberry", "Hot Pepper", "Tomato",
-        # Community center bundles - Fall
-        "Corn", "Eggplant", "Pumpkin",
-        # Quality crops (keep gold/iridium quality)
-        # Note: This is simplified - could check quality level
-    ]
-
     def __init__(self):
         self.resolution_notes: List[str] = []
 
@@ -113,6 +92,7 @@ class PrereqResolver:
         tasks: List[Any],  # List of DailyTask objects
         game_state: Dict[str, Any],
         surroundings: Optional[Dict[str, Any]] = None,
+        farm_state: Optional[Dict[str, Any]] = None,
     ) -> ResolutionResult:
         """
         Resolve all tasks and return ordered execution queue.
@@ -121,6 +101,7 @@ class PrereqResolver:
             tasks: Raw tasks from DailyPlanner (sorted by priority)
             game_state: Current game state for resource checking
             surroundings: Optional surroundings data with water location
+            farm_state: Optional farm state with tilled tiles info
 
         Returns:
             ResolutionResult with resolved queue, skipped tasks, and memory notes
@@ -132,7 +113,7 @@ class PrereqResolver:
         # Extract game state data
         data = game_state.get("data") or game_state
         player = data.get("player", {})
-        inventory = player.get("inventory", [])
+        inventory = data.get("inventory", [])  # Inventory is at data level, not player level
         money = player.get("money", 0)
         watering_can_water = player.get("wateringCanWater", 0)
         watering_can_max = player.get("wateringCanMax", 40)
@@ -145,8 +126,23 @@ class PrereqResolver:
             if nearest and nearest.get("x") is not None:
                 self._nearest_water = (nearest["x"], nearest["y"])
 
+        # Extract tilled tiles count and debris info from farm state
+        tilled_tiles_count = 0
+        self._has_debris = False
+        if farm_state:
+            farm_data = farm_state.get("data") or farm_state
+            tilled_tiles = farm_data.get("tilledTiles", [])
+            tilled_tiles_count = len(tilled_tiles) if tilled_tiles else 0
+            # Check for debris (objects on farm)
+            objects = farm_data.get("objects", [])
+            debris_types = {"Weeds", "Stone", "Twig", "Wood", "Boulder", "Stump"}
+            self._has_debris = any(
+                obj.get("name", "") in debris_types or obj.get("type", "") in debris_types
+                for obj in objects
+            ) if objects else False
+
         logger.info(f"🔧 PrereqResolver: Resolving {len(tasks)} tasks")
-        logger.info(f"   Resources: money={money}g, water={watering_can_water}/{watering_can_max}")
+        logger.info(f"   Resources: money={money}g, water={watering_can_water}/{watering_can_max}, tilled={tilled_tiles_count}")
 
         for task in tasks:
             task_id = task.id if hasattr(task, 'id') else str(task)
@@ -173,6 +169,7 @@ class PrereqResolver:
                 inventory=inventory,
                 money=money,
                 watering_can_water=watering_can_water,
+                tilled_tiles_count=tilled_tiles_count,
             )
 
             if status == PrereqStatus.UNRESOLVABLE:
@@ -242,6 +239,7 @@ class PrereqResolver:
         inventory: List[Dict[str, Any]],
         money: int,
         watering_can_water: int,
+        tilled_tiles_count: int = 0,
     ) -> Tuple[List[PrereqAction], PrereqStatus, str]:
         """
         Check prerequisites for a specific task type.
@@ -256,7 +254,7 @@ class PrereqResolver:
             if watering_can_water <= 0:
                 # Get actual water location from surroundings (if available)
                 # Fall back to common pond locations if not
-                water_coords = self._nearest_water or (72, 31)  # Default: common farm pond
+                water_coords = self._nearest_water or DEFAULT_LOCATIONS["water_pond"]  # Fallback
                 water_direction = "south"  # Default direction to face water
 
                 if self._nearest_water:
@@ -284,10 +282,39 @@ class PrereqResolver:
         elif task_type == "plant_seeds":
             # Need seeds in inventory
             seeds = [i for i in inventory if i and "seed" in i.get("name", "").lower()]
+
+            # Count how many seeds we have
+            total_seeds = sum(item.get("stack", 1) for item in seeds) if seeds else 0
+
+            # Need tilled soil to plant - add till_soil prereq if not enough tilled tiles
+            if total_seeds > 0 and tilled_tiles_count < total_seeds:
+                tiles_to_till = min(total_seeds - tilled_tiles_count, 15)  # Cap at 15 for Day 1
+                logger.info(f"   Need {tiles_to_till} more tilled tiles for {total_seeds} seeds")
+
+                # On Day 1, we need to clear debris first to make space for tilling
+                # Check if farm has debris (objects array contains debris like Weeds, Stone, etc.)
+                if self._has_debris:
+                    logger.info(f"   + Prereq: Clear debris first to make room for tilling")
+                    prereqs.append(PrereqAction(
+                        action_type="clear_debris",
+                        task_type="clear_debris",
+                        description="Clear debris to make room for farming",
+                        params={"target_count": tiles_to_till},  # Clear enough for tilling
+                        estimated_time=tiles_to_till * 3,
+                    ))
+
+                prereqs.append(PrereqAction(
+                    action_type="till_soil",
+                    task_type="till_soil",
+                    description=f"Till {tiles_to_till} soil tiles for planting",
+                    params={"target_count": tiles_to_till},
+                    estimated_time=tiles_to_till * 2,
+                ))
+
             if not seeds:
                 # No seeds - need to buy
                 # Check if we have money
-                cheapest_seed_price = min(self.SEED_PRICES.values())  # 20g for parsnip
+                cheapest_seed_price = min(SEED_PRICES.values())  # 20g for parsnip
 
                 if money >= cheapest_seed_price:
                     # Have money - go buy seeds
@@ -375,7 +402,7 @@ class PrereqResolver:
                 continue
 
             # Skip reserved crops
-            if name in self.RESERVED_CROPS:
+            if name in RESERVED_CROPS:
                 # Only skip if we have 1 or fewer (keep at least 1 for bundles)
                 if stack <= 1:
                     continue

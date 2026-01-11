@@ -61,7 +61,13 @@ class TargetGenerator:
             return self._generate_navigate_target(player_pos, task_params)
         elif task_type == "refill_watering_can":
             return self._generate_refill_target(game_state, player_pos, task_params)
-        
+        elif task_type == "till_soil":
+            # Till needs task_params for target_count
+            return self._generate_till_targets(game_state, player_pos, strategy, task_params)
+        elif task_type == "clear_debris":
+            # Clear debris may have target_count limit from prereq
+            return self._generate_debris_targets(game_state, player_pos, strategy, task_params)
+
         generator = dispatch.get(task_type)
         if not generator:
             return []
@@ -151,6 +157,7 @@ class TargetGenerator:
         state: Dict[str, Any],
         pos: Tuple[int, int],
         strategy: SortStrategy,
+        task_params: Optional[Dict[str, Any]] = None,
     ) -> List[Target]:
         """Get debris objects (Stone, Weeds, Twig) from state."""
         objects = self._extract_objects(state)
@@ -176,19 +183,61 @@ class TargetGenerator:
                     "type": obj_type,
                 },
             ))
-        return self._sort_targets(targets, pos, strategy)
+
+        # Sort targets first (nearest or row-by-row)
+        sorted_targets = self._sort_targets(targets, pos, strategy)
+
+        # Limit to target_count if specified (e.g., prereq only needs to clear N tiles)
+        target_count = (task_params or {}).get("target_count")
+        if target_count and len(sorted_targets) > target_count:
+            sorted_targets = sorted_targets[:target_count]
+
+        return sorted_targets
 
     def _generate_till_targets(
         self,
         state: Dict[str, Any],
         pos: Tuple[int, int],
         strategy: SortStrategy,
+        task_params: Optional[Dict[str, Any]] = None,
     ) -> List[Target]:
-        """Get tillable tiles - clear ground that canTill=True."""
+        """
+        Get tillable tiles - clear ground that canTill=True.
+
+        If SMAPI doesn't provide tile data, generates fallback targets
+        near the farmhouse door (known tillable area on Day 1).
+        """
+        # First try: use tile data from SMAPI if available
         targets = self._tiles_from_state(
             state,
             predicate=lambda tile: tile.get("canTill") and not tile.get("isTilled"),
         )
+
+        if targets:
+            return self._sort_targets(targets, pos, strategy)
+
+        # Fallback: generate targets near player position (just cleared debris there)
+        target_count = (task_params or {}).get("target_count", 15)
+
+        # Generate a grid of targets near player (where debris was just cleared)
+        # Use player position as center, offset slightly south to avoid standing tile
+        base_x, base_y = pos[0] - 2, pos[1] + 1  # Slightly south of player
+        targets = []
+
+        for i in range(target_count):
+            # Create a 5-wide row pattern
+            row = i // 5
+            col = i % 5
+            x = base_x + col
+            y = base_y + row
+
+            targets.append(Target(
+                x=x,
+                y=y,
+                target_type="till",
+                metadata={"fallback": True},
+            ))
+
         return self._sort_targets(targets, pos, strategy)
 
     def _generate_plant_targets(

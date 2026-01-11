@@ -28,8 +28,12 @@ try:
     HAS_PREREQ_RESOLVER = True
 except ImportError:
     HAS_PREREQ_RESOLVER = False
-    ResolvedTask = None
-    ResolutionResult = None
+
+# Import constants for default locations
+try:
+    from constants import DEFAULT_LOCATIONS
+except ImportError:
+    DEFAULT_LOCATIONS = {"shipping_bin": (71, 14), "water_pond": (72, 31)}
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +161,7 @@ class DailyPlanner:
                 logger.warning(f"VLM reasoning failed: {e}")
 
         # Resolve prerequisites and create execution queue
-        self._resolve_prerequisites(game_state, surroundings)
+        self._resolve_prerequisites(game_state, surroundings, farm_state)
 
         self._persist()
         return self.get_plan_summary()
@@ -166,6 +170,7 @@ class DailyPlanner:
         self,
         game_state: Dict[str, Any],
         surroundings: Optional[Dict[str, Any]] = None,
+        farm_state: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
         Resolve prerequisites for all tasks and create ordered execution queue.
@@ -194,7 +199,7 @@ class DailyPlanner:
 
         try:
             resolver = get_prereq_resolver()
-            result = resolver.resolve(self.tasks, game_state, surroundings)
+            result = resolver.resolve(self.tasks, game_state, surroundings, farm_state)
 
             self.resolved_queue = result.resolved_queue
             self.skipped_tasks = result.skipped_tasks
@@ -359,7 +364,7 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         data = state.get("data") or state
         location = data.get("location", {})
         player = data.get("player", {})
-        inventory = player.get("inventory", [])
+        inventory = data.get("inventory", [])  # Inventory is at data level, not player level
 
         # Use farm_state crops if available (works from FarmHouse)
         # Otherwise fall back to current location crops
@@ -418,7 +423,7 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 category="farming",
                 priority=TaskPriority.HIGH.value,
                 target_location="Farm",
-                target_coords=(71, 14),  # Shipping bin location
+                target_coords=DEFAULT_LOCATIONS["shipping_bin"],  # From constants
                 estimated_time=10,
             ))
 

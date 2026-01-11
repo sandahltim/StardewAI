@@ -264,7 +264,23 @@ class TaskExecutor:
         dx = target.x - player_pos[0]
         dy = target.y - player_pos[1]
         distance = abs(dx) + abs(dy)
-        
+
+        # Check if player is indoors - need to warp to Farm first
+        if game_state:
+            data = game_state.get("data") or game_state
+            location = data.get("location", {})
+            location_name = location.get("name", "") if isinstance(location, dict) else ""
+            if location_name and location_name not in ("Farm", ""):
+                # Player is indoors, warp to Farm to navigate to outdoor target
+                logger.info(f"🚪 Player in {location_name}, warping to Farm first")
+                self.state = TaskState.MOVING_TO_TARGET
+                return ExecutorAction(
+                    action_type="warp",
+                    params={"location": "Farm"},
+                    target=target,
+                    reason=f"Exiting {location_name} to reach target at ({target.x}, {target.y})"
+                )
+
         # If not adjacent (distance > 1), need to move
         if distance > 1:
             self.state = TaskState.MOVING_TO_TARGET
