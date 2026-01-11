@@ -2910,8 +2910,10 @@ class StardewAgent:
         # TTS will only read first sentence (handled separately below)
         if self.last_mood and len(self.last_mood) > 10:
             ui_text = self.last_mood  # Full commentary for display
+            logger.debug(f"Using VLM mood: {ui_text[:50]}...")
         else:
             ui_text = self.commentary_generator.generate(action.action_type, state_data, "")
+            logger.debug(f"Using template (no VLM mood): {ui_text[:50]}...")
 
         self._ui_safe(
             self.ui.update_commentary,
@@ -3079,7 +3081,8 @@ class StardewAgent:
             "executed_outcome": self.executed_outcome,
         }
         if result:
-            self.last_mood = result.mood or self.last_mood
+            # Only use VLM mood if it's new and substantial, don't persist old moods
+            self.last_mood = result.mood if result.mood and len(result.mood) > 20 else ""
             payload.update({
                 "last_tick": datetime.now().isoformat(timespec="seconds"),
                 "location": result.location,
