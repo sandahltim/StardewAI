@@ -113,6 +113,8 @@
 | **Task Execution Layer** | ✅ COMPLETE (Session 54) |
 | Target Generator (Codex) | ✅ COMPLETE |
 | Task Executor (Claude) | ✅ COMPLETE |
+| **Event-Driven Commentary** | ✅ COMPLETE (Session 55) |
+| **State Path Fixes** | ✅ COMPLETE (Session 55) |
 | Multi-day autonomy test | 🔄 READY TO TEST |
 | Wake-up routine | 📋 NEXT |
 | Periodic re-planning | 📋 NEXT |
@@ -416,3 +418,28 @@ Final Logic- day starts- Rusty plans his day and creates todo list from day befo
 | VLM reason | unified_agent.py | 416-446 |
 
 *Updated Session 44 — Claude (PM)*
+
+---
+
+## Session 55 Highlights
+
+**Event-Driven Commentary:**
+- VLM triggers on meaningful events, not just timer intervals
+- Events: TASK_STARTED, MILESTONE_25/50/75, TARGET_FAILED, ROW_CHANGE, TASK_COMPLETE
+- Fallback: Every 5 ticks if no events pending
+- Makes Rusty's commentary feel natural and reactive
+
+**Bug Fixes:**
+- TargetGenerator state path: `data.location.crops` (not `data.crops`)
+- Debris detection: `type="Litter"` (SMAPI format)
+- Farm location check: Only start tasks when on Farm map
+
+**Code Locations:**
+| Feature | File |
+|---------|------|
+| CommentaryEvent enum | execution/task_executor.py |
+| _extract_crops() | execution/target_generator.py |
+| _extract_objects() | execution/target_generator.py |
+| Farm location check | unified_agent.py:2785-2790 |
+
+*Updated Session 55 — Claude (PM)*

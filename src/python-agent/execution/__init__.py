@@ -1,7 +1,13 @@
 """Execution modules for task-level planning."""
 
 from .target_generator import SortStrategy, Target, TargetGenerator
-from .task_executor import TaskExecutor, TaskState, TaskProgress, ExecutorAction
+from .task_executor import (
+    TaskExecutor,
+    TaskState,
+    TaskProgress,
+    ExecutorAction,
+    CommentaryEvent,
+)
 
 __all__ = [
     "SortStrategy",
@@ -11,4 +17,5 @@ __all__ = [
     "TaskState",
     "TaskProgress",
     "ExecutorAction",
+    "CommentaryEvent",
 ]

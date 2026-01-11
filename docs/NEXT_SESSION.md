@@ -1,144 +1,126 @@
-# Session 55: Task Execution Layer Testing + Morning Routine
+# Session 56: Task Executor Testing Continues
 
-**Last Updated:** 2026-01-11 Session 54 by Claude
-**Status:** Task Execution Layer COMPLETE - Ready for testing
+**Last Updated:** 2026-01-11 Session 55 by Claude
+**Status:** Event-driven commentary COMPLETE - Location bug fixed - Testing needed
 
 ---
 
-## Session 54 Accomplishments
+## Session 55 Accomplishments
 
-### Task Execution Layer ✅ COMPLETE
+### Event-Driven Commentary System
 
-**Problem Solved:** Rusty was chaotic ("ADHD crackhead tilling with a shotgun") - each VLM tick picked random targets instead of working systematically.
+Enhanced the Task Executor to trigger VLM commentary on meaningful events, not just timer-based intervals.
 
-**Solution Built:**
+**Events that trigger VLM:**
 
-```
-Daily Planner → Task Executor → Skill Executor
-                     ↓
-              Target Generator (Codex)
-```
+| Event | When |
+|-------|------|
+| `TASK_STARTED` | New task begins |
+| `MILESTONE_25/50/75` | Progress milestones |
+| `TARGET_FAILED` | Skipping stuck target |
+| `ROW_CHANGE` | Moving to new row |
+| `TASK_COMPLETE` | Task finished |
+| **Fallback** | Every 5 ticks if nothing else |
 
-### Files Created/Modified
+### Bug Fixes
+
+1. **TargetGenerator state path** - Fixed to look in `data.location.crops` instead of `data.crops` (SMAPI returns crops nested under location)
+
+2. **Farm location check** - TaskExecutor now only starts farming tasks when Rusty is on the Farm (crops don't exist in FarmHouse/SeedShop)
+
+3. **Debris detection** - Fixed to detect `type="Litter"` objects (SMAPI format) instead of `type="debris"`
+
+### Files Modified
 
 | File | Change |
 |------|--------|
-| `execution/target_generator.py` | **NEW** - Codex built, generates sorted target lists |
-| `execution/task_executor.py` | **NEW** - Claude built, deterministic state machine |
-| `execution/__init__.py` | Updated exports |
-| `unified_agent.py` | Integrated TaskExecutor into tick loop |
-
-### Key Features
-
-1. **Row-by-row execution** - Targets sorted by (y, x) like reading a book
-2. **Hybrid VLM mode** - Commentary every 5 ticks during execution
-3. **Automatic task pickup** - Reads from daily planner, auto-starts tasks
-4. **Completion tracking** - Calls `daily_planner.complete_task()` when done
-5. **Failure tolerance** - Skips target after 3 consecutive failures
+| `execution/target_generator.py` | Added `_extract_crops()`, `_extract_objects()` helpers, fixed state paths |
+| `execution/task_executor.py` | Added `CommentaryEvent` enum, event queue, milestone detection |
+| `execution/__init__.py` | Export `CommentaryEvent` |
+| `unified_agent.py` | Event-driven commentary handling, Farm location check |
 
 ---
 
-## Session 55 Priority 1: TESTING
+## Session 56 Priority 1: TESTING
+
+The Task Executor is fully implemented but needs end-to-end testing.
 
 ### Test Plan
 
 ```bash
-# 1. Start fresh game (Day 1) or load save with crops
+# 1. Start Stardew Valley with unwatered crops on Farm
 
 # 2. Start UI server
 cd /home/tim/StardewAI
 source venv/bin/activate
 python src/ui/app.py &
 
-# 3. Run agent with task executor
-python src/python-agent/unified_agent.py --ui --goal "Farm systematically"
+# 3. Start llama-server
+./scripts/start-llama-server.sh &
 
-# 4. Watch for these log markers:
-#    🎯 TaskExecutor: Started water_crops with N targets
-#    🎯 TaskExecutor: water_crop → Moving east toward target
-#    ✅ Task complete: water_crops (N/N targets)
-#    📋 Daily planner: marked task_id complete
+# 4. Warp Rusty to Farm (if not there)
+curl -X POST localhost:8790/action -d '{"action":"warp_location","location":"Farm"}'
+
+# 5. Run agent
+python src/python-agent/unified_agent.py --ui --goal "Water the crops"
+
+# 6. Watch for Task Executor logs:
+tail -f logs/agent.log | grep -E "(TaskExecutor|Started water|Event-driven|MILESTONE)"
+```
+
+### Expected Log Markers
+
+```
+🎯 TaskExecutor: Started water_crops with N targets (strategy=row_by_row)
+🎭 Event-driven commentary: [task_started] Starting water_crops...
+🎯 TaskExecutor: water_crop → Moving south toward target
+TaskExecutor: Target complete (1/N)
+🎭 Commentary trigger: milestone_25 - Quarter done!...
+✅ TaskExecutor: Task water_crops COMPLETE
 ```
 
 ### What to Verify
 
 | Behavior | Expected | Check |
 |----------|----------|-------|
-| Task auto-start | Agent picks task from daily planner | ☐ |
-| Row-by-row execution | Crops watered in spatial order | ☐ |
-| Skip VLM during execution | No VLM calls except every 5th tick | ☐ |
-| Task completion | `complete_task()` called when done | ☐ |
-| Next task pickup | After completion, picks next task | ☐ |
-| Failure handling | Skips stuck targets after 3 tries | ☐ |
-
-### Known Limitations (Expected)
-
-1. **No wake-up trigger** - Task executor doesn't know when day starts
-2. **No periodic re-plan** - Won't adjust mid-day if priorities change
-3. **Daily planner tasks generic** - May not map perfectly to executor task types
+| Farm location check | No task start until on Farm | |
+| Task auto-start | Picks from daily planner | |
+| Event-driven VLM | Commentary on milestones/events | |
+| Row-by-row execution | Crops in spatial order | |
+| Task completion | `complete_task()` called | |
 
 ---
 
-## Session 55 Priority 2: Wake-Up Routine
+## Session 56 Priority 2: Buy Seeds Fix
 
-If testing passes, implement morning routine:
-
-### Wake-Up Detection
-
-```python
-# In tick loop, detect:
-# - Time changed from 2am to 6am (new day)
-# - Location is FarmHouse
-# - Trigger: _morning_routine()
+During testing, the `buy_parsnip_seeds` skill had an error:
+```
+Skill execution error: 'quantity'
 ```
 
-### Morning Routine Flow
+The skill is missing the required `quantity` parameter. Check `skills/definitions/shopping.yaml` or the skill executor.
+
+---
+
+## Session 56 Priority 3: Wake-Up Routine
+
+If testing passes, implement morning routine (from Session 54 plan):
 
 ```python
 def _morning_routine(self):
     """Execute morning planning when Rusty wakes up."""
-    
     # 1. Read yesterday's unfinished
     carryover = self.daily_planner.get_incomplete_tasks()
-    
+
     # 2. Read memories
     lessons = self.lesson_memory.get_recent(limit=5)
-    memories = self.rusty_memory.get_notable_events()
-    
+
     # 3. Check game state
     state = self.controller.get_state()
     crops_to_water = len([c for c in state.crops if not c.isWatered])
-    ready_to_harvest = len([c for c in state.crops if c.isReadyForHarvest])
-    
+
     # 4. Generate today's plan (VLM reasoning)
-    plan_prompt = f"""
-    Yesterday's unfinished: {carryover}
-    Recent lessons: {lessons}
-    Today's state: {crops_to_water} crops need water, {ready_to_harvest} ready to harvest
-    
-    Create today's priority list.
-    """
-    plan = self.vlm.reason(plan_prompt)
-    
     # 5. Feed to daily planner
-    self.daily_planner.start_new_day(...)
-```
-
----
-
-## Session 55 Priority 3: Periodic Re-Planning
-
-Add re-evaluation every 2 game hours:
-
-```python
-# Track last re-plan time
-self._last_replan_hour = 6
-
-# In tick loop
-current_hour = state.time.hour
-if current_hour >= self._last_replan_hour + 2:
-    self._last_replan_hour = current_hour
-    self._replan_priorities()
 ```
 
 ---
@@ -146,8 +128,10 @@ if current_hour >= self._last_replan_hour + 2:
 ## Architecture Reference
 
 ```
+                    EVENT-DRIVEN COMMENTARY (Session 55)
+                    ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                    MORNING ROUTINE (6am)                    │
+│                    MORNING ROUTINE (6am)                    │ ← TODO
 │  Read yesterday → Check state → VLM reasoning → Plan day    │
 └─────────────────────────┬───────────────────────────────────┘
                           │
@@ -157,15 +141,13 @@ if current_hour >= self._last_replan_hour + 2:
 │  Task queue with priorities (CRITICAL > HIGH > MEDIUM)      │
 └─────────────────────────┬───────────────────────────────────┘
                           │
-            ┌─────────────┴─────────────┐
-            │   PERIODIC RE-PLAN        │ ← Every 2 game hours
-            │   (adjust priorities)     │
-            └─────────────┬─────────────┘
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              TASK EXECUTOR ✅ BUILT                         │
-│  Picks task → generates targets → executes row-by-row      │
-│  VLM commentary: every 5 ticks (hybrid mode)               │
+│              TASK EXECUTOR ✅ COMPLETE                      │
+│  • Location check: Only starts on Farm                      │
+│  • Target generator: Finds crops from state.location.crops  │
+│  • Event queue: Triggers VLM on meaningful events           │
+│  • Hybrid mode: Fallback every 5 ticks                      │
 └─────────────────────────┬───────────────────────────────────┘
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -182,17 +164,25 @@ if current_hour >= self._last_replan_hour + 2:
 # Activate environment
 cd /home/tim/StardewAI && source venv/bin/activate
 
-# Start UI server
+# Start services
 python src/ui/app.py &
+./scripts/start-llama-server.sh &
 
 # Run agent
-python src/python-agent/unified_agent.py --ui --goal "Farm systematically"
+python src/python-agent/unified_agent.py --ui --goal "Water the crops"
+
+# Test TargetGenerator directly
+python -c "
+from execution.target_generator import TargetGenerator, SortStrategy
+import requests
+state = requests.get('http://localhost:8790/state').json()
+gen = TargetGenerator()
+targets = gen.generate('water_crops', state, (65, 18))
+print(f'Found {len(targets)} targets')
+"
 
 # Check team chat
 python scripts/team_chat.py read
-
-# Watch for task executor logs
-tail -f logs/agent.log | grep -E "(TaskExecutor|🎯|✅ Task)"
 ```
 
 ---
@@ -201,13 +191,13 @@ tail -f logs/agent.log | grep -E "(TaskExecutor|🎯|✅ Task)"
 
 | File | Purpose |
 |------|---------|
-| `execution/target_generator.py` | Sorted target lists (Codex) |
-| `execution/task_executor.py` | Deterministic execution (Claude) |
-| `unified_agent.py` | Main agent with integration |
+| `execution/target_generator.py` | Sorted target lists with SMAPI state handling |
+| `execution/task_executor.py` | Deterministic execution + event queue |
+| `unified_agent.py` | Main agent with Task Executor integration |
 | `memory/daily_planner.py` | Task queue and planning |
 
 ---
 
-*Session 54: Task Execution Layer complete. Ready for testing.*
+*Session 55: Event-driven commentary complete. Location bug fixed. Ready for testing.*
 
-*— Claude (PM), Session 54*
+*— Claude (PM), Session 55*

@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from execution.target_generator import SortStrategy, Target, TargetGenerator
 
@@ -26,6 +26,18 @@ class TaskState(Enum):
     EXECUTING_AT_TARGET = "executing"  # Performing action at target
     TASK_COMPLETE = "complete"       # All targets done
     INTERRUPTED = "interrupted"      # Higher priority task available
+
+
+class CommentaryEvent(Enum):
+    """Events that trigger VLM commentary."""
+    TASK_STARTED = "task_started"
+    MILESTONE_25 = "milestone_25"
+    MILESTONE_50 = "milestone_50"
+    MILESTONE_75 = "milestone_75"
+    TASK_COMPLETE = "task_complete"
+    TARGET_FAILED = "target_failed"
+    ROW_CHANGE = "row_change"
+    FALLBACK_TICK = "fallback_tick"
 
 
 @dataclass
@@ -117,7 +129,42 @@ class TaskExecutor:
         self.tick_count: int = 0  # For hybrid VLM mode
         self._consecutive_failures: int = 0
         self._max_failures: int = 3  # Give up on target after 3 failures
-        
+        # Event-driven commentary
+        self._event_queue: List[Tuple[CommentaryEvent, str]] = []
+        self._last_row: Optional[int] = None  # Track row changes
+        self._milestone_hits: Set[CommentaryEvent] = set()  # Track which milestones triggered
+
+    def _queue_event(self, event: CommentaryEvent, context: str = "") -> None:
+        """Queue a commentary event for VLM to react to."""
+        self._event_queue.append((event, context))
+        logger.debug(f"TaskExecutor: Queued event {event.value}: {context}")
+
+    def _check_milestone(self) -> None:
+        """Check if we've hit a progress milestone."""
+        if self.progress is None or self.progress.total_targets == 0:
+            return
+
+        pct = self.progress.progress_pct
+
+        if pct >= 25 and CommentaryEvent.MILESTONE_25 not in self._milestone_hits:
+            self._milestone_hits.add(CommentaryEvent.MILESTONE_25)
+            self._queue_event(
+                CommentaryEvent.MILESTONE_25,
+                f"Quarter done! {self.progress.completed_targets}/{self.progress.total_targets}"
+            )
+        elif pct >= 50 and CommentaryEvent.MILESTONE_50 not in self._milestone_hits:
+            self._milestone_hits.add(CommentaryEvent.MILESTONE_50)
+            self._queue_event(
+                CommentaryEvent.MILESTONE_50,
+                f"Halfway there! {self.progress.completed_targets}/{self.progress.total_targets}"
+            )
+        elif pct >= 75 and CommentaryEvent.MILESTONE_75 not in self._milestone_hits:
+            self._milestone_hits.add(CommentaryEvent.MILESTONE_75)
+            self._queue_event(
+                CommentaryEvent.MILESTONE_75,
+                f"Almost done! {self.progress.completed_targets}/{self.progress.total_targets}"
+            )
+
     def set_task(
         self,
         task_id: str,
@@ -144,15 +191,26 @@ class TaskExecutor:
         self.tick_count = 0
         self._consecutive_failures = 0
         self.state = TaskState.MOVING_TO_TARGET
-        
+
+        # Reset event tracking for new task
+        self._event_queue.clear()
+        self._milestone_hits.clear()
+        self._last_row = self.targets[0].y if self.targets else None
+
         self.progress = TaskProgress(
             task_id=task_id,
             task_type=task_type,
             total_targets=len(self.targets),
         )
-        
+
+        # Queue task started event
+        self._queue_event(
+            CommentaryEvent.TASK_STARTED,
+            f"Starting {task_type} with {len(self.targets)} targets"
+        )
+
         logger.info(
-            f"TaskExecutor: Started {task_type} with {len(self.targets)} targets "
+            f"🎯 TaskExecutor: Started {task_type} with {len(self.targets)} targets "
             f"(strategy={strategy.value})"
         )
         return True
@@ -176,7 +234,15 @@ class TaskExecutor:
         
         self.tick_count += 1
         target = self.targets[self.current_index]
-        
+
+        # Check for row change (moving to new y coordinate)
+        if self._last_row is not None and target.y != self._last_row:
+            self._queue_event(
+                CommentaryEvent.ROW_CHANGE,
+                f"Moving to row {target.y}"
+            )
+            self._last_row = target.y
+
         # Calculate distance to target
         dx = target.x - player_pos[0]
         dy = target.y - player_pos[1]
@@ -271,7 +337,7 @@ class TaskExecutor:
         
         if success:
             self._consecutive_failures = 0
-            
+
             # Only count as complete if we were executing (not moving)
             if self.state == TaskState.EXECUTING_AT_TARGET:
                 self.progress.completed_targets += 1
@@ -280,11 +346,19 @@ class TaskExecutor:
                     f"TaskExecutor: Target complete "
                     f"({self.progress.completed_targets}/{self.progress.total_targets})"
                 )
-                
+
+                # Check for milestone events
+                self._check_milestone()
+
                 # Check if all done
                 if self.current_index >= len(self.targets):
                     self.state = TaskState.TASK_COMPLETE
-                    logger.info(f"TaskExecutor: Task {self.progress.task_type} COMPLETE")
+                    self._queue_event(
+                        CommentaryEvent.TASK_COMPLETE,
+                        f"Finished {self.progress.task_type}! "
+                        f"{self.progress.completed_targets} done, {self.progress.failed_targets} failed"
+                    )
+                    logger.info(f"✅ TaskExecutor: Task {self.progress.task_type} COMPLETE")
                 else:
                     self.state = TaskState.MOVING_TO_TARGET
         else:
@@ -292,18 +366,28 @@ class TaskExecutor:
             logger.warning(
                 f"TaskExecutor: Action failed ({self._consecutive_failures}/{self._max_failures}): {error}"
             )
-            
+
             # Give up on this target after too many failures
             if self._consecutive_failures >= self._max_failures:
                 self.progress.failed_targets += 1
                 self.current_index += 1
                 self._consecutive_failures = 0
+
+                self._queue_event(
+                    CommentaryEvent.TARGET_FAILED,
+                    f"Couldn't complete target, moving on ({self.progress.failed_targets} failed so far)"
+                )
                 logger.warning(
                     f"TaskExecutor: Skipping target after {self._max_failures} failures"
                 )
-                
+
                 if self.current_index >= len(self.targets):
                     self.state = TaskState.TASK_COMPLETE
+                    self._queue_event(
+                        CommentaryEvent.TASK_COMPLETE,
+                        f"Finished {self.progress.task_type}! "
+                        f"{self.progress.completed_targets} done, {self.progress.failed_targets} failed"
+                    )
     
     def interrupt(self, reason: str = "") -> None:
         """Interrupt current task (for priority switching)."""
@@ -319,13 +403,37 @@ class TaskExecutor:
         """Check if actively executing a task."""
         return self.state in (TaskState.MOVING_TO_TARGET, TaskState.EXECUTING_AT_TARGET)
     
-    def should_vlm_comment(self, interval: int = 5) -> bool:
+    def should_vlm_comment(self, interval: int = 5) -> Tuple[bool, Optional[str]]:
         """
         Check if VLM should provide commentary this tick.
-        
-        For hybrid mode: VLM comments every N ticks during deterministic execution.
+
+        Event-driven: VLM comments when something interesting happens,
+        or every N ticks as fallback.
+
+        Returns:
+            (should_comment, event_context) - event_context is None for fallback ticks
         """
-        return self.tick_count % interval == 0
+        # Priority 1: Pending events (interesting things happened)
+        if self._event_queue:
+            event, context = self._event_queue.pop(0)
+            logger.info(f"🎭 Commentary trigger: {event.value} - {context}")
+            return True, f"[{event.value}] {context}"
+
+        # Priority 2: Fallback interval (keep commentary flowing)
+        if self.tick_count % interval == 0:
+            return True, None
+
+        return False, None
+
+    def get_pending_event(self) -> Optional[Tuple[CommentaryEvent, str]]:
+        """Get next pending event without consuming it (for logging/UI)."""
+        if self._event_queue:
+            return self._event_queue[0]
+        return None
+
+    def has_pending_events(self) -> bool:
+        """Check if there are events waiting to trigger commentary."""
+        return len(self._event_queue) > 0
     
     def get_current_target(self) -> Optional[Target]:
         """Get the current target being worked on."""

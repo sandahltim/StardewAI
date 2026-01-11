@@ -1995,6 +1995,7 @@ class StardewAgent:
         # Task Executor (deterministic task execution)
         self.task_executor = None
         self._vlm_commentary_interval = 5  # VLM commentary every N ticks during task execution
+        self._commentary_event = None  # Event context for VLM prompt injection
         if HAS_TASK_EXECUTOR and TaskExecutor:
             try:
                 self.task_executor = TaskExecutor()
@@ -2780,9 +2781,16 @@ class StardewAgent:
         state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
         if not state:
             return False
-        
+
+        # Only start farming tasks when on the Farm (crops/debris only exist there)
+        data = state.get("data") or {}
+        location = data.get("location") or {}
+        location_name = location.get("name", "")
+        if location_name != "Farm":
+            return False  # Wait until we're on the farm
+
         player_pos = self.last_position or (0, 0)
-        
+
         # Map daily planner categories to executor task types
         CATEGORY_TO_TASK = {
             "water": "water_crops",
@@ -2840,10 +2848,18 @@ class StardewAgent:
         """Get context string for VLM about current task execution."""
         if not self.task_executor:
             return ""
-        
+
         if self.task_executor.is_active():
-            return self.task_executor.get_context_for_vlm()
-        
+            context = self.task_executor.get_context_for_vlm()
+
+            # Add event context if there's a commentary event
+            if self._commentary_event:
+                context = f"💬 EVENT: {self._commentary_event}\n{context}"
+                # Clear the event after using it
+                self._commentary_event = None
+
+            return context
+
         return ""
 
     def _fix_active_popup(self, actions: List[Action]) -> List[Action]:
@@ -4045,9 +4061,17 @@ Recent: {recent}"""
             executor_action = self.task_executor.get_next_action(player_pos)
             
             if executor_action:
-                # Check if VLM should provide commentary this tick (hybrid mode)
-                if self.task_executor.should_vlm_comment(self._vlm_commentary_interval):
-                    logging.info(f"🎭 Hybrid mode: VLM commentary tick {self.task_executor.tick_count}")
+                # Check if VLM should provide commentary this tick (event-driven)
+                should_comment, event_context = self.task_executor.should_vlm_comment(self._vlm_commentary_interval)
+
+                if should_comment:
+                    if event_context:
+                        logging.info(f"🎭 Event-driven commentary: {event_context}")
+                        # Store event context for VLM prompt injection
+                        self._commentary_event = event_context
+                    else:
+                        logging.info(f"🎭 Fallback commentary: tick {self.task_executor.tick_count}")
+                        self._commentary_event = None
                     # Don't skip VLM - let it provide commentary, but still queue executor action
                 else:
                     # Queue the executor's action and skip VLM

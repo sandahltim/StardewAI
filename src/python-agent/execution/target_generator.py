@@ -57,14 +57,25 @@ class TargetGenerator:
             return []
         return generator(game_state, player_pos, strategy)
 
+    def _extract_crops(self, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Extract crops from game state (handles both data.crops and data.location.crops)."""
+        data = state.get("data") or {}
+        # Try data.location.crops first (actual SMAPI structure)
+        location = data.get("location") or {}
+        crops = location.get("crops")
+        if crops:
+            return crops
+        # Fallback to data.crops (for tests/simple format)
+        return data.get("crops") or []
+
     def _generate_water_targets(
         self,
         state: Dict[str, Any],
         pos: Tuple[int, int],
         strategy: SortStrategy,
     ) -> List[Target]:
-        """Get unwatered crops from state.data.crops, sort by strategy."""
-        crops = (state.get("data") or {}).get("crops") or []
+        """Get unwatered crops from state, sort by strategy."""
+        crops = self._extract_crops(state)
         targets: List[Target] = []
         for crop in crops:
             if crop.get("isWatered"):
@@ -91,8 +102,8 @@ class TargetGenerator:
         pos: Tuple[int, int],
         strategy: SortStrategy,
     ) -> List[Target]:
-        """Get ready crops from state.data.crops where isReadyForHarvest=True."""
-        crops = (state.get("data") or {}).get("crops") or []
+        """Get ready crops from state where isReadyForHarvest=True."""
+        crops = self._extract_crops(state)
         targets: List[Target] = []
         for crop in crops:
             if not crop.get("isReadyForHarvest"):
@@ -113,17 +124,33 @@ class TargetGenerator:
             ))
         return self._sort_targets(targets, pos, strategy)
 
+    def _extract_objects(self, state: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Extract objects from game state (handles both data.objects and data.location.objects)."""
+        data = state.get("data") or {}
+        # Try data.location.objects first (actual SMAPI structure)
+        location = data.get("location") or {}
+        objects = location.get("objects")
+        if objects:
+            return objects
+        # Fallback to data.objects (for tests/simple format)
+        return data.get("objects") or []
+
     def _generate_debris_targets(
         self,
         state: Dict[str, Any],
         pos: Tuple[int, int],
         strategy: SortStrategy,
     ) -> List[Target]:
-        """Get debris objects (Stone, Weeds, Twig) from state.data.objects."""
-        objects = (state.get("data") or {}).get("objects") or []
+        """Get debris objects (Stone, Weeds, Twig) from state."""
+        objects = self._extract_objects(state)
         targets: List[Target] = []
+        # Debris in SMAPI has type="Litter" or we check by name
+        debris_names = {"Stone", "Weeds", "Twig", "Wood"}
         for obj in objects:
-            if obj.get("type") != "debris":
+            obj_type = obj.get("type", "")
+            obj_name = obj.get("name", "")
+            # Match by type="Litter" or type="debris" or name in debris list
+            if obj_type not in ("Litter", "debris") and obj_name not in debris_names:
                 continue
             x = obj.get("x")
             y = obj.get("y")
@@ -134,8 +161,8 @@ class TargetGenerator:
                 y=int(y),
                 target_type="debris",
                 metadata={
-                    "name": obj.get("name"),
-                    "type": obj.get("type"),
+                    "name": obj_name,
+                    "type": obj_type,
                 },
             ))
         return self._sort_targets(targets, pos, strategy)
