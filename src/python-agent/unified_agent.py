@@ -2007,6 +2007,7 @@ class StardewAgent:
         self._vlm_commentary_interval = 5  # VLM commentary every N ticks during task execution
         self._commentary_event = None  # Event context for VLM prompt injection
         self._pending_executor_action = None  # Executor action to prepend after VLM runs
+        self._task_executor_commentary_only = False  # When True, VLM observes only, no actions
         if HAS_TASK_EXECUTOR and TaskExecutor:
             try:
                 self.task_executor = TaskExecutor()
@@ -2961,6 +2962,19 @@ class StardewAgent:
                 # Clear the event after using it
                 self._commentary_event = None
 
+            # CRITICAL: When TaskExecutor owns execution, VLM is observer only
+            if self._task_executor_commentary_only:
+                context = f"""🎯 TASK EXECUTOR ACTIVE - YOU ARE IN OBSERVER MODE
+{context}
+
+⚠️ IMPORTANT: TaskExecutor is handling this task. Your role:
+1. OBSERVE what's happening on screen
+2. COMMENT on progress (entertaining inner monologue)
+3. Say "PAUSE" if you see a SERIOUS problem (stuck, wrong location, obstacle)
+4. DO NOT output actions - they will be IGNORED
+
+If everything looks normal, just provide commentary. Only say PAUSE if something is actually wrong."""
+
             return context
 
         return ""
@@ -3255,6 +3269,13 @@ class StardewAgent:
             if day > 0 and (day != self.rusty_memory.current_day or season != self.rusty_memory.current_season):
                 self.rusty_memory.start_session(day, season)
 
+        # Fetch surroundings early - needed for daily planning (water locations)
+        if hasattr(self.controller, "get_surroundings"):
+            try:
+                self.last_surroundings = self.controller.get_surroundings()
+            except Exception:
+                self.last_surroundings = None
+
         # Daily planning - trigger new day plan when day changes
         if self.daily_planner:
             time_data = state.get("time", {})
@@ -3268,15 +3289,12 @@ class StardewAgent:
                 farm_state = None
                 if hasattr(self.controller, 'get_farm'):
                     farm_state = self.controller.get_farm()
-                plan_summary = self.daily_planner.start_new_day(day, season, state, reason_fn, farm_state)
+                # Pass surroundings for water location detection
+                plan_summary = self.daily_planner.start_new_day(
+                    day, season, state, reason_fn, farm_state, self.last_surroundings
+                )
                 logging.info(f"📋 Daily plan:\n{plan_summary}")
                 self._last_planned_day = day
-
-        if hasattr(self.controller, "get_surroundings"):
-            try:
-                self.last_surroundings = self.controller.get_surroundings()
-            except Exception:
-                self.last_surroundings = None
 
         player = state.get("player") or {}
         tile_x = player.get("tileX")
@@ -4207,14 +4225,15 @@ Recent: {recent}"""
                     else:
                         logging.info(f"🎭 Fallback commentary: tick {self.task_executor.tick_count}")
                         self._commentary_event = None
-                    # Store executor action to prepend AFTER VLM runs (VLM overwrites queue)
+                    # Store executor action - VLM will run in commentary-only mode
                     self._pending_executor_action = Action(
                         action_type=executor_action.action_type,
                         params=executor_action.params,
                         description=executor_action.reason
                     )
-                    logging.info(f"🎯 TaskExecutor (with VLM): {executor_action.action_type} → {executor_action.reason}")
-                    # Continue to VLM for commentary (don't return)
+                    self._task_executor_commentary_only = True  # VLM observes, doesn't generate actions
+                    logging.info(f"🎯 TaskExecutor owns execution, VLM commentary-only: {executor_action.action_type}")
+                    # Continue to VLM for observation/commentary (don't return)
                 else:
                     # Queue the executor's action and skip VLM
                     action = Action(
@@ -4230,6 +4249,8 @@ Recent: {recent}"""
                     self._send_ui_status()
                     return  # Skip VLM thinking this tick
             else:
+                # No executor action - VLM should run normally
+                self._task_executor_commentary_only = False  # Ensure flag is cleared
                 # Task complete - let VLM pick next task
                 if self.task_executor.is_complete() and self.task_executor.progress:
                     task_id = self.task_executor.progress.task_id
@@ -4245,16 +4266,21 @@ Recent: {recent}"""
                             logging.info(f"📋 Daily planner: marked {task_id} complete")
                             # Remove from resolved queue to prevent re-execution
                             resolved_queue = getattr(self.daily_planner, 'resolved_queue', [])
+                            logging.info(f"📋 Queue before removal: {[getattr(rt, 'original_task_id', rt.get('original_task_id', '?')) for rt in resolved_queue[:5]]}")
+                            removed = False
                             for i, rt in enumerate(resolved_queue):
                                 rt_id = rt.original_task_id if hasattr(rt, 'original_task_id') else rt.get('original_task_id', '')
                                 if rt_id == task_id:
                                     resolved_queue.pop(i)
                                     logging.info(f"📋 Removed {task_id} from resolved queue ({len(resolved_queue)} remaining)")
+                                    removed = True
                                     # Immediately start next task to prevent VLM from moving player
                                     if resolved_queue and self._try_start_daily_task():
                                         logging.info(f"⚡ Chained to next prereq task immediately")
                                         return  # Skip VLM this tick - prereq chain continues
                                     break
+                            if not removed:
+                                logging.warning(f"⚠️ Could not find {task_id} in resolved queue to remove!")
                         except Exception as e:
                             logging.warning(f"Failed to mark task complete: {e}")
 
@@ -4483,27 +4509,44 @@ Recent: {recent}"""
 
             # Queue actions (with post-processing filters)
             if self.config.mode in ("single", "splitscreen"):
-                # Apply action overrides in sequence
-                filtered_actions = result.actions
-                filtered_actions = self._fix_active_popup(filtered_actions)  # Popup/menu dismiss first
-                filtered_actions = self._fix_late_night_bed(filtered_actions)  # Midnight override
-                filtered_actions = self._fix_priority_shipping(filtered_actions)  # Shipping priority
-                filtered_actions = self._fix_no_seeds(filtered_actions)  # No seeds → go to Pierre's
-                filtered_actions = self._fix_edge_stuck(filtered_actions)  # Edge-stuck → retreat
-                filtered_actions = self._fix_empty_watering_can(filtered_actions)  # Empty can override
-                filtered_actions = self._filter_adjacent_crop_moves(filtered_actions)  # Adjacent move filter
-                self.action_queue = filtered_actions
-                # Prepend pending executor action (from TaskExecutor) if exists
-                executor_prepended = False
-                if self._pending_executor_action:
-                    self.action_queue.insert(0, self._pending_executor_action)
-                    logging.info(f"   [0] 🎯 {self._pending_executor_action.action_type}: {self._pending_executor_action.params} (executor)")
-                    self._pending_executor_action = None  # Clear after use
-                    executor_prepended = True
-                for i, a in enumerate(self.action_queue):
-                    if i == 0 and executor_prepended:
-                        continue  # Already logged executor action
-                    logging.info(f"   [{i+1}] {a.action_type}: {a.params}")
+                # Check if VLM said PAUSE (emergency interrupt)
+                vlm_pause = "PAUSE" in (result.reasoning or "").upper()
+                if vlm_pause and self._task_executor_commentary_only:
+                    logging.warning(f"⚠️ VLM requested PAUSE: {result.reasoning[:100]}")
+                    # Clear task executor state - VLM detected a problem
+                    if self.task_executor:
+                        self.task_executor.clear()
+                    self._task_executor_commentary_only = False
+                    self._pending_executor_action = None
+                    # Let VLM take over with its actions
+                    self.action_queue = result.actions
+                    logging.info(f"   VLM taking control after PAUSE")
+                    for i, a in enumerate(self.action_queue):
+                        logging.info(f"   [{i}] {a.action_type}: {a.params}")
+                elif self._task_executor_commentary_only:
+                    # TaskExecutor owns execution - IGNORE VLM actions
+                    logging.info(f"   🎭 VLM commentary (actions ignored): {result.reasoning[:80] if result.reasoning else 'no comment'}...")
+                    if self._pending_executor_action:
+                        self.action_queue = [self._pending_executor_action]
+                        logging.info(f"   [0] 🎯 {self._pending_executor_action.action_type}: {self._pending_executor_action.params} (executor)")
+                        self._pending_executor_action = None
+                    else:
+                        self.action_queue = []
+                    # Clear the commentary-only flag for next tick
+                    self._task_executor_commentary_only = False
+                else:
+                    # Normal VLM mode - apply action overrides in sequence
+                    filtered_actions = result.actions
+                    filtered_actions = self._fix_active_popup(filtered_actions)  # Popup/menu dismiss first
+                    filtered_actions = self._fix_late_night_bed(filtered_actions)  # Midnight override
+                    filtered_actions = self._fix_priority_shipping(filtered_actions)  # Shipping priority
+                    filtered_actions = self._fix_no_seeds(filtered_actions)  # No seeds → go to Pierre's
+                    filtered_actions = self._fix_edge_stuck(filtered_actions)  # Edge-stuck → retreat
+                    filtered_actions = self._fix_empty_watering_can(filtered_actions)  # Empty can override
+                    filtered_actions = self._filter_adjacent_crop_moves(filtered_actions)  # Adjacent move filter
+                    self.action_queue = filtered_actions
+                    for i, a in enumerate(self.action_queue):
+                        logging.info(f"   [{i}] {a.action_type}: {a.params}")
             else:
                 # Helper mode: just log advice, don't execute
                 logging.info("   💡 ADVICE (not executing):")

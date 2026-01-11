@@ -115,6 +115,7 @@ class DailyPlanner:
         game_state: Dict[str, Any],
         reason_fn: Optional[callable] = None,
         farm_state: Optional[Dict[str, Any]] = None,
+        surroundings: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Called when a new game day starts. Generates the daily plan.
@@ -125,6 +126,7 @@ class DailyPlanner:
             game_state: Full game state for context
             reason_fn: Optional async function(prompt) -> str for VLM reasoning
             farm_state: Farm-specific state (crops, objects) from /farm endpoint
+            surroundings: Optional surroundings data with water/landmark locations
 
         Returns:
             Rusty's morning plan as a string (for VLM context)
@@ -155,12 +157,16 @@ class DailyPlanner:
                 logger.warning(f"VLM reasoning failed: {e}")
 
         # Resolve prerequisites and create execution queue
-        self._resolve_prerequisites(game_state)
+        self._resolve_prerequisites(game_state, surroundings)
 
         self._persist()
         return self.get_plan_summary()
 
-    def _resolve_prerequisites(self, game_state: Dict[str, Any]) -> None:
+    def _resolve_prerequisites(
+        self,
+        game_state: Dict[str, Any],
+        surroundings: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """
         Resolve prerequisites for all tasks and create ordered execution queue.
 
@@ -170,6 +176,10 @@ class DailyPlanner:
         3. Skips tasks with unresolvable prereqs (notes for memory)
 
         The resolved_queue is what TaskExecutor should execute.
+
+        Args:
+            game_state: Current game state
+            surroundings: Optional surroundings data with water location
         """
         if not HAS_PREREQ_RESOLVER:
             logger.warning("PrereqResolver not available - using raw task list")
@@ -184,7 +194,7 @@ class DailyPlanner:
 
         try:
             resolver = get_prereq_resolver()
-            result = resolver.resolve(self.tasks, game_state)
+            result = resolver.resolve(self.tasks, game_state, surroundings)
 
             self.resolved_queue = result.resolved_queue
             self.skipped_tasks = result.skipped_tasks

@@ -112,6 +112,7 @@ class PrereqResolver:
         self,
         tasks: List[Any],  # List of DailyTask objects
         game_state: Dict[str, Any],
+        surroundings: Optional[Dict[str, Any]] = None,
     ) -> ResolutionResult:
         """
         Resolve all tasks and return ordered execution queue.
@@ -119,6 +120,7 @@ class PrereqResolver:
         Args:
             tasks: Raw tasks from DailyPlanner (sorted by priority)
             game_state: Current game state for resource checking
+            surroundings: Optional surroundings data with water location
 
         Returns:
             ResolutionResult with resolved queue, skipped tasks, and memory notes
@@ -134,6 +136,14 @@ class PrereqResolver:
         money = player.get("money", 0)
         watering_can_water = player.get("wateringCanWater", 0)
         watering_can_max = player.get("wateringCanMax", 40)
+
+        # Extract nearest water location from surroundings
+        self._nearest_water = None
+        if surroundings:
+            surr_data = surroundings.get("data") or surroundings
+            nearest = surr_data.get("nearestWater", {})
+            if nearest and nearest.get("x") is not None:
+                self._nearest_water = (nearest["x"], nearest["y"])
 
         logger.info(f"🔧 PrereqResolver: Resolving {len(tasks)} tasks")
         logger.info(f"   Resources: money={money}g, water={watering_can_water}/{watering_can_max}")
@@ -244,20 +254,29 @@ class PrereqResolver:
         if task_type == "water_crops":
             # Need water in watering can
             if watering_can_water <= 0:
+                # Get actual water location from surroundings (if available)
+                # Fall back to common pond locations if not
+                water_coords = self._nearest_water or (72, 31)  # Default: common farm pond
+                water_direction = "south"  # Default direction to face water
+
+                if self._nearest_water:
+                    logger.info(f"   Using nearest water at {self._nearest_water}")
+                else:
+                    logger.warning(f"   No water location in surroundings, using fallback {water_coords}")
+
                 # First navigate to water source, then refill
-                # Farm pond is typically south of the farmhouse
                 prereqs.append(PrereqAction(
                     action_type="navigate_to_water",
                     task_type="navigate",
                     description="Walk to water source (farm pond)",
-                    params={"destination": "water", "target_coords": (58, 16)},  # Farm pond
-                    estimated_time=10,
+                    params={"destination": "water", "target_coords": water_coords},
+                    estimated_time=15,  # May need more time for longer distance
                 ))
                 prereqs.append(PrereqAction(
                     action_type="refill_watering_can",
                     task_type="refill_watering_can",
                     description="Refill watering can",
-                    params={"target_direction": "south"},
+                    params={"target_direction": water_direction},
                     estimated_time=5,
                 ))
             return prereqs, PrereqStatus.MET if not prereqs else PrereqStatus.NEEDS_ACTION, ""
