@@ -603,7 +603,7 @@ class UnifiedVLM:
         text = re.sub(r'(])\s*\n\s*(")', r'\1,\n\2', text)
 
         # Add missing commas between value and "key" on same line
-        text = re.sub(r'(["\d])\s+("(?:perception|mood|reasoning|actions|farming_eval)")', r'\1, \2', text)
+        text = re.sub(r'(["\d])\s+("(?:inner_monologue|perception|mood|reasoning|actions|farming_eval)")', r'\1, \2', text)
 
         # Fix missing comma after true/false/null followed by "key"
         text = re.sub(r'(true|false|null)\s*\n\s*(")', r'\1,\n\2', text)
@@ -706,8 +706,8 @@ class UnifiedVLM:
                 result.nearby_objects = perception.get("nearby", [])
                 result.menu_open = perception.get("menu_open", False)
 
-                # Personality & Planning
-                result.mood = data.get("mood", "")
+                # Inner monologue (generated first in JSON for creativity) or legacy mood
+                result.mood = data.get("inner_monologue") or data.get("mood", "")
                 result.reasoning = data.get("reasoning", "")
 
                 # Actions
@@ -1157,10 +1157,9 @@ class ModBridgeController:
                         # Use adjacent movement hint (stop 1 tile away from crop)
                         adj_hint = self._calc_adjacent_hint(dx, dy, action="harvest")
                         front_info = f">>> 🌾 {len(harvestable)} READY! {adj_hint} <<<"
-                    elif crops:
-                        front_info = ">>> TILE: NOT FARMABLE - All crops watered, none ready to harvest. <<<"
                     else:
-                        front_info = ">>> TILE: NOT FARMABLE - move to find tillable ground <<<"
+                        # All crops watered, none harvestable - check for sellables, debris, bed
+                        front_info = self._get_done_farming_hint(state, data)
 
         # Add explicit location verification at the very top to prevent hallucination
         location_name = state.get("location", {}).get("name", "Unknown") if state else "Unknown"
@@ -1294,6 +1293,39 @@ class ModBridgeController:
             header_parts.append(location_hint)
         if shipping_info:
             header_parts.append(shipping_info)
+
+        # Add PRIORITY shipping action when sellables in inventory (more prominent than tile hints)
+        priority_action = ""
+        if location_name == "Farm" and state:
+            inventory = state.get("inventory", [])
+            sellable_items = ["Parsnip", "Potato", "Cauliflower", "Green Bean", "Kale", "Melon",
+                             "Blueberry", "Corn", "Tomato", "Pumpkin", "Cranberry", "Eggplant", "Grape", "Radish"]
+            sellables = [item for item in inventory if item and item.get("name") in sellable_items and item.get("stack", 0) > 0]
+            if sellables:
+                total_to_ship = sum(item.get("stack", 0) for item in sellables)
+                # Calculate distance to shipping bin
+                shipping_bin = state.get("location", {}).get("shippingBin") or {}
+                bin_x = shipping_bin.get("x", 71)
+                bin_y = shipping_bin.get("y", 14)
+                dx = bin_x - player_x
+                dy = bin_y - player_y
+                dist = abs(dx) + abs(dy)
+                if dist <= 1:
+                    priority_action = f"⭐ PRIORITY ACTION: SHIP {total_to_ship} CROPS! At bin! DO: ship_item"
+                else:
+                    dirs = []
+                    if dy < 0:
+                        dirs.append(f"{abs(dy)} north")
+                    elif dy > 0:
+                        dirs.append(f"{abs(dy)} south")
+                    if dx < 0:
+                        dirs.append(f"{abs(dx)} west")
+                    elif dx > 0:
+                        dirs.append(f"{abs(dx)} east")
+                    priority_action = f"⭐ PRIORITY ACTION: SHIP {total_to_ship} CROPS! Move {', '.join(dirs)} to bin, then ship_item"
+        if priority_action:
+            header_parts.append(priority_action)
+
         if landmark_hint:
             header_parts.append(landmark_hint)
 
@@ -1367,7 +1399,7 @@ class ModBridgeController:
         logging.info(f"   📊 _get_done_farming_hint: inventory={len(inventory)}, sellables={len(sellables)}")
         if sellables:
             total_count = sum(item.get("stack", 0) for item in sellables)
-            shipping_bin = state.get("location", {}).get("shippingBin", {})
+            shipping_bin = state.get("location", {}).get("shippingBin") or {}
             bin_x = shipping_bin.get("x", 71)
             bin_y = shipping_bin.get("y", 14)
             dx = bin_x - player_x
@@ -2910,10 +2942,10 @@ class StardewAgent:
         # TTS will only read first sentence (handled separately below)
         if self.last_mood and len(self.last_mood) > 10:
             ui_text = self.last_mood  # Full commentary for display
-            logger.debug(f"Using VLM mood: {ui_text[:50]}...")
+            logging.debug(f"Using VLM mood: {ui_text[:50]}...")
         else:
             ui_text = self.commentary_generator.generate(action.action_type, state_data, "")
-            logger.debug(f"Using template (no VLM mood): {ui_text[:50]}...")
+            logging.debug(f"Using template (no VLM mood): {ui_text[:50]}...")
 
         self._ui_safe(
             self.ui.update_commentary,

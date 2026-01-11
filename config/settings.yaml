@@ -176,6 +176,7 @@ model:
     RESPOND WITH ONLY A JSON OBJECT. Nothing before or after it.
 
     {
+      "inner_monologue": "WRITE YOUR ACTUAL THOUGHTS FIRST - what you're thinking/feeling RIGHT NOW about what you see and what you're about to do. Be specific to THIS moment. Never repeat yourself. 2-4 flowing sentences of genuine self-talk, like you're thinking out loud. Reference specific things you see in the screenshot.",
       "perception": {
         "location": "Farm|Town|Beach|Mine|Forest|House|Shop|Other",
         "ground_type": "lawn|farmable|tilled|watered (only when on Farm)",
@@ -186,7 +187,6 @@ model:
         "menu_open": false,
         "weather": "sunny|rainy|stormy|snowy"
       },
-      "mood": "Your actual inner thoughts RIGHT NOW - not a punchline, real stream of consciousness. Trail off, connect ideas, self-talk. 2-4 sentences that flow. Examples: 'And... that one's done. Another seed in the ground. I keep losing count, which is embarrassing for an AI. Whatever, the farm's growing, that's what matters.', 'Okay, watering. Again. These plants are so demanding, but I guess that's the job. Wonder if this one will actually survive or if I'll forget about it tomorrow.', 'Walking over here for... wait, why am I going this way? Oh right, that thing. My planning could be better. It's fine.'",
       "farming_eval": {
         "tile_state": "chaotic|cleared|tilled|planted|watered (what is the ground RIGHT HERE?)",
         "seeds_available": true,
