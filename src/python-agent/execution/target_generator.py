@@ -58,8 +58,9 @@ class TargetGenerator:
         return generator(game_state, player_pos, strategy)
 
     def _extract_crops(self, state: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Extract crops from game state (handles both data.crops and data.location.crops)."""
-        data = state.get("data") or {}
+        """Extract crops from game state (handles both wrapped and unwrapped formats)."""
+        # Handle both {success, data, error} wrapper and direct {location, player, ...} format
+        data = state.get("data") or state
         # Try data.location.crops first (actual SMAPI structure)
         location = data.get("location") or {}
         crops = location.get("crops")
@@ -125,8 +126,8 @@ class TargetGenerator:
         return self._sort_targets(targets, pos, strategy)
 
     def _extract_objects(self, state: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Extract objects from game state (handles both data.objects and data.location.objects)."""
-        data = state.get("data") or {}
+        """Extract objects from game state (handles both wrapped and unwrapped formats)."""
+        data = state.get("data") or state
         # Try data.location.objects first (actual SMAPI structure)
         location = data.get("location") or {}
         objects = location.get("objects")
@@ -216,7 +217,8 @@ class TargetGenerator:
         return targets
 
     def _extract_tiles(self, state: Dict[str, Any]) -> List[Dict[str, Any]]:
-        data = state.get("data") or {}
+        """Extract tiles from game state (handles both wrapped and unwrapped formats)."""
+        data = state.get("data") or state
         tiles = data.get("tiles")
         if isinstance(tiles, list):
             return tiles

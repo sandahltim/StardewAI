@@ -2786,7 +2786,8 @@ class StardewAgent:
             return False
 
         # Only start farming tasks when on the Farm (crops/debris only exist there)
-        data = state.get("data") or {}
+        # Handle both wrapped {success, data, error} and already-extracted {location, player, ...} formats
+        data = state.get("data") or state
         location = data.get("location") or {}
         location_name = location.get("name", "")
         if location_name != "Farm":
@@ -2827,7 +2828,9 @@ class StardewAgent:
                 continue
 
             # Try to start this task
-            logging.info(f"🎯 Calling set_task({task_type}) with {len(state.get('data',{}).get('location',{}).get('crops',[]))} crops in state")
+            state_data = state.get("data") or state
+            crops_in_state = len(state_data.get("location", {}).get("crops", []))
+            logging.info(f"🎯 Calling set_task({task_type}) with {crops_in_state} crops in state")
             has_targets = self.task_executor.set_task(
                 task_id=task.id,
                 task_type=task_type,
