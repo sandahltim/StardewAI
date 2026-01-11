@@ -983,11 +983,12 @@ class ModBridgeController:
                     else:
                         front_info = f">>> 🌱🌱🌱 PLANT NOW! TILE IS TILLED! DO: select_slot {seed_slot} ({seed_name}), THEN use_tool! 🌱🌱🌱 <<<"
                 else:
-                    # No seeds - treat as empty tillable ground, suggest finding crops to water
+                    # No seeds - check for other priorities (shipping, clearing)
                     if unwatered_crops:
                         front_info = ">>> TILE: TILLED (empty, no seeds) - Move to find PLANTED crops to water! <<<"
                     else:
-                        front_info = ">>> TILE: TILLED (empty, no seeds) - All crops watered! <<<"
+                        # All watered, no seeds - use done farming hint (suggests shipping if items)
+                        front_info = self._get_done_farming_hint(state, data)
             elif tile_state == "planted":
                 # CROP PROTECTION: Warn if holding wrong tool
                 dangerous_tools = ["Scythe", "Hoe", "Pickaxe", "Axe"]
@@ -1362,7 +1363,8 @@ class ModBridgeController:
         inventory = state.get("inventory", [])
         sellable_items = ["Parsnip", "Potato", "Cauliflower", "Green Bean", "Kale", "Melon", "Blueberry",
                          "Corn", "Tomato", "Pumpkin", "Cranberry", "Eggplant", "Grape", "Radish"]
-        sellables = [item for item in inventory if item.get("name") in sellable_items and item.get("stack", 0) > 0]
+        sellables = [item for item in inventory if item and item.get("name") in sellable_items and item.get("stack", 0) > 0]
+        logging.info(f"   📊 _get_done_farming_hint: inventory={len(inventory)}, sellables={len(sellables)}")
         if sellables:
             total_count = sum(item.get("stack", 0) for item in sellables)
             shipping_bin = state.get("location", {}).get("shippingBin", {})
