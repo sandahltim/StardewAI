@@ -2766,20 +2766,23 @@ class StardewAgent:
     def _try_start_daily_task(self) -> bool:
         """
         Try to start the next pending task from daily planner.
-        
+
         Maps daily planner task categories to TaskExecutor task types.
         Returns True if a task was started, False otherwise.
         """
+        logging.info("🎯 _try_start_daily_task called")
         if not self.task_executor or not self.daily_planner:
+            logging.info(f"🎯 _try_start_daily_task: no executor ({self.task_executor}) or planner ({self.daily_planner})")
             return False
-        
+
         # Don't start if executor is already active
         if self.task_executor.is_active():
             return False
-        
+
         # Get current game state for target generation
         state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
         if not state:
+            logging.debug("🎯 _try_start_daily_task: no state")
             return False
 
         # Only start farming tasks when on the Farm (crops/debris only exist there)
@@ -2787,7 +2790,10 @@ class StardewAgent:
         location = data.get("location") or {}
         location_name = location.get("name", "")
         if location_name != "Farm":
+            logging.debug(f"🎯 _try_start_daily_task: not on Farm (at {location_name})")
             return False  # Wait until we're on the farm
+
+        logging.info(f"🎯 _try_start_daily_task: checking {len(self.daily_planner.tasks)} tasks on Farm")
 
         player_pos = self.last_position or (0, 0)
 
@@ -2802,22 +2808,26 @@ class StardewAgent:
         
         # Find next pending task that maps to an executor task type
         for task in self.daily_planner.tasks:
+            logging.info(f"🎯 Checking task: '{task.description}' status={task.status}")
             if task.status != "pending":
                 continue
-            
+
             # Check task description for keywords
             task_lower = task.description.lower()
             task_type = None
-            
+
             for keyword, executor_task in CATEGORY_TO_TASK.items():
                 if keyword in task_lower:
                     task_type = executor_task
+                    logging.info(f"🎯 Matched keyword '{keyword}' → {executor_task}")
                     break
-            
+
             if not task_type:
+                logging.info(f"🎯 No keyword match for: {task_lower}")
                 continue
-            
+
             # Try to start this task
+            logging.info(f"🎯 Calling set_task({task_type}) with {len(state.get('data',{}).get('location',{}).get('crops',[]))} crops in state")
             has_targets = self.task_executor.set_task(
                 task_id=task.id,
                 task_type=task_type,
