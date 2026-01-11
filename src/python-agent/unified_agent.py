@@ -2006,6 +2006,7 @@ class StardewAgent:
         self.task_executor = None
         self._vlm_commentary_interval = 5  # VLM commentary every N ticks during task execution
         self._commentary_event = None  # Event context for VLM prompt injection
+        self._pending_executor_action = None  # Executor action to prepend after VLM runs
         if HAS_TASK_EXECUTOR and TaskExecutor:
             try:
                 self.task_executor = TaskExecutor()
@@ -2800,7 +2801,11 @@ class StardewAgent:
         data = state.get("data") or state
         location = data.get("location") or {}
         location_name = location.get("name", "")
-        player_pos = self.last_position or (0, 0)
+        # Extract FRESH player position from state (not cached)
+        player = data.get("player") or {}
+        tile_x = player.get("tileX")
+        tile_y = player.get("tileY")
+        player_pos = (tile_x, tile_y) if tile_x is not None and tile_y is not None else self.last_position or (0, 0)
 
         # Get next task from resolved queue
         resolved_queue = getattr(self.daily_planner, 'resolved_queue', [])
@@ -2891,7 +2896,11 @@ class StardewAgent:
         if location_name != "Farm":
             return False
 
-        player_pos = self.last_position or (0, 0)
+        # Extract FRESH player position from state (not cached)
+        player = data.get("player") or {}
+        tile_x = player.get("tileX")
+        tile_y = player.get("tileY")
+        player_pos = (tile_x, tile_y) if tile_x is not None and tile_y is not None else self.last_position or (0, 0)
 
         CATEGORY_TO_TASK = {
             "water": "water_crops",
@@ -4152,13 +4161,23 @@ Recent: {recent}"""
                 pass
         
         if self.task_executor and self.task_executor.is_active():
-            # Get player position for navigation
-            player_pos = self.last_position or (0, 0)
-            
-            # Get game state for precondition checks (e.g., watering can level)
+            # Get FRESH game state for position and precondition checks
             game_state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
             surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
-            
+
+            # Extract FRESH player position from game state (not cached last_position)
+            if game_state:
+                data = game_state.get("data") or game_state
+                player = data.get("player") or {}
+                tile_x = player.get("tileX")
+                tile_y = player.get("tileY")
+                if tile_x is not None and tile_y is not None:
+                    player_pos = (tile_x, tile_y)
+                else:
+                    player_pos = self.last_position or (0, 0)
+            else:
+                player_pos = self.last_position or (0, 0)
+
             # Get next deterministic action from executor (checks preconditions first)
             executor_action = self.task_executor.get_next_action(player_pos, surroundings, game_state)
             
@@ -4188,7 +4207,14 @@ Recent: {recent}"""
                     else:
                         logging.info(f"🎭 Fallback commentary: tick {self.task_executor.tick_count}")
                         self._commentary_event = None
-                    # Don't skip VLM - let it provide commentary, but still queue executor action
+                    # Store executor action to prepend AFTER VLM runs (VLM overwrites queue)
+                    self._pending_executor_action = Action(
+                        action_type=executor_action.action_type,
+                        params=executor_action.params,
+                        description=executor_action.reason
+                    )
+                    logging.info(f"🎯 TaskExecutor (with VLM): {executor_action.action_type} → {executor_action.reason}")
+                    # Continue to VLM for commentary (don't return)
                 else:
                     # Queue the executor's action and skip VLM
                     action = Action(
@@ -4212,11 +4238,23 @@ Recent: {recent}"""
                     total = self.task_executor.progress.total_targets
                     logging.info(f"✅ Task complete: {task_type} ({completed}/{total} targets)")
                     
-                    # Mark task complete in daily planner
+                    # Mark task complete in daily planner and remove from resolved queue
                     if self.daily_planner:
                         try:
                             self.daily_planner.complete_task(task_id)
                             logging.info(f"📋 Daily planner: marked {task_id} complete")
+                            # Remove from resolved queue to prevent re-execution
+                            resolved_queue = getattr(self.daily_planner, 'resolved_queue', [])
+                            for i, rt in enumerate(resolved_queue):
+                                rt_id = rt.original_task_id if hasattr(rt, 'original_task_id') else rt.get('original_task_id', '')
+                                if rt_id == task_id:
+                                    resolved_queue.pop(i)
+                                    logging.info(f"📋 Removed {task_id} from resolved queue ({len(resolved_queue)} remaining)")
+                                    # Immediately start next task to prevent VLM from moving player
+                                    if resolved_queue and self._try_start_daily_task():
+                                        logging.info(f"⚡ Chained to next prereq task immediately")
+                                        return  # Skip VLM this tick - prereq chain continues
+                                    break
                         except Exception as e:
                             logging.warning(f"Failed to mark task complete: {e}")
 
@@ -4455,7 +4493,16 @@ Recent: {recent}"""
                 filtered_actions = self._fix_empty_watering_can(filtered_actions)  # Empty can override
                 filtered_actions = self._filter_adjacent_crop_moves(filtered_actions)  # Adjacent move filter
                 self.action_queue = filtered_actions
+                # Prepend pending executor action (from TaskExecutor) if exists
+                executor_prepended = False
+                if self._pending_executor_action:
+                    self.action_queue.insert(0, self._pending_executor_action)
+                    logging.info(f"   [0] 🎯 {self._pending_executor_action.action_type}: {self._pending_executor_action.params} (executor)")
+                    self._pending_executor_action = None  # Clear after use
+                    executor_prepended = True
                 for i, a in enumerate(self.action_queue):
+                    if i == 0 and executor_prepended:
+                        continue  # Already logged executor action
                     logging.info(f"   [{i+1}] {a.action_type}: {a.params}")
             else:
                 # Helper mode: just log advice, don't execute
