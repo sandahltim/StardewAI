@@ -174,17 +174,16 @@ public class ActionExecutor
         var start = player.TilePoint;
         var delta = GetDirectionDelta(facing);
 
-        // Find how far we can actually move (check passability)
+        // Find how far we can actually move (check passability using pathfinder's thorough check)
         int actualTiles = 0;
         Point finalTile = start;
         
         for (int i = 1; i <= tiles; i++)
         {
             var nextTile = new Point(start.X + delta.X * i, start.Y + delta.Y * i);
-            var tileLocation = new xTile.Dimensions.Location(nextTile.X, nextTile.Y);
 
-            // Check if tile is passable
-            if (!location.isTilePassable(tileLocation, Game1.viewport))
+            // Use pathfinder's thorough passability check (includes objects, map bounds, etc.)
+            if (!_pathfinder.IsTilePassable(nextTile, location))
             {
                 _monitor.Log($"Tile ({nextTile.X}, {nextTile.Y}) is blocked, stopping at {actualTiles} tiles", LogLevel.Debug);
                 break;

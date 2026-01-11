@@ -1423,6 +1423,15 @@ class ModBridgeController:
             else:
                 return f">>> 📦 SHIP {total_count} CROPS! Move {bin_dir_str} to shipping bin, then ship_item <<<"
 
+        # Check if we need seeds and can afford them
+        has_seeds = any(item and ("Seed" in item.get("name", "") or item.get("name") == "Mixed Seeds") for item in inventory)
+        money = state.get("player", {}).get("money", 0)
+        day_of_week = state.get("time", {}).get("dayOfWeek", "")
+
+        # Suggest buying seeds if: no seeds, has money, Pierre's open (9-17, not Wed), not too late
+        if not has_seeds and money >= 20 and hour >= 9 and hour < 17 and day_of_week != "Wed":
+            return f">>> 🌱 NO SEEDS! Go to Pierre's to buy more! DO: go_to_pierre, then buy_parsnip_seeds (you have {money}g) <<<"
+
         # Check for nearby debris in surroundings
         nearby_debris = []
         if surroundings:
@@ -1641,6 +1650,15 @@ class ModBridgeController:
                 return self._send_action({
                     "action": "ship",
                     "slot": slot
+                })
+
+            elif action_type == "buy":
+                item = action.params.get("item", "")
+                quantity = action.params.get("quantity", 1)
+                return self._send_action({
+                    "action": "buy",
+                    "item": item,
+                    "quantity": quantity
                 })
 
             # Fallback for unknown actions
@@ -2813,6 +2831,120 @@ class StardewAgent:
         logging.info(f"📦 OVERRIDE: VLM wanted '{original_action}' but have {total_to_ship} sellables → move {direction} toward bin (dist={dist})")
         return [Action("move", {"direction": direction, "tiles": tiles}, f"Move to ship {total_to_ship} crops")]
 
+    def _fix_no_seeds(self, actions: List[Action]) -> List[Action]:
+        """
+        Override: If we have no seeds and Pierre's is open, force go_to_pierre.
+        This prevents the agent from endlessly clearing debris when it should buy seeds.
+        """
+        if not actions:
+            return actions
+
+        # Only override debris-clearing actions
+        debris_actions = {"clear_stone", "clear_wood", "clear_weeds", "clear_debris", 
+                         "chop_tree", "mine_boulder", "break_stone"}
+        
+        # Check if first action is debris clearing
+        first_action = actions[0].action_type if actions else ""
+        if first_action not in debris_actions:
+            return actions  # Not a debris action, let it through
+
+        # Get state to check inventory and time
+        state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if not state:
+            return actions
+
+        location = state.get("location", {}).get("name", "")
+        # Only apply when on farm (not already at Pierre's)
+        if location == "SeedShop":
+            return actions  # Already at Pierre's
+
+        # Check for seeds in inventory
+        inventory = state.get("inventory", [])
+        has_seeds = any(item and ("Seed" in item.get("name", "") or item.get("name") == "Mixed Seeds") 
+                       for item in inventory if item)
+        
+        if has_seeds:
+            return actions  # Has seeds, proceed normally
+
+        # Check if Pierre's is open
+        time_data = state.get("time", {})
+        hour = time_data.get("hour", 12)
+        day_of_week = time_data.get("dayOfWeek", "")
+        money = state.get("player", {}).get("money", 0)
+
+        # Pierre's is open 9-17, closed Wednesday
+        if day_of_week == "Wed" or hour < 9 or hour >= 17:
+            return actions  # Pierre's closed
+
+        if money < 20:
+            return actions  # Can't afford seeds
+
+        # OVERRIDE: Force go_to_pierre
+        logging.info(f"🌱 OVERRIDE: VLM wanted '{first_action}' but NO SEEDS! → go_to_pierre (have {money}g, Pierre's open)")
+        return [Action("go_to_pierre", {}, f"Buy seeds (have {money}g, no seeds in inventory)")]
+
+    def _fix_edge_stuck(self, actions: List[Action]) -> List[Action]:
+        """
+        Override: If stuck at map edge (cliffs/water), force movement toward farm center.
+        Detects repetitive actions at edges and forces retreat.
+        """
+        if not actions:
+            return actions
+
+        # Get state to check position
+        state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if not state:
+            return actions
+
+        location = state.get("location", {}).get("name", "")
+        if location != "Farm":
+            return actions  # Only apply on farm
+
+        player_x = state.get("player", {}).get("tileX", 0)
+        player_y = state.get("player", {}).get("tileY", 0)
+        
+        # Farm center is roughly (60, 20) - farmhouse area
+        # Edges are: east > 72, south > 45, north < 10, west < 8
+        at_edge = player_x > 72 or player_x < 8 or player_y > 45 or player_y < 10
+        
+        if not at_edge:
+            return actions  # Not at edge
+
+        # Check if we're repeating debris OR move actions
+        stuck_actions = {"clear_stone", "clear_wood", "clear_weeds", "clear_debris", 
+                         "chop_tree", "mine_boulder", "break_stone", "move"}
+        first_action = actions[0].action_type if actions else ""
+        
+        if first_action not in stuck_actions:
+            return actions  # Not a stuck-prone action
+
+        # Check repetition in recent history (any stuck action)
+        repeat_count = sum(1 for a in self.recent_actions[-5:] if any(d in a for d in stuck_actions))
+        
+        if repeat_count < 3:
+            return actions  # Not stuck yet
+
+        # Calculate direction toward farm center (60, 20)
+        dx = 60 - player_x
+        dy = 20 - player_y
+        
+        # Pick direction that moves toward center, preferring the axis farther from center
+        if abs(dx) > abs(dy):
+            direction = "west" if dx < 0 else "east"
+            tiles = min(abs(dx), 5)
+        else:
+            direction = "north" if dy < 0 else "south"
+            tiles = min(abs(dy), 5)
+        
+        # Force move toward center (or go_to_bed if late)
+        hour = state.get("time", {}).get("hour", 12)
+        if hour >= 20:
+            logging.info(f"🏃 EDGE-STUCK OVERRIDE: At edge ({player_x}, {player_y}), late night → go_to_bed")
+            return [Action("go_to_bed", {}, "Late night at edge, time for bed")]
+        
+        logging.info(f"🏃 EDGE-STUCK OVERRIDE: At edge ({player_x}, {player_y}), repeating x{repeat_count} → retreat {direction} toward center")
+        return [Action("move", {"direction": direction, "tiles": tiles}, f"Retreat from edge toward farm center")]
+
     def _vlm_reason(self, prompt: str) -> Optional[str]:
         """Use VLM for reasoning/planning (synchronous wrapper).
 
@@ -3967,6 +4099,8 @@ Recent: {recent}"""
                 filtered_actions = result.actions
                 filtered_actions = self._fix_late_night_bed(filtered_actions)  # Midnight override
                 filtered_actions = self._fix_priority_shipping(filtered_actions)  # Shipping priority
+                filtered_actions = self._fix_no_seeds(filtered_actions)  # No seeds → go to Pierre's
+                filtered_actions = self._fix_edge_stuck(filtered_actions)  # Edge-stuck → retreat
                 filtered_actions = self._fix_empty_watering_can(filtered_actions)  # Empty can override
                 filtered_actions = self._filter_adjacent_crop_moves(filtered_actions)  # Adjacent move filter
                 self.action_queue = filtered_actions

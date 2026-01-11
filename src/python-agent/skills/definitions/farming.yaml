@@ -391,6 +391,97 @@ ship_item:
       message: "No sellable items in inventory"
 
 # =============================================================================
+# SHOPPING / BUYING
+# =============================================================================
+
+buy_seeds:
+  description: "Buy seeds from Pierre's shop (must be inside SeedShop)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: at_location
+        location: SeedShop
+
+  actions:
+    - buy:
+        item: "{seed_type}"
+        quantity: "{quantity}"
+
+  on_success:
+    message: "Bought {quantity} {seed_type}"
+
+  on_failure:
+    wrong_location:
+      message: "Not at Pierre's shop - go_to_pierre first"
+      recovery_skill: go_to_pierre
+    not_enough_money:
+      message: "Not enough gold to buy seeds"
+    shop_closed:
+      message: "Pierre's is closed (Wed or outside 9AM-5PM)"
+
+buy_parsnip_seeds:
+  description: "Buy parsnip seeds (20g each, 4 days to grow, spring crop)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: at_location
+        location: SeedShop
+      - type: has_money
+        amount: 20
+
+  actions:
+    - buy:
+        item: "parsnip seeds"
+        quantity: "{quantity}"
+
+  on_success:
+    message: "Bought {quantity} parsnip seeds"
+
+buy_cauliflower_seeds:
+  description: "Buy cauliflower seeds (80g each, 12 days, spring crop, high value)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: at_location
+        location: SeedShop
+      - type: has_money
+        amount: 80
+
+  actions:
+    - buy:
+        item: "cauliflower seeds"
+        quantity: "{quantity}"
+
+  on_success:
+    message: "Bought {quantity} cauliflower seeds"
+
+buy_potato_seeds:
+  description: "Buy potato seeds (50g each, 6 days, spring crop, chance of bonus)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: at_location
+        location: SeedShop
+      - type: has_money
+        amount: 50
+
+  actions:
+    - buy:
+        item: "potato seeds"
+        quantity: "{quantity}"
+
+  on_success:
+    message: "Bought {quantity} potato seeds"
+
+# =============================================================================
 # COMPOSITE SKILLS (higher-level workflows)
 # =============================================================================
 
