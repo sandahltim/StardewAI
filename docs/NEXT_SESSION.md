@@ -1,7 +1,7 @@
-# Session 53: Warp Case-Sensitivity Fix
+# Session 54: Multi-Day Autonomy Test
 
 **Last Updated:** 2026-01-11 Session 53 by Claude
-**Status:** Warp bug fixed, game restart required
+**Status:** Seeds flow complete, ready for extended testing
 
 ---
 
@@ -24,73 +24,74 @@ private static readonly Dictionary<string, (int x, int y)> LocationSpawns =
 
 File: `ActionExecutor.cs:1080-1081`
 
+### Fixed: SeedShop Buy Override
+
+**Problem:** Agent would warp to Pierre's but then leave without buying seeds.
+
+**Root Cause:** `_fix_no_seeds` override only triggered for farming actions, but VLM was outputting `move` commands in shop.
+
+**Fix:** Moved location check BEFORE action check - when in SeedShop with no seeds, force `buy_parsnip_seeds` regardless of VLM action.
+
+```python
+# If at Pierre's (SeedShop), force buy seeds regardless of VLM action
+if location == "SeedShop":
+    if not has_seeds:
+        return [Action("buy_parsnip_seeds", {}, ...)]
+```
+
+File: `unified_agent.py:2881-2888`
+
+### Simplified: Pierre Navigation
+
+**Before:** Warp Town → walk north → interact (fragile, wrong coordinates)
+**After:** Warp directly to SeedShop (5, 20)
+
+File: `navigation.yaml:323-324`
+
+### Working Flow
+
+```
+Farm (no seeds)
+  → _fix_no_seeds override forces go_to_pierre
+  → warps to SeedShop (5, 20)
+  → _fix_no_seeds override forces buy_parsnip_seeds
+  → agent buys seeds
+  → returns to farm with seeds
+```
+
 ---
 
-## Session 52 Summary
+## Session 53 Commits
 
-### What Was Fixed
-
-1. **Pierre Navigation** ✅
-   - `go_to_pierre` now: warp Town → walk north → interact with door
-   - No more warping directly into SeedShop black area
-   - File: `navigation.yaml:310-338`
-
-2. **Popup Handling** ✅
-   - Added `dismiss_menu` SMAPI action (exits menus, skips events)
-   - Added `_fix_active_popup` override in Python agent
-   - Added UI state fields: Menu, Event, DialogueUp, Paused
-   - Files: `ActionExecutor.cs`, `GameState.cs`, `unified_agent.py`
-
-3. **No-Seeds Override Expanded** ✅
-   - Now catches farming actions: `till_soil`, `plant_seed`, `water_crop`, `harvest`
-   - File: `unified_agent.py:2868-2871`
-
-### Fixed This Session
-
-**Harvest Direction Bug:** ✅ FIXED
-```
-Before: harvest: {'value': 'east'}   ← loader put value in wrong key
-After:  harvest: {'direction': 'south'} ← correct
-```
-
-Fix: Added `harvest` to loader.py's direction-mapping actions (line 82-83).
-
-### Remaining Issue
-
-**Harvest Phantom Failures:**
-Crop count unchanged after harvest action. Possible causes:
-- Player not actually adjacent to crop
-- SMAPI harvest action not working correctly
-- Crop state detection issue
+| Commit | Description |
+|--------|-------------|
+| `bd21dee` | Fix warp location case-sensitivity bug |
+| `09ba152` | Add SeedShop buy override + simplify Pierre navigation |
 
 ---
 
 ## Next Session Priority
 
-### Priority 1: Debug Harvest Phantom Failures
+### Priority 1: Multi-Day Autonomy Test
 
-The direction is now correct, but crops aren't being harvested. Need to investigate:
+The core farming loop is now complete:
+- Till → Plant → Water → Harvest → Ship → Buy Seeds
 
-1. Is player actually adjacent to crop? Check surroundings state.
-2. Is SMAPI `Harvest` action working? Test manually with curl.
-3. Is crop detection correct? Check terrainFeatures lookup.
+Run agent for 3+ in-game days and monitor for issues.
 
-### Priority 2: Test Full Flow
+### Priority 2: Harvest Phantom Failures (if still occurring)
 
-After fixing harvest:
-1. Agent harvests crops → gets produce
-2. Ships produce at bin
-3. No seeds → goes to Pierre's (through door)
-4. Buys seeds
-5. Returns to farm, plants
+Previous session noted crops not being harvested even with correct direction. May need to investigate:
+1. Player adjacency to crops
+2. SMAPI Harvest action functionality
+3. Crop state detection
 
----
+### Priority 3: Season Transition
 
-## Commits
-
-- `8de60b0` - Session 52: Proper Pierre navigation + popup handling
-- `d10bf51` - Update docs for Session 52 handoff
-- `198f0e8` - Fix harvest direction bug in skill loader
+Day 28 → Day 1 of next season. Test if agent handles:
+- Crops dying (wrong season)
+- New season seeds needed
+- Calendar awareness
 
 ---
 
@@ -101,15 +102,18 @@ After fixing harvest:
 source venv/bin/activate
 python src/python-agent/unified_agent.py --ui --goal "Farm autonomously"
 
-# Check harvest skill
-grep -A 20 "harvest_crop:" src/python-agent/skills/definitions/farming.yaml
+# Check current state
+curl -s localhost:8790/state | jq '{location: .data.location.name, day: .data.time.day, hour: .data.time.hour}'
 
-# Check state
-curl -s localhost:8790/state | jq '{day: .data.time.day, hour: .data.time.hour}'
+# Check inventory for seeds
+curl -s localhost:8790/state | jq '.data.inventory[] | select(.name | contains("Seed"))'
+
+# Watch for overrides
+tail -f logs/agent.log | grep "OVERRIDE"
 ```
 
 ---
 
-*Session 52: Pierre navigation fixed, harvest loop discovered.*
+*Session 53: Warp case-sensitivity fixed, buy override added, seeds flow complete.*
 
-*— Claude (PM), Session 52*
+*— Claude (PM), Session 53*
