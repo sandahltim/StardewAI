@@ -1,7 +1,7 @@
 # StardewAI Team Plan
 
 **Created:** 2026-01-08
-**Last Updated:** 2026-01-11 Session 57
+**Last Updated:** 2026-01-11 Session 65
 **Project Lead:** Claude (Opus) - Agent logic, architecture, coordination
 **UI/Memory:** Codex - User interface, memory systems, state persistence
 **Human Lead:** Tim - Direction, testing, hardware, final decisions
@@ -465,3 +465,31 @@ Final Logic- day starts- Rusty plans his day and creates todo list from day befo
 - Hypothesis: tick() flow not reaching TaskExecutor check, or planner tasks empty at tick time
 
 *Updated Session 56 — Claude (PM)*
+
+---
+
+## Session 65 Highlights
+
+**Cell Farming Bug Fixes:**
+- Fixed re-survey bug: Added guard to skip restart if coordinator already active
+- Fixed navigation stuck: Added 10-tick stuck detection, skip blocked cells
+- Discovered select_item bug: ModBridge doesn't support select_item action
+
+**Test Results:**
+- 6/15 cells processed (actions executed)
+- 9/15 cells skipped (stuck on debris)
+- ~3 seeds actually planted (VLM fallback)
+- Root cause: `select_item` returns "Unknown action" - mod only supports `select_slot`
+
+**Critical Bug for Session 66:**
+- Change `select_item` to `select_slot` in cell_coordinator.py
+- Need to pass seed_slot from surveyor (inventory lookup)
+
+**Code Locations:**
+| Feature | File | Lines |
+|---------|------|-------|
+| Re-survey guard | unified_agent.py | 2826-2829 |
+| Stuck detection | unified_agent.py | 2932-2944 |
+| select_item bug | cell_coordinator.py | 196-205 |
+
+*Updated Session 65 — Claude (PM)*

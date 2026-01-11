@@ -1,143 +1,131 @@
-# Session 65: Fix Cell Farming Bugs
+# Session 66: Fix Seed Selection Bug
 
-**Last Updated:** 2026-01-11 Session 64 by Claude
-**Status:** Cell farming activating but has multiple bugs. Ready for debugging.
-
----
-
-## Session 64 Summary
-
-### Testing Results
-
-**What Works:**
-- Surveyor correctly finds cells near farmhouse (distance 16-26, not y=0)
-- Debris types correctly detected (Weeds→slot 4/scythe, Stone→slot 3/pickaxe, Twig→slot 0/axe)
-- Cell farming activates when plant_seeds detected in queue
-- Prereqs (clear_debris, till_soil) removed from queue when cell farming starts
-- FarmHouse → Farm warp works
-- Navigation to first cell works (diagonal movement)
-- Cell actions execute: face → clear → till → plant → water
-- Cell marked complete: "🌱 Cell (52,28): Complete!"
-
-**Bugs Found:**
-
-### Bug 1: Daily Plan Race Condition (FIXED)
-- **Problem:** TaskExecutor ran BEFORE daily plan was created on first tick
-- **Root Cause:** `_try_start_daily_task()` called before `_refresh_state_snapshot()` which creates daily plan
-- **Fix Applied:** Added guard in `_try_start_daily_task()` to check if current day matches `_last_planned_day`
-
-### Bug 2: Cell Infinite Restart (FIXED)
-- **Problem:** Same cell restarted instead of completing
-- **Root Cause:** When `_cell_action_index >= len(_current_cell_actions)`, the condition at line 2939 was TRUE, causing actions to regenerate
-- **Fix Applied:** Separated completion check from start check - completion runs first
-
-### Bug 3: Re-Survey After Cell Completion (NOT FIXED)
-- **Problem:** After completing a cell, agent re-surveys farm and creates new plan
-- **Symptom:** "🌱 Cell (52,28): Complete!" immediately followed by "🌱 Cell farming: Surveying farm for 15 seeds"
-- **Root Cause:** Unknown - need to trace why `_start_cell_farming()` is called again
-- **Location:** Check who calls `_start_cell_farming()` after cell coordinator already exists
-
-### Bug 4: Navigation Stuck (NOT FIXED)
-- **Problem:** Player stuck at (54,29) trying to move east to (59,29)
-- **Symptom:** Infinite "Moving east to (59,29)" but position doesn't change
-- **Root Cause:** Debris blocking path - simple directional move can't path around obstacles
-- **Fix Needed:** Either clear blocking debris, or use smarter pathfinding
-
-### Bug 5: Not Planting Before Watering (REPORTED)
-- **User Report:** Seeds not being planted before watering
-- **Expected:** select_item(seeds) → use_tool → select_slot(watering can) → use_tool
-- **Need to verify:** Check actual action execution order in logs
+**Last Updated:** 2026-01-11 Session 65 by Claude
+**Status:** Cell farming works but seeds not planted due to select_item bug.
 
 ---
 
-## Fixes Applied (Session 64)
+## Session 65 Summary
 
-### 1. FarmHouse → Farm Warp (unified_agent.py:2901-2909)
+### Bugs Fixed
+
+| Bug | Fix Applied | Verified |
+|-----|-------------|----------|
+| **Re-Survey After Completion** | Guard in `_start_cell_farming()` - skip if coordinator already active | YES - only one survey |
+| **Navigation Stuck** | Stuck detection after 10 ticks, skip cell | YES - cells skipped |
+| **Planting Order** | Code order correct (plant before water) | YES |
+
+### New Bug Discovered
+
+**Bug: select_item Not Supported by ModBridge**
+- **Symptom:** "Unknown action for ModBridge: select_item" in logs
+- **Impact:** Seeds never get selected, planting fails silently
+- **Root Cause:** `CellAction.to_dict()` returns `{"select_item": "Parsnip Seeds"}` but mod only supports `{"select_slot": N}`
+- **Fix Needed:** Convert seed name to slot number before creating action
+
+### Test Results
+- **Cells Completed:** 6/15 (actions ran but planting failed)
+- **Cells Skipped:** 9/15 (stuck on debris)
+- **Seeds Actually Planted:** ~3 (manual VLM intervention)
+- **Re-Survey Bug:** FIXED - only one survey per farming session
+
+---
+
+## Fixes Applied (Session 65)
+
+### 1. Re-Survey Guard (unified_agent.py:2826-2829)
 ```python
-# Check if we need to warp to Farm first (can't farm from inside FarmHouse)
-location = data.get("location", {}).get("name", "")
-if location == "FarmHouse":
-    logging.info("🌱 Cell farming: Player in FarmHouse → warping to Farm")
-    return Action(action_type="warp", params={"location": "Farm"}, ...)
+# Don't restart if already actively farming cells
+if self.cell_coordinator and not self.cell_coordinator.is_complete():
+    logging.debug("Cell farming: Coordinator already active, skipping restart")
+    return True  # Already running
 ```
 
-### 2. Daily Plan Race Guard (unified_agent.py:3064-3073)
+### 2. Stuck Detection (unified_agent.py:2932-2944)
 ```python
-# Don't start tasks if daily plan hasn't been created yet for today
-state = self.controller.get_state() ...
-if current_day > 0 and current_day != self._last_planned_day:
-    logging.debug("🎯 _try_start_daily_task: waiting for daily plan")
-    return False
+# Stuck detection: if position hasn't changed since last tick, increment counter
+if self._cell_nav_last_pos == player_pos:
+    self._cell_nav_stuck_count += 1
+    if self._cell_nav_stuck_count >= self._CELL_NAV_STUCK_THRESHOLD:
+        logging.warning(f"Cell ({cell.x},{cell.y}): STUCK after {self._cell_nav_stuck_count} attempts, skipping cell")
+        self.cell_coordinator.skip_cell(cell, f"Stuck at {player_pos}")
+        self._cell_nav_stuck_count = 0
+        self._cell_nav_last_pos = None
+        return None  # Will process next cell on next tick
 ```
 
-### 3. Cell Completion Logic (unified_agent.py:2939-2946)
+### 3. New Variables Added (unified_agent.py:2867-2869)
 ```python
-# Check if we just finished all actions for this cell
-if self._current_cell_actions and self._cell_action_index >= len(self._current_cell_actions):
-    # All actions for this cell complete
-    logging.info(f"🌱 Cell ({cell.x},{cell.y}): Complete!")
-    self.cell_coordinator.mark_cell_complete(cell)
-    self._current_cell_actions = []
-    self._cell_action_index = 0
-    return None  # Will process next cell on next tick
+self._cell_nav_last_pos = None  # Track position for stuck detection
+self._cell_nav_stuck_count = 0  # Count consecutive stuck attempts
+self._CELL_NAV_STUCK_THRESHOLD = 10  # Skip cell after this many stuck ticks
 ```
 
 ---
 
-## Debug Strategy for Session 65
+## Fix Required for Session 66
 
-### Bug 3: Re-Survey After Completion
-1. Search for calls to `_start_cell_farming()`
-2. Add logging before the call to see who triggers it
-3. Likely in `_try_start_daily_task()` - shouldn't call if `cell_coordinator` already exists
-4. Check condition: `if HAS_CELL_FARMING and not self.cell_coordinator:` - is coordinator being reset?
+### select_item -> select_slot Conversion
 
-### Bug 4: Navigation Stuck
-Options:
-1. **Quick fix:** Clear debris in path during navigation (detect blocked, use tool)
-2. **Better fix:** Use A* pathfinding to navigate around obstacles
-3. **Simple fix:** Skip to next cell if blocked too long
+**Location:** `execution/cell_coordinator.py` lines 196-205
 
-### Bug 5: Planting Order
-1. Run with DEBUG logging to see action sequence
-2. Check `get_cell_actions()` in cell_coordinator.py returns actions in right order
-3. Verify the `select_item` action is selecting the right seed
+**Current Code:**
+```python
+if cell.needs_plant:
+    actions.append(CellAction(
+        action_type="select_item",
+        params={"item": cell.seed_type},
+    ))
+```
+
+**Fix Options:**
+1. **Simple:** Hardcode seed slot (slot 5 for Parsnip Seeds)
+2. **Better:** Pass seed_slot to CellPlan from surveyor (query inventory)
+3. **Best:** Add `select_item` support to ModBridge
+
+**Recommended Fix (Option 2):**
+1. In FarmSurveyor, find seed slot from inventory when creating plan
+2. Add `seed_slot` field to `CellPlan` dataclass
+3. Change cell coordinator to use `select_slot` with `cell.seed_slot`
+
+### Files to Modify
+- `planning/farm_surveyor.py` - Add `seed_slot` detection
+- `execution/cell_coordinator.py` - Use `select_slot` instead of `select_item`
 
 ---
 
-## Test Commands
+## Debug Commands
 
 ```bash
-# Quick test with debug logging
-python unified_agent.py --goal "Plant parsnip seeds" 2>&1 | grep -E "🌱|Complete|Cell \("
+# Test cell farming
+python unified_agent.py --goal "Plant parsnip seeds" 2>&1 | grep -E "🌱|Complete|select"
 
-# Watch for re-survey bug
-python unified_agent.py --goal "Plant parsnip seeds" 2>&1 | grep -E "Surveying|Complete|Cell farming"
+# Check for select_item errors
+grep "Unknown action" logs/agent.log
 
-# Check if coordinator persists
-python unified_agent.py --goal "Plant parsnip seeds" 2>&1 | grep -E "cell_coordinator|_start_cell"
+# Verify seed slot
+curl -s localhost:8790/state | jq '.data.inventory[] | select(.name | contains("Seeds"))'
 ```
 
 ---
 
-## Files Modified (Session 64)
+## Files Modified (Session 65)
 
 | File | Lines | Change |
 |------|-------|--------|
-| `unified_agent.py` | 2901-2909 | FarmHouse → Farm warp in `_process_cell_farming()` |
-| `unified_agent.py` | 2921 | Debug logging for navigation |
-| `unified_agent.py` | 2939-2946 | Cell completion check (separated from start) |
-| `unified_agent.py` | 3064-3073 | Daily plan race guard |
+| `unified_agent.py` | 2826-2829 | Re-survey guard |
+| `unified_agent.py` | 2867-2869 | Stuck tracking variables |
+| `unified_agent.py` | 2932-2944 | Stuck detection logic |
+| `unified_agent.py` | 2959-2962 | Reset stuck tracking at target |
 
 ---
 
 ## Remaining Work
 
-1. **Fix Bug 3 (Re-Survey)** - Most critical, causes restart loop
-2. **Fix Bug 4 (Navigation)** - Causes stuck state
-3. **Verify Bug 5 (Planting)** - May not be a real bug
-4. **End-to-end test** - Complete 15 cells successfully
+1. **Fix select_item bug** - Critical, seeds not being planted
+2. **Improve navigation** - 9/15 cells skipped due to debris
+3. **End-to-end test** - Complete full farming cycle
 
 ---
 
-*Session 64: Found and fixed 2 bugs. 3 more bugs identified but not fixed. Cell farming activates correctly but has restart loop issue. — Claude (PM)*
+*Session 65: Fixed re-survey and stuck detection bugs. Discovered select_item not supported by mod - seeds not actually planted. 6 cells processed but only ~3 seeds planted via VLM fallback. — Claude (PM)*

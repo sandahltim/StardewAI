@@ -2823,6 +2823,11 @@ class StardewAgent:
         if not HAS_CELL_FARMING or not get_farm_surveyor:
             return False
 
+        # Don't restart if already actively farming cells
+        if self.cell_coordinator and not self.cell_coordinator.is_complete():
+            logging.debug("🌱 Cell farming: Coordinator already active, skipping restart")
+            return True  # Already running, return True so caller knows farming is active
+
         try:
             # Get farm state from /farm endpoint
             farm_state = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
@@ -2859,6 +2864,9 @@ class StardewAgent:
             self.cell_coordinator = CellFarmingCoordinator(self._cell_farming_plan)
             self._current_cell_actions = []
             self._cell_action_index = 0
+            self._cell_nav_last_pos = None  # Track position for stuck detection
+            self._cell_nav_stuck_count = 0  # Count consecutive stuck attempts
+            self._CELL_NAV_STUCK_THRESHOLD = 10  # Skip cell after this many stuck ticks
 
             # Log plan summary
             cell_count = len(self._cell_farming_plan.cells)
@@ -2920,6 +2928,20 @@ class StardewAgent:
         nav_target = self.cell_coordinator.get_navigation_target(cell, player_pos)
         logging.info(f"🌱 Cell ({cell.x},{cell.y}): player={player_pos}, nav_target={nav_target}")
         if player_pos != nav_target:
+            # Stuck detection: if position hasn't changed since last tick, increment counter
+            if self._cell_nav_last_pos == player_pos:
+                self._cell_nav_stuck_count += 1
+                if self._cell_nav_stuck_count >= self._CELL_NAV_STUCK_THRESHOLD:
+                    logging.warning(f"🌱 Cell ({cell.x},{cell.y}): STUCK after {self._cell_nav_stuck_count} attempts, skipping cell")
+                    self.cell_coordinator.skip_cell(cell, f"Stuck at {player_pos}")
+                    self._cell_nav_stuck_count = 0
+                    self._cell_nav_last_pos = None
+                    return None  # Will process next cell on next tick
+            else:
+                # Position changed, reset counter
+                self._cell_nav_stuck_count = 0
+            self._cell_nav_last_pos = player_pos
+
             # Need to move to adjacent position
             dx = nav_target[0] - player_pos[0]
             dy = nav_target[1] - player_pos[1]
@@ -2935,7 +2957,11 @@ class StardewAgent:
                 description=f"Moving to cell ({cell.x},{cell.y})"
             )
 
-        # We're at the right position - execute cell actions
+        # We're at the right position - reset stuck tracking
+        self._cell_nav_stuck_count = 0
+        self._cell_nav_last_pos = None
+
+        # Execute cell actions
         # Check if we just finished all actions for this cell
         if self._current_cell_actions and self._cell_action_index >= len(self._current_cell_actions):
             # All actions for this cell complete
