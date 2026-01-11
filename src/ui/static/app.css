@@ -158,6 +158,141 @@ h2 {
   width: 100%;
 }
 
+.daily-plan-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf8;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.daily-plan__meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.daily-plan__section {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.daily-plan__focus {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.daily-plan__list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.daily-plan__list .active {
+  color: #92400e;
+  font-weight: 600;
+}
+
+.daily-plan__done {
+  color: #1f2937;
+  font-weight: 600;
+}
+
+.daily-plan__bar {
+  width: 100%;
+  height: 8px;
+  background: #f3f4f6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.daily-plan__fill {
+  height: 100%;
+  width: 0%;
+  background: #22c55e;
+  transition: width 0.2s ease;
+}
+
+.daily-plan__percent {
+  color: #374151;
+  font-weight: 600;
+}
+
+.action-failure-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #fffdf8;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.action-failure__section {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.action-failure__list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.action-failure__stats {
+  display: grid;
+  gap: 8px;
+}
+
+.action-failure__bar {
+  display: grid;
+  gap: 4px;
+}
+
+.action-failure__bar.empty {
+  color: var(--muted);
+}
+
+.action-failure__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.action-failure__track {
+  width: 100%;
+  height: 8px;
+  background: #f3f4f6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.action-failure__fill {
+  height: 100%;
+  width: 0%;
+  background: #22c55e;
+}
+
+.action-failure__fill.warn {
+  background: #f59e0b;
+}
+
+.action-failure__fill.danger {
+  background: #ef4444;
+}
+
+.action-failure__meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 .farming-cycle-card {
   border: 1px solid var(--border);
   border-radius: 16px;

@@ -2,7 +2,119 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-10 Session 40
+**Last Updated:** 2026-01-10 Session 44
+
+---
+
+## Active Tasks
+
+### TASK: Daily Plan Panel (NEW - Session 44)
+
+**Priority:** HIGH
+**Assigned:** 2026-01-10 Session 44
+**Status:** ✅ Complete
+
+#### Background
+
+Session 44 added a daily planning system (`memory/daily_planner.py`). Rusty now generates a prioritized task list each morning and tracks progress throughout the day. We need a UI panel to display this.
+
+#### Requirements
+
+**1. Add Daily Plan Panel**
+
+New panel showing Rusty's daily tasks:
+```
+┌──────────────────────────────────────┐
+│ 📋 RUSTY'S PLAN - Day 5              │
+├──────────────────────────────────────┤
+│ ▶ CURRENT:                           │
+│   • Water 11 crops                   │
+├──────────────────────────────────────┤
+│ ☐ TODO:                              │
+│   • !! Harvest 3 mature crops        │
+│   • ! Plant 5 seeds                  │
+│   • Clear debris from farm           │
+├──────────────────────────────────────┤
+│ ✓ DONE: 2 tasks                      │
+├──────────────────────────────────────┤
+│ Completion: ████████░░ 80%           │
+└──────────────────────────────────────┘
+```
+
+**2. API Endpoint**
+
+Add endpoint in `src/ui/app.py`:
+```python
+@app.get("/api/daily-plan")
+def get_daily_plan():
+    from memory.daily_planner import get_daily_planner
+    planner = get_daily_planner()
+    return planner.to_api_format()
+```
+
+**3. Data Fields**
+
+From `DailyPlanner.to_api_format()`:
+- `day`, `season` - Current game day
+- `tasks` - List of tasks with id, description, status, priority
+- `focus` - Current task description
+- `stats` - total/completed/pending/failed counts
+
+#### Files to Modify
+- `src/ui/app.py` - Add endpoint
+- `src/ui/static/app.js` - Add `pollDailyPlan()`, `renderDailyPlan()`
+- `src/ui/templates/index.html` - Add panel section
+- `src/ui/static/app.css` - Style for task list, priority indicators
+
+---
+
+### TASK: Action Failure Panel (NEW - Session 44)
+
+**Priority:** MEDIUM
+**Assigned:** 2026-01-10 Session 44
+**Status:** ✅ Complete
+
+#### Background
+
+Session 44 added phantom failure detection - tracking when actions report success but the game state doesn't actually change. We need a UI panel to show these failures for debugging.
+
+#### Requirements
+
+**1. Add Action Failure Panel**
+
+New panel showing recent failures:
+```
+┌──────────────────────────────────────┐
+│ ⚠️ ACTION FAILURES                   │
+├──────────────────────────────────────┤
+│ Recent Phantom Failures:             │
+│ • plant_seed: 2x (tile not tilled)   │
+│ • water_crop: 1x (no crop at target) │
+├──────────────────────────────────────┤
+│ Success Rates (last 50 actions):     │
+│ water_crop:   ████████░░ 85%         │
+│ plant_seed:   ██████░░░░ 60%         │
+│ harvest_crop: ██████████ 100%        │
+└──────────────────────────────────────┘
+```
+
+**2. Data Source**
+
+This data comes from:
+- `unified_agent.py:_phantom_failures` - consecutive failure counts
+- `LessonMemory` - recorded failures with reasons
+- Could add new tracking dict to agent for success/fail counts
+
+**3. Implementation Notes**
+
+Option A: Add `/api/action-stats` endpoint that tracks success/fail per skill
+Option B: Extend `/api/lessons` to include phantom failure context
+
+#### Files to Modify
+- `src/ui/app.py` - Add endpoint
+- `src/python-agent/unified_agent.py` - Add action success tracking (if needed)
+- `src/ui/static/app.js` - Add render function
+- `src/ui/templates/index.html` - Add panel
 
 ---
 
@@ -347,6 +459,8 @@ Update this file marking task complete, then post to team chat.
 
 ## Completed Tasks
 
+- [x] UI: Daily Plan Panel (2026-01-10 Session 44)
+- [x] UI: Action Failure Panel (2026-01-10 Session 44)
 - [x] UI: Multi-Day Progress Panel (2026-01-10 Session 40)
 - [x] UI: Rusty Memory Panel (2026-01-10 Session 39)
 - [x] UI: SMAPI Status Indicators + Empty States (2026-01-10 Session 36)

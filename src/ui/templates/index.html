@@ -95,6 +95,21 @@
             {% endif %}
           </ol>
         </div>
+        <div class="daily-plan-card">
+          <div class="vlm-subhead">Rusty's Plan</div>
+          <div id="dailyPlanMeta" class="daily-plan__meta">Waiting for plan...</div>
+          <div class="daily-plan__section">Current</div>
+          <div id="dailyPlanFocus" class="daily-plan__focus">-</div>
+          <div class="daily-plan__section">Todo</div>
+          <ul id="dailyPlanTodo" class="daily-plan__list">
+            <li>None</li>
+          </ul>
+          <div id="dailyPlanDone" class="daily-plan__done">Done: 0</div>
+          <div class="daily-plan__bar">
+            <div id="dailyPlanFill" class="daily-plan__fill"></div>
+          </div>
+          <div id="dailyPlanPercent" class="daily-plan__percent">0% complete</div>
+        </div>
       </section>
 
       <section class="panel__section">
@@ -181,6 +196,17 @@
             <ol id="skillFailureList" class="skill-history-list">
               <li>None</li>
             </ol>
+          </div>
+        </div>
+        <div class="action-failure-card">
+          <div class="vlm-subhead">Action Failures</div>
+          <div class="action-failure__section">Recent Phantom Failures</div>
+          <ul id="actionFailureList" class="action-failure__list">
+            <li>None</li>
+          </ul>
+          <div class="action-failure__section">Success Rates (last 50)</div>
+          <div id="actionFailureStats" class="action-failure__stats">
+            <div class="action-failure__bar empty">No data yet</div>
           </div>
         </div>
         <div class="lessons-card">

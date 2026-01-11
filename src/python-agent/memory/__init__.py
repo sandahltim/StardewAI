@@ -12,6 +12,7 @@ from .episodic import EpisodicMemory, get_memory, should_remember
 from .retrieval import get_context_for_vlm, format_memory_for_storage
 from .spatial_map import SpatialMap
 from .lessons import LessonMemory, get_lesson_memory
+from .daily_planner import DailyPlanner, get_daily_planner
 
 __all__ = [
     # Game knowledge (SQLite)
@@ -34,4 +35,7 @@ __all__ = [
     # Lesson learning
     "LessonMemory",
     "get_lesson_memory",
+    # Daily planning
+    "DailyPlanner",
+    "get_daily_planner",
 ]

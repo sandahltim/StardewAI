@@ -44,6 +44,7 @@ try:
     from memory.game_knowledge import get_npc_info
     from memory.spatial_map import SpatialMap
     from memory.rusty_memory import get_rusty_memory
+    from memory.daily_planner import get_daily_planner
     HAS_MEMORY = True
 except ImportError:
     get_memory = None
@@ -53,6 +54,7 @@ except ImportError:
     get_npc_info = None
     SpatialMap = None
     get_rusty_memory = None
+    get_daily_planner = None
     HAS_MEMORY = False
 
 try:
@@ -410,6 +412,38 @@ class UnifiedVLM:
                 actions=[Action("wait", {"seconds": 2}, "Error recovery")],
                 timestamp=time.time()
             )
+
+    def reason(self, prompt: str) -> str:
+        """
+        Text-only reasoning (no image) for planning and analysis.
+
+        Used for daily planning, decision making, and reflection.
+        """
+        start_time = time.time()
+
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "You are Rusty, an AI farmer in Stardew Valley. Think carefully and respond concisely."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 500,  # Shorter for reasoning
+            "temperature": 0.7,
+        }
+
+        try:
+            response = self.client.post(
+                f"{self.url}/v1/chat/completions",
+                json=payload
+            )
+            response.raise_for_status()
+            content = response.json()["choices"][0]["message"]["content"]
+            latency = (time.time() - start_time) * 1000
+            logging.info(f"🧠 VLM reason completed in {latency:.0f}ms")
+            return content
+        except Exception as e:
+            logging.error(f"VLM reasoning failed: {e}")
+            return ""
 
     def think_vision_first(
         self,
@@ -1728,6 +1762,11 @@ class StardewAgent:
         self._skip_blockers: Set[Tuple[str, int, int, str]] = set()
         self._max_clear_attempts = 3  # Give up after 3 failed clears
 
+        # State-change detection (phantom failure tracking)
+        # Tracks consecutive failures where action reports success but state doesn't change
+        self._phantom_failures: Dict[str, int] = {}  # skill_name -> consecutive count
+        self._phantom_threshold = 2  # Hard-fail after this many consecutive phantom failures
+
         # VLM Debug state (for UI panel)
         self.vlm_observation: Optional[str] = None
         self.proposed_action: Optional[Dict[str, Any]] = None
@@ -1789,6 +1828,16 @@ class StardewAgent:
                 )
             except Exception as e:
                 logging.warning(f"Rusty memory failed to load: {e}")
+
+        # Daily planner (Rusty's task planning system)
+        self.daily_planner = None
+        self._last_planned_day = 0  # Track when we last ran planning
+        if HAS_MEMORY and get_daily_planner:
+            try:
+                self.daily_planner = get_daily_planner()
+                logging.info(f"📋 Daily planner loaded: Day {self.daily_planner.current_day}, {len(self.daily_planner.tasks)} tasks")
+            except Exception as e:
+                logging.warning(f"Daily planner failed to load: {e}")
 
         # Memory trigger tracking
         self.last_location: str = ""
@@ -2154,6 +2203,139 @@ class StardewAgent:
 
         return ActionAdapter()
 
+    def _capture_state_snapshot(self, skill_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Capture relevant state before skill execution for verification.
+
+        Returns a snapshot dict containing skill-specific state to compare after execution.
+        """
+        snapshot = {"skill": skill_name, "timestamp": time.time()}
+
+        if not self.last_state:
+            return snapshot
+
+        player = self.last_state.get("player", {})
+        player_x = player.get("tileX", 0)
+        player_y = player.get("tileY", 0)
+
+        # Get target tile based on direction
+        target_dir = params.get("target_direction", "south")
+        directions = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
+        dx, dy = directions.get(target_dir, (0, 1))
+        target_x, target_y = player_x + dx, player_y + dy
+        snapshot["target"] = (target_x, target_y)
+
+        location_data = self.last_state.get("location", {})
+        crops = location_data.get("crops", [])
+
+        # Skill-specific captures
+        if skill_name == "plant_seed":
+            snapshot["crop_count"] = len(crops)
+            # Check if target tile is tilled
+            if self.last_surroundings:
+                tiles = self.last_surroundings.get("adjacentTiles", {})
+                tile = tiles.get(target_dir, {})
+                snapshot["target_tilled"] = tile.get("isTilled", False)
+                snapshot["target_has_crop"] = tile.get("hasCrop", False)
+
+        elif skill_name == "water_crop":
+            # Find crop at target
+            target_crop = next((c for c in crops if c.get("x") == target_x and c.get("y") == target_y), None)
+            snapshot["target_crop_watered"] = target_crop.get("isWatered", False) if target_crop else None
+
+        elif skill_name == "till_soil":
+            if self.last_surroundings:
+                tiles = self.last_surroundings.get("adjacentTiles", {})
+                tile = tiles.get(target_dir, {})
+                snapshot["target_tilled"] = tile.get("isTilled", False)
+
+        elif skill_name == "harvest_crop":
+            snapshot["crop_count"] = len(crops)
+            # Track inventory count for harvested items
+            inventory = player.get("inventory", [])
+            snapshot["inventory_count"] = sum(1 for item in inventory if item)
+
+        elif skill_name in ["clear_weeds", "clear_stone", "clear_wood"]:
+            if self.last_surroundings:
+                tiles = self.last_surroundings.get("adjacentTiles", {})
+                tile = tiles.get(target_dir, {})
+                snapshot["target_blocker"] = tile.get("blockerType")
+
+        return snapshot
+
+    def _verify_state_change(self, skill_name: str, before: Dict[str, Any], params: Dict[str, Any]) -> bool:
+        """Verify that skill execution actually changed the game state.
+
+        Refreshes state and compares with before snapshot.
+        Returns True if state changed as expected, False if phantom failure detected.
+        """
+        # Force state refresh
+        self.last_state_poll = 0  # Reset to force immediate refresh
+        self._refresh_state_snapshot()
+
+        if not self.last_state:
+            return True  # Can't verify without state, assume success
+
+        player = self.last_state.get("player", {})
+        location_data = self.last_state.get("location", {})
+        crops = location_data.get("crops", [])
+        target = before.get("target", (0, 0))
+        target_x, target_y = target
+
+        # Skill-specific verification
+        if skill_name == "plant_seed":
+            new_crop_count = len(crops)
+            old_count = before.get("crop_count", 0)
+            if new_crop_count <= old_count:
+                # Check if target tile wasn't tilled (common failure reason)
+                reason = "tile not tilled?" if not before.get("target_tilled") else "unknown"
+                logging.warning(f"👻 PHANTOM: plant_seed reported success but crop count unchanged ({old_count} → {new_crop_count}). Reason: {reason}")
+                return False
+            return True
+
+        elif skill_name == "water_crop":
+            target_crop = next((c for c in crops if c.get("x") == target_x and c.get("y") == target_y), None)
+            if target_crop:
+                if not target_crop.get("isWatered", False) and before.get("target_crop_watered") == False:
+                    logging.warning(f"👻 PHANTOM: water_crop reported success but crop at ({target_x}, {target_y}) still not watered")
+                    return False
+            return True
+
+        elif skill_name == "till_soil":
+            # Refresh surroundings for tile state
+            if hasattr(self.controller, "get_surroundings"):
+                self.last_surroundings = self.controller.get_surroundings()
+            if self.last_surroundings:
+                target_dir = params.get("target_direction", "south")
+                tiles = self.last_surroundings.get("adjacentTiles", {})
+                tile = tiles.get(target_dir, {})
+                if not tile.get("isTilled", False) and not before.get("target_tilled", False):
+                    logging.warning(f"👻 PHANTOM: till_soil reported success but tile {target_dir} still not tilled")
+                    return False
+            return True
+
+        elif skill_name == "harvest_crop":
+            new_crop_count = len(crops)
+            old_count = before.get("crop_count", 0)
+            if new_crop_count >= old_count:
+                logging.warning(f"👻 PHANTOM: harvest_crop reported success but crop count unchanged ({old_count} → {new_crop_count})")
+                return False
+            return True
+
+        elif skill_name in ["clear_weeds", "clear_stone", "clear_wood"]:
+            if self.last_surroundings:
+                target_dir = params.get("target_direction", "south")
+                tiles = self.last_surroundings.get("adjacentTiles", {})
+                tile = tiles.get(target_dir, {})
+                old_blocker = before.get("target_blocker")
+                new_blocker = tile.get("blockerType")
+                if old_blocker and new_blocker == old_blocker:
+                    logging.warning(f"👻 PHANTOM: {skill_name} reported success but {old_blocker} still at {target_dir}")
+                    return False
+            return True
+
+        # For skills we don't specifically verify, assume success
+        return True
+
     async def execute_skill(self, skill_name: str, params: Dict[str, Any]) -> bool:
         """Execute a multi-step skill by name.
 
@@ -2247,11 +2429,43 @@ class StardewAgent:
         skill = self.skills_dict[skill_name]
         logging.info(f"🎯 Executing skill: {skill_name} ({skill.description})")
 
+        # STATE-CHANGE DETECTION: Capture before state
+        state_before = self._capture_state_snapshot(skill_name, params)
+
         try:
             result = await self.skill_executor.execute(skill, params, self.last_state or {})
             if result.success:
-                logging.info(f"✅ Skill {skill_name} completed: {result.actions_taken}")
-                return True
+                # STATE-CHANGE DETECTION: Verify actual state change
+                actual_success = self._verify_state_change(skill_name, state_before, params)
+
+                if actual_success:
+                    # Reset phantom failure counter on real success
+                    self._phantom_failures[skill_name] = 0
+                    logging.info(f"✅ Skill {skill_name} completed: {result.actions_taken}")
+                    return True
+                else:
+                    # Phantom failure detected - action reported success but state didn't change
+                    self._phantom_failures[skill_name] = self._phantom_failures.get(skill_name, 0) + 1
+                    consecutive = self._phantom_failures[skill_name]
+
+                    if consecutive >= self._phantom_threshold:
+                        # Hard-fail after threshold consecutive phantom failures
+                        logging.error(f"💀 HARD FAIL: {skill_name} phantom-failed {consecutive}x consecutively. Treating as real failure.")
+                        self.recent_actions.append(f"PHANTOM_FAIL: {skill_name} ({consecutive}x)")
+                        self.recent_actions = self.recent_actions[-10:]
+                        # Record lesson for learning
+                        if self.lesson_memory:
+                            self.lesson_memory.record_failure(
+                                attempted=f"{skill_name} (phantom failure)",
+                                blocked_by="state unchanged",
+                                position=state_before.get("target"),
+                                location=self.last_state.get("location", {}).get("name") if self.last_state else None
+                            )
+                        return False
+                    else:
+                        # Soft warning, still return success (might be timing issue)
+                        logging.warning(f"⚠️ Phantom failure #{consecutive} for {skill_name} (threshold: {self._phantom_threshold})")
+                        return True
             else:
                 logging.warning(f"❌ Skill {skill_name} failed: {result.error}")
                 if result.recovery_skill:
@@ -2264,6 +2478,29 @@ class StardewAgent:
     def is_skill(self, action_type: str) -> bool:
         """Check if an action type is a skill name."""
         return action_type in self.skills_dict
+
+    def _vlm_reason(self, prompt: str) -> Optional[str]:
+        """Use VLM for reasoning/planning (synchronous wrapper).
+
+        This allows the daily planner to use compute cycles for intelligent planning.
+        """
+        if not self.vlm:
+            return None
+
+        try:
+            # Use VLM without image for pure reasoning
+            # The VLM class should have a method for text-only reasoning
+            if hasattr(self.vlm, 'reason'):
+                return self.vlm.reason(prompt)
+            elif hasattr(self.vlm, 'think_text'):
+                return self.vlm.think_text(prompt)
+            else:
+                # Fallback: use think with no image (if supported)
+                logging.warning("VLM doesn't have text-only reasoning method")
+                return None
+        except Exception as e:
+            logging.warning(f"VLM reasoning failed: {e}")
+            return None
 
     def _refresh_state_snapshot(self) -> None:
         if not hasattr(self.controller, "get_state"):
@@ -2286,6 +2523,19 @@ class StardewAgent:
             season = time_data.get("season", "spring")
             if day > 0 and (day != self.rusty_memory.current_day or season != self.rusty_memory.current_season):
                 self.rusty_memory.start_session(day, season)
+
+        # Daily planning - trigger new day plan when day changes
+        if self.daily_planner:
+            time_data = state.get("time", {})
+            day = time_data.get("day", 0)
+            season = time_data.get("season", "spring")
+            if day > 0 and day != self._last_planned_day:
+                logging.info(f"🌅 New day detected: Day {day} - generating plan...")
+                # Pass VLM reasoning function if available
+                reason_fn = self._vlm_reason if hasattr(self, '_vlm_reason') else None
+                plan_summary = self.daily_planner.start_new_day(day, season, state, reason_fn)
+                logging.info(f"📋 Daily plan:\n{plan_summary}")
+                self._last_planned_day = day
 
         if hasattr(self.controller, "get_surroundings"):
             try:
@@ -2923,6 +3173,12 @@ Recent: {recent}"""
             rusty_context = self.rusty_memory.get_context_for_prompt()
             if rusty_context:
                 result += f"\n\n--- RUSTY ---\n{rusty_context}"
+
+        # Add daily plan context (task awareness)
+        if self.daily_planner and self.daily_planner.tasks:
+            plan_context = self.daily_planner.get_plan_summary()
+            if plan_context:
+                result += f"\n\n--- TODAY'S PLAN ---\n{plan_context}"
 
         return result
 

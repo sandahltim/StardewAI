@@ -359,6 +359,14 @@ function updateStatus(status) {
   const farmingCycleProgress = document.getElementById("farmingCycleProgress");
   const farmingCycleTasks = document.getElementById("farmingCycleTasks");
   const farmingCycleHistory = document.getElementById("farmingCycleHistory");
+  const dailyPlanMeta = document.getElementById("dailyPlanMeta");
+  const dailyPlanFocus = document.getElementById("dailyPlanFocus");
+  const dailyPlanTodo = document.getElementById("dailyPlanTodo");
+  const dailyPlanDone = document.getElementById("dailyPlanDone");
+  const dailyPlanFill = document.getElementById("dailyPlanFill");
+  const dailyPlanPercent = document.getElementById("dailyPlanPercent");
+  const actionFailureList = document.getElementById("actionFailureList");
+  const actionFailureStats = document.getElementById("actionFailureStats");
 
   const formatDuration = (seconds) => {
     if (!Number.isFinite(seconds) || seconds <= 0) return "-";
@@ -1495,6 +1503,105 @@ function init() {
     }
   };
 
+  const updateDailyPlan = (payload) => {
+    if (!dailyPlanMeta || !dailyPlanFocus || !dailyPlanTodo) return;
+    const tasks = Array.isArray(payload?.tasks) ? payload.tasks : [];
+    if (!payload || !tasks.length) {
+      dailyPlanMeta.textContent = "No plan yet.";
+      dailyPlanFocus.textContent = "-";
+      dailyPlanTodo.innerHTML = "<li>None</li>";
+      if (dailyPlanDone) dailyPlanDone.textContent = "Done: 0";
+      if (dailyPlanFill) dailyPlanFill.style.width = "0%";
+      if (dailyPlanPercent) dailyPlanPercent.textContent = "0% complete";
+      return;
+    }
+
+    const day = payload.day ?? "-";
+    const season = payload.season ?? "-";
+    dailyPlanMeta.textContent = `Day ${day} · ${season}`;
+
+    const focus = payload.focus || tasks.find((t) => t.status === "in_progress")?.description;
+    dailyPlanFocus.textContent = focus || "None";
+
+    const pending = tasks.filter((t) => t.status === "pending" || t.status === "in_progress");
+    dailyPlanTodo.innerHTML = "";
+    if (!pending.length) {
+      const item = document.createElement("li");
+      item.textContent = "None";
+      dailyPlanTodo.append(item);
+    } else {
+      pending.forEach((task) => {
+        const item = document.createElement("li");
+        const priority = Number(task.priority || 4);
+        const marker = priority === 1 ? "!!" : priority === 2 ? "!" : priority === 3 ? "•" : "·";
+        item.textContent = `${marker} ${task.description}`;
+        if (task.status === "in_progress") item.classList.add("active");
+        dailyPlanTodo.append(item);
+      });
+    }
+
+    const stats = payload.stats || {};
+    const total = Number(stats.total ?? tasks.length);
+    const completed = Number(stats.completed ?? 0);
+    const percent = total ? Math.round((completed / total) * 100) : 0;
+    if (dailyPlanDone) dailyPlanDone.textContent = `Done: ${completed}`;
+    if (dailyPlanFill) dailyPlanFill.style.width = `${percent}%`;
+    if (dailyPlanPercent) dailyPlanPercent.textContent = `${percent}% complete`;
+  };
+
+  const updateActionFailures = (payload) => {
+    if (!actionFailureList || !actionFailureStats) return;
+    const recent = Array.isArray(payload?.recent_failures) ? payload.recent_failures : [];
+    actionFailureList.innerHTML = "";
+    if (!recent.length) {
+      const item = document.createElement("li");
+      item.textContent = "None";
+      actionFailureList.append(item);
+    } else {
+      recent.slice(0, 5).forEach((entry) => {
+        const item = document.createElement("li");
+        const reason = entry.reason ? ` (${entry.reason})` : "";
+        item.textContent = `${entry.action}: ${entry.count}x${reason}`;
+        actionFailureList.append(item);
+      });
+    }
+
+    const stats = Array.isArray(payload?.stats) ? payload.stats : [];
+    actionFailureStats.innerHTML = "";
+    if (!stats.length) {
+      const empty = document.createElement("div");
+      empty.className = "action-failure__bar empty";
+      empty.textContent = "No data yet";
+      actionFailureStats.append(empty);
+      return;
+    }
+    const maxTotal = Math.max(...stats.map((entry) => Number(entry.total || 0)), 1);
+    stats.slice(0, 6).forEach((entry) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "action-failure__bar";
+      const label = document.createElement("div");
+      label.className = "action-failure__label";
+      label.textContent = entry.action;
+      const track = document.createElement("div");
+      track.className = "action-failure__track";
+      const fill = document.createElement("div");
+      fill.className = "action-failure__fill";
+      const rate = Math.round(Number(entry.success_rate || 0) * 100);
+      if (rate < 50) {
+        fill.classList.add("danger");
+      } else if (rate < 80) {
+        fill.classList.add("warn");
+      }
+      fill.style.width = `${Math.round((Number(entry.total || 0) / maxTotal) * 100)}%`;
+      track.append(fill);
+      const meta = document.createElement("div");
+      meta.className = "action-failure__meta";
+      meta.textContent = `${rate}% success · ${entry.fail} fail`;
+      wrapper.append(label, track, meta);
+      actionFailureStats.append(wrapper);
+    });
+  };
+
   const updateCropStatus = (crops) => {
     if (!cropStatus || !cropStatusNote) return;
     cropStatus.classList.remove("ok", "warn");
@@ -2178,6 +2285,24 @@ function init() {
       })
       .catch(() => {
         updateLessons({ lessons: [], count: 0 });
+      });
+
+    fetch("/api/daily-plan")
+      .then((res) => res.json())
+      .then((payload) => {
+        updateDailyPlan(payload);
+      })
+      .catch(() => {
+        updateDailyPlan(null);
+      });
+
+    fetch("/api/action-failures?limit=50&lesson_limit=10")
+      .then((res) => res.json())
+      .then((payload) => {
+        updateActionFailures(payload);
+      })
+      .catch(() => {
+        updateActionFailures(null);
       });
 
     fetch("/api/rusty/memory")

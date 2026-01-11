@@ -44,6 +44,11 @@ try:
 except Exception:  # pragma: no cover - optional for UI
     get_rusty_memory = None
 
+try:
+    from memory.daily_planner import get_daily_planner
+except Exception:  # pragma: no cover - optional for UI
+    get_daily_planner = None
+
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
@@ -416,6 +421,55 @@ def _write_rusty_state(payload: Dict[str, Any]) -> Dict[str, Any]:
     RUSTY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     RUSTY_STATE_PATH.write_text(json.dumps(payload, indent=2))
     return payload
+
+
+def _summarize_action_failures(limit: int = 50, lesson_limit: int = 10) -> Dict[str, Any]:
+    events = storage.list_session_events(limit=limit, event_type="action")
+    stats: Dict[str, Dict[str, int]] = {}
+    for event in events:
+        data = event.get("data") or {}
+        action = data.get("action_type") or data.get("action") or data.get("type")
+        success = data.get("success")
+        if not action:
+            continue
+        entry = stats.setdefault(action, {"success": 0, "fail": 0, "total": 0})
+        entry["total"] += 1
+        if success is False:
+            entry["fail"] += 1
+        else:
+            entry["success"] += 1
+
+    stats_list = []
+    for action, entry in stats.items():
+        total = entry["total"] or 1
+        rate = entry["success"] / total
+        stats_list.append({
+            "action": action,
+            "success": entry["success"],
+            "fail": entry["fail"],
+            "total": entry["total"],
+            "success_rate": rate,
+        })
+    stats_list.sort(key=lambda item: (item["total"], item["success_rate"]), reverse=True)
+
+    lessons_data = _read_lessons().get("lessons", [])
+    lessons = lessons_data[-lesson_limit:] if isinstance(lessons_data, list) else []
+    failure_counts: Dict[str, Dict[str, Any]] = {}
+    for lesson in lessons:
+        attempted = lesson.get("attempted") or lesson.get("action") or "unknown"
+        blocked_by = lesson.get("blocked_by") or lesson.get("blocker") or "unknown"
+        key = f"{attempted}::{blocked_by}"
+        entry = failure_counts.setdefault(key, {
+            "action": attempted,
+            "reason": blocked_by,
+            "count": 0,
+        })
+        entry["count"] += 1
+
+    recent_failures = list(failure_counts.values())
+    recent_failures.sort(key=lambda item: item["count"], reverse=True)
+
+    return {"recent_failures": recent_failures, "stats": stats_list}
 
 
 async def _watch_farm_plan() -> None:
@@ -974,6 +1028,19 @@ async def update_rusty_memory_api(payload: Dict[str, Any]) -> Dict[str, Any]:
     updated = _write_rusty_state(payload)
     await manager.broadcast("rusty_memory_updated", updated)
     return updated
+
+
+@app.get("/api/daily-plan")
+def get_daily_plan() -> Dict[str, Any]:
+    if get_daily_planner is None:
+        raise HTTPException(status_code=503, detail="Daily planner unavailable")
+    planner = get_daily_planner()
+    return planner.to_api_format()
+
+
+@app.get("/api/action-failures")
+def get_action_failures(limit: int = 50, lesson_limit: int = 10) -> Dict[str, Any]:
+    return _summarize_action_failures(limit=limit, lesson_limit=lesson_limit)
 
 
 @app.get("/api/spatial-map")
