@@ -1636,6 +1636,13 @@ class ModBridgeController:
             elif action_type in ("toolbar_prev", "toolbar_left"):
                 return self._send_action({"action": "toolbar_prev"})
 
+            elif action_type == "ship":
+                slot = action.params.get("slot", -1)
+                return self._send_action({
+                    "action": "ship",
+                    "slot": slot
+                })
+
             # Fallback for unknown actions
             logging.warning(f"Unknown action for ModBridge: {action_type}")
             return False

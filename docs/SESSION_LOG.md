@@ -4,6 +4,58 @@ Coordination log between Claude (agent/prompt) and Codex (UI/memory).
 
 ---
 
+## 2026-01-11 - Session 50: Shipping Workflow Complete
+
+**Agent: Claude (Opus)**
+
+### Major Progress
+
+1. **Shipping Override - Aggressive Mode** ✅
+   - Changed from blocklist (only catching till/clear) to allowlist
+   - Now overrides ALL actions except critical ones when sellables exist
+   - VLM can't escape to random tasks - forced to ship first
+   - File: `unified_agent.py:2739-2807`
+
+2. **SMAPI Movement - Synchronous** ✅
+   - Root cause: `setMoving()` flags need game loop processing
+   - If game window unfocused, game pauses → movement stops
+   - Fix: Direct `player.Position` teleport with collision check
+   - Now works reliably regardless of window focus
+   - File: `ActionExecutor.cs:164-214`
+
+3. **ship_item Skill Fix** ✅
+   - Was using `interact` action (doesn't ship items)
+   - Changed to `ship: -1` (uses currently selected slot)
+   - File: `skills/definitions/farming.yaml:378-380`
+
+4. **ModBridgeController - Added ship Handler** ✅
+   - Controller didn't have case for `ship` action
+   - Added handler that sends to SMAPI mod
+   - File: `unified_agent.py:1639-1643`
+
+### Test Results
+- Agent successfully shipped 14 Parsnips
+- Override triggered: `📦 OVERRIDE: At shipping bin (dist=1) → ship_item`
+- Skill executed correctly with new `ship` action
+- Money increases at end of day (shipped items go to bin)
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `unified_agent.py` | Shipping override (aggressive), ship action handler |
+| `ActionExecutor.cs` | Synchronous movement (direct teleport) |
+| `farming.yaml` | ship_item skill uses ship action |
+
+### Key Insight
+Movement was failing because the game loop wasn't processing `setMoving()` flags when window lost focus. The game literally pauses. Solution: bypass the movement system entirely with direct position assignment.
+
+### Next Session
+- Test buy seeds flow
+- Multi-day autonomy test
+- Full farming loop: water → harvest → ship → buy → plant
+
+---
+
 ## 2026-01-10 - Session 45: Bug Fixes + Positioning Discovery
 
 **Agent: Claude (Opus)**

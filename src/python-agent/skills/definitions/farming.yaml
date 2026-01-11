@@ -378,7 +378,7 @@ ship_item:
   actions:
     - select_item_type: crop  # Auto-select first crop to ship
     - face: "{target_direction}"
-    - interact  # Places held item in bin
+    - ship: -1  # Ship currently selected item (slot -1 = use current)
 
   on_success:
     message: "Shipped {item_name} - will sell overnight"

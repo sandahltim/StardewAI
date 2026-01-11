@@ -174,8 +174,10 @@ public class ActionExecutor
         var start = player.TilePoint;
         var delta = GetDirectionDelta(facing);
 
-        // Build path, checking passability for each tile
-        _currentPath = new List<Point> { start };
+        // Find how far we can actually move (check passability)
+        int actualTiles = 0;
+        Point finalTile = start;
+        
         for (int i = 1; i <= tiles; i++)
         {
             var nextTile = new Point(start.X + delta.X * i, start.Y + delta.Y * i);
@@ -184,16 +186,15 @@ public class ActionExecutor
             // Check if tile is passable
             if (!location.isTilePassable(tileLocation, Game1.viewport))
             {
-                _monitor.Log($"Tile ({nextTile.X}, {nextTile.Y}) is blocked, stopping path", LogLevel.Debug);
+                _monitor.Log($"Tile ({nextTile.X}, {nextTile.Y}) is blocked, stopping at {actualTiles} tiles", LogLevel.Debug);
                 break;
             }
-            _currentPath.Add(nextTile);
+            actualTiles++;
+            finalTile = nextTile;
         }
 
-        int actualTiles = _currentPath.Count - 1;
         if (actualTiles == 0)
         {
-            _state = ActionState.Complete;
             return new ActionResult
             {
                 Success = false,
@@ -202,14 +203,21 @@ public class ActionExecutor
             };
         }
 
-        _pathIndex = 1; // Skip current position
-        _state = ActionState.MovingToTarget;
+        // SYNCHRONOUS MOVEMENT: Move directly to final tile (like WarpTo but with collision check)
+        // This ensures movement works even when game loop isn't processing setMoving flags
+        player.FacingDirection = facing;
+        player.Halt();
+        player.forceCanMove();
+        player.Position = new Microsoft.Xna.Framework.Vector2(finalTile.X * 64f, finalTile.Y * 64f);
+        
+        _monitor.Log($"Moved {direction} {actualTiles} tiles to ({finalTile.X}, {finalTile.Y})", LogLevel.Debug);
+        _state = ActionState.Complete;
 
         return new ActionResult
         {
             Success = true,
-            Message = $"Moving {direction} {actualTiles} tiles",
-            State = ActionState.MovingToTarget
+            Message = $"Moved {direction} {actualTiles} tiles",
+            State = ActionState.Complete
         };
     }
 

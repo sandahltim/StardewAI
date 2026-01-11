@@ -1,7 +1,7 @@
 # StardewAI Team Plan
 
 **Created:** 2026-01-08
-**Last Updated:** 2026-01-10 Session 45
+**Last Updated:** 2026-01-11 Session 50
 **Project Lead:** Claude (Opus) - Agent logic, architecture, coordination
 **UI/Memory:** Codex - User interface, memory systems, state persistence
 **Human Lead:** Tim - Direction, testing, hardware, final decisions
@@ -22,7 +22,7 @@
 
 ---
 
-## Current Status (Session 49)
+## Current Status (Session 50)
 
 ### What's Working
 | Component | Status | Session |
@@ -49,17 +49,18 @@
 | Action Failure UI Panel | ✅ Codex | 44 |
 | Growing Crop Hint Fix | ✅ Fixed | 48 |
 | Harvest Action (proper SMAPI) | ✅ Fixed | 48 |
-| **Shipping Hint System** | ✅ New | 49 |
-| **Priority Action Override** | ⚠️ WIP | 49 |
-| **ship_item Auto-Select** | ✅ Fixed | 49 |
+| Shipping Hint System | ✅ Working | 49 |
+| **Shipping Override (aggressive)** | ✅ Fixed | 50 |
+| **ship_item Skill** | ✅ Fixed | 50 |
+| **Synchronous Movement** | ✅ Fixed | 50 |
 
 ### Current Focus
 | Task | Status |
 |------|--------|
-| Multi-day autonomy test | In progress |
-| **Shipping workflow** | **PRIORITY** - hints work, VLM ignores them |
-| Action override for shipping | ⚠️ Needs expansion |
-| Task completion tracking in planner | Not started |
+| **Shipping workflow** | ✅ COMPLETE |
+| Multi-day autonomy test | Ready to test |
+| Buy seeds flow | Next priority |
+| Full farming loop | In progress |
 
 ---
 

@@ -1,123 +1,111 @@
-# Session 50: Shipping Override Needs Strengthening
+# Session 51: Shipping Complete, Ready for Buy/Plant
 
-**Last Updated:** 2026-01-10 Session 49 by Claude
-**Status:** Shipping hints and override added, VLM still ignores them
-
----
-
-## Session 49 Summary
-
-### What Was Completed
-
-1. **Fixed NOT FARMABLE Hint Logic** ✅
-   - Line 1160-1162: Now calls `_get_done_farming_hint()` instead of static message
-   - This ensures shipping hint appears when on non-farmable ground with sellables
-
-2. **Added Priority Shipping Action** ✅
-   - Lines 1297-1327: New `priority_action` variable added to nav header
-   - Shows `⭐ PRIORITY ACTION: SHIP X CROPS! Move Y north, Z east...`
-   - Appears above tile-specific hints
-
-3. **Added Shipping Action Override** ✅
-   - Lines 2740-2808: New `_fix_priority_shipping()` method
-   - Added to override chain at line 3963
-   - Override logic:
-     - If in FarmHouse with sellables → warp to Farm
-     - If adjacent to bin → face + ship_item
-     - If doing till/clear → override to move toward bin
-
-4. **Fixed Bugs** ✅
-   - `logger.debug` → `logging.debug` (lines 2912, 2915)
-   - `shipping_bin` None handling with `or {}` (lines 1307, 1402, 2776)
-
-5. **Fixed ship_item Skill** ✅
-   - Added `select_item_type: crop` before face/interact
-   - Agent now auto-selects first crop when at shipping bin
-   - File: `skills/definitions/farming.yaml:378-381`
-
-### What's NOT Working
-
-**VLM Ignores Shipping Hints**
-- The hints are showing clearly:
-  ```
-  ⭐ PRIORITY ACTION: SHIP 15 CROPS! Move 1 north, 3 east to bin, then ship_item
-  >>> 📦 SHIP 15 CROPS! Move 1 NORTH and 3 EAST to shipping bin, then ship_item <<<
-  ```
-- But VLM says: "There are no visible tilled plots... I need to find farmable ground"
-- VLM outputs `move right` instead of following directions
-
-**Override Not Catching All Cases**
-- Override only triggers for `till_soil`, `clear_*`, `use_tool`
-- VLM is outputting `move` which isn't blocked
-- Need to expand override or change VLM prompt
+**Last Updated:** 2026-01-11 Session 50 by Claude
+**Status:** Shipping workflow fully working, ready for seed buying/planting
 
 ---
 
-## Code Changes This Session
+## Session 50 Summary
 
-| Commit | Files | Description |
-|--------|-------|-------------|
-| (unstaged) | unified_agent.py | Priority action, shipping override, bug fixes |
+### What Was Fixed
 
-### Key Code Locations
+1. **Shipping Override - Aggressive Mode** ✅
+   - Changed from blocklist to allowlist approach
+   - Now overrides ALL actions except: `ship_item`, `go_to_bed`, `harvest`, `water_crop`, `refill_watering_can`, `warp`
+   - VLM can't escape to do random tasks when sellables exist
+   - File: `unified_agent.py:2739-2807`
 
-| Feature | File | Lines |
-|---------|------|-------|
-| Priority action in nav | unified_agent.py | 1297-1327 |
-| `_fix_priority_shipping()` | unified_agent.py | 2740-2808 |
-| Override chain | unified_agent.py | 3960-3965 |
-| Fixed NOT FARMABLE branch | unified_agent.py | 1160-1162 |
+2. **SMAPI Movement - Synchronous** ✅
+   - `MoveDirection()` now teleports directly to target tile
+   - No longer relies on game loop processing `setMoving()` flags
+   - Works even when game window is unfocused
+   - File: `ActionExecutor.cs:164-214`
+
+3. **ship_item Skill - Uses ship Action** ✅
+   - Changed from `interact` (didn't work) to `ship: -1` (uses current slot)
+   - File: `skills/definitions/farming.yaml:378-380`
+
+4. **ModBridgeController - Added ship Handler** ✅
+   - New `elif action_type == "ship":` case
+   - Sends `{"action": "ship", "slot": slot}` to SMAPI
+   - File: `unified_agent.py:1639-1643`
+
+### Test Results
+
+- Agent successfully shipped 14 Parsnips
+- Override triggered correctly: `📦 OVERRIDE: At shipping bin (dist=1) → ship_item`
+- Skill executed: `["select_item_type", "face", "ship"]`
+- Money increases at end of day (shipped items go to bin)
 
 ---
 
-## Game State (End of Session 49)
+## Files Modified (Unstaged)
+
+```
+M src/python-agent/skills/definitions/farming.yaml  # ship_item uses ship action
+M src/python-agent/unified_agent.py                 # shipping override + ship handler
+M src/smapi-mod/StardewAI.GameBridge/ActionExecutor.cs  # synchronous movement
+```
+
+**IMPORTANT:** SMAPI mod was rebuilt - changes already deployed to game.
+
+---
+
+## Game State (End of Session 50)
 
 | Item | Value |
 |------|-------|
-| Day | 14 |
+| Day | 15 |
 | Location | Farm |
-| Position | Near shipping bin (68, 15) |
-| Inventory | 15 Parsnips (slots 5, 10) |
-| Agent | Running but not shipping |
+| Inventory | Parsnips shipped, basic tools |
+| Money | 600g (+ shipping value tomorrow) |
 
 ---
 
 ## Next Session Priorities
 
-### Priority 1: Force VLM to Follow Shipping Directions
+### Priority 1: Test Buy Seeds Flow
 
-Options:
-1. **Expand override**: Catch ALL actions when sellables exist, not just till/clear
-2. **Stronger prompt**: Add "MUST FOLLOW ⭐ PRIORITY ACTION" in system prompt
-3. **Direct action injection**: Bypass VLM entirely when adjacent to bin
+The `buy` action exists and worked in Session 26. Test full flow:
+1. Warp to SeedShop
+2. Buy parsnip seeds (or seasonal seeds)
+3. Return to farm
+4. Plant seeds
 
-### Priority 2: Test Complete Shipping Flow
+```bash
+# Test buy directly
+curl -s -X POST localhost:8790/action -H "Content-Type: application/json" \
+  -d '{"action": "buy", "item": "parsnip seeds", "quantity": 10}'
+```
 
-Once agent reaches bin:
-1. Verify `ship_item` action works
-2. Confirm inventory is cleared
-3. Check gold increases
+### Priority 2: Multi-Day Autonomy Test
 
-### Priority 3: Multi-Day Test
+Now that shipping works, run extended test:
+1. Day starts → water crops
+2. Harvest ready crops
+3. Ship harvested crops
+4. Buy seeds with money
+5. Plant new seeds
+6. Clear debris if time remains
+7. Sleep
 
-After shipping works:
-1. Day 14-15+ autonomous run
-2. Monitor for regressions
-3. Test harvest → ship → clear flow
+### Priority 3: Commit Session 50 Fixes
+
+```bash
+git add -A
+git commit -m "Session 50: Fix shipping workflow (override, movement, skill)"
+```
 
 ---
 
-## Design Philosophy
+## Key Code Locations
 
-**VLM = Planner/Brain, Code = Executor**
-
-The VLM provides high-level decisions. The code handles execution through:
-- **Action overrides**: Catch and fix VLM mistakes
-- **Skills**: Multi-step action sequences
-- **Hint system**: Guide VLM to correct actions
-- **Daily planner**: Task prioritization
-
-**Current Problem**: VLM ignores hints even when shown prominently. Need stronger override or prompt modification.
+| Feature | File | Lines |
+|---------|------|-------|
+| Shipping override | unified_agent.py | 2739-2807 |
+| Ship action handler | unified_agent.py | 1639-1643 |
+| Synchronous movement | ActionExecutor.cs | 164-214 |
+| ship_item skill | farming.yaml | 366-392 |
 
 ---
 
@@ -126,29 +114,22 @@ The VLM provides high-level decisions. The code handles execution through:
 ```bash
 # Run agent
 source venv/bin/activate
-python src/python-agent/unified_agent.py --ui --goal "Ship parsnips"
+python src/python-agent/unified_agent.py --ui --goal "Farm autonomously"
 
-# Check game state
-curl -s localhost:8790/state | jq '{day: .data.time.day, hour: .data.time.hour}'
+# Check state
+curl -s localhost:8790/state | jq '{day: .data.time.day, money: .data.player.money}'
 
-# Check inventory
-curl -s localhost:8790/state | jq '[.data.inventory[] | select(.name == "Parsnip")]'
+# Manual ship test
+curl -s -X POST localhost:8790/action -H "Content-Type: application/json" \
+  -d '{"action": "ship", "slot": 5}'
 
-# Watch agent log
-tail -f /tmp/agent.log | grep -E "OVERRIDE|SHIP|📦|⭐"
+# Manual buy test (must be in SeedShop)
+curl -s -X POST localhost:8790/action -H "Content-Type: application/json" \
+  -d '{"action": "buy", "item": "parsnip seeds", "quantity": 5}'
 ```
 
 ---
 
-## Files Modified (Unstaged)
+*Session 50: Shipping workflow complete. Movement and skill execution fixed.*
 
-```
-M src/python-agent/unified_agent.py  # Priority action, shipping override
-M docs/NEXT_SESSION.md               # This file
-```
-
----
-
-*Session 49: Shipping hints working but VLM ignores them. Override added but needs strengthening.*
-
-*— Claude (PM), Session 49*
+*— Claude (PM), Session 50*
