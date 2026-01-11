@@ -18,7 +18,7 @@ class CommentaryGenerator:
         self._session_crops_planted = 0
         self._session_crops_watered = 0
         self._session_debris_cleared = 0
-        self._last_templates: Dict[str, str] = {}  # Track last template per tag to avoid repeats
+        self._recent_templates: Dict[str, List[str]] = {}  # Track last 3 templates per tag to avoid repeats
 
     def set_personality(self, personality: str) -> None:
         if personality in PERSONALITIES:
@@ -43,15 +43,23 @@ class CommentaryGenerator:
             self._action_counts[action] = self._action_counts.get(action, 0) + 1
             self._update_session_stats(action)
 
-        # Select appropriate tag and template (avoid immediate repeats)
+        # Select appropriate tag and template (avoid recent repeats)
         tag = self._select_tag(action, state, ctx)
         options = personality.get(tag) or personality.get("action") or ["{action}."]
 
-        # Avoid repeating the last template for this tag
-        last_used = self._last_templates.get(tag)
-        available = [t for t in options if t != last_used] if len(options) > 1 else options
+        # Avoid repeating any of the last 3 templates for this tag (TTS reads every 4th)
+        recent = self._recent_templates.get(tag, [])
+        available = [t for t in options if t not in recent]
+        if not available:  # All options recently used, reset
+            available = options
+            recent = []
         template = random.choice(available)
-        self._last_templates[tag] = template
+
+        # Track last 3 templates
+        recent.append(template)
+        if len(recent) > 3:
+            recent.pop(0)
+        self._recent_templates[tag] = recent
 
         # Format with rich context
         text = self._format_template(template, ctx)
