@@ -194,16 +194,16 @@ class CellFarmingCoordinator:
             ))
             logger.debug(f"Cell ({cell.x},{cell.y}): Till soil")
 
-        # Plant seed if needed
+        # Plant seed if needed - use select_slot (not select_item)
         if cell.needs_plant:
             actions.append(CellAction(
-                action_type="select_item",
-                params={"item": cell.seed_type},
+                action_type="select_slot",
+                params={"slot": cell.seed_slot},
             ))
             actions.append(CellAction(
                 action_type="use_tool",
             ))
-            logger.debug(f"Cell ({cell.x},{cell.y}): Plant {cell.seed_type}")
+            logger.debug(f"Cell ({cell.x},{cell.y}): Plant {cell.seed_type} from slot {cell.seed_slot}")
 
         # Water if needed
         if cell.needs_water:
@@ -216,7 +216,7 @@ class CellFarmingCoordinator:
             ))
             logger.debug(f"Cell ({cell.x},{cell.y}): Water")
 
-        logger.info(f"CellCoordinator: Cell ({cell.x},{cell.y}) needs {len(actions)} actions")
+        logger.info(f"🌱 Cell ({cell.x},{cell.y}) needs {len(actions)} actions")
 
         return actions
 

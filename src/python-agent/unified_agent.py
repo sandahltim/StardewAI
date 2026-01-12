@@ -2835,18 +2835,26 @@ class StardewAgent:
                 logging.warning("🌱 Cell farming: No farm state available")
                 return False
 
-            # Count seeds in inventory
+            # Count seeds in inventory and find seed slot
             data = game_state.get("data") or game_state
             inventory = data.get("inventory", [])
-            seed_items = [item for item in inventory if item and "seed" in item.get("name", "").lower()]
-            if not seed_items:
+            
+            # Find first seed item and its slot index
+            seed_slot = None
+            seed_type = "Parsnip Seeds"
+            total_seeds = 0
+            for i, item in enumerate(inventory):
+                if item and "seed" in item.get("name", "").lower():
+                    if seed_slot is None:
+                        seed_slot = i
+                        seed_type = item.get("name", "Parsnip Seeds")
+                    total_seeds += item.get("stack", 1)
+            
+            if seed_slot is None:
                 logging.warning("🌱 Cell farming: No seeds in inventory")
                 return False
 
-            total_seeds = sum(item.get("stack", 1) for item in seed_items)
-            seed_type = seed_items[0].get("name", "Parsnip Seeds")  # Use first seed type
-
-            logging.info(f"🌱 Cell farming: Surveying farm for {total_seeds} {seed_type}")
+            logging.info(f"🌱 Cell farming: Surveying farm for {total_seeds} {seed_type} (slot {seed_slot})")
 
             # Survey and create plan
             surveyor = get_farm_surveyor()
@@ -2854,6 +2862,7 @@ class StardewAgent:
                 farm_state=farm_state,
                 seed_count=total_seeds,
                 seed_type=seed_type,
+                seed_slot=seed_slot,
             )
 
             if not self._cell_farming_plan or not self._cell_farming_plan.cells:

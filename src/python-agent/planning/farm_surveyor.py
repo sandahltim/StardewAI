@@ -54,6 +54,7 @@ class CellPlan:
     debris_type: Optional[str] = None
     clear_tool_slot: int = 4  # Default to scythe
     seed_type: str = "Parsnip Seeds"
+    seed_slot: int = 5  # Inventory slot containing seeds
     patch_id: int = 0
     target_direction: str = "north"  # Direction to face when working
 
@@ -354,6 +355,7 @@ class FarmSurveyor:
         farm_state: Dict[str, Any],
         seed_count: int,
         seed_type: str = "Parsnip Seeds",
+        seed_slot: int = 5,
     ) -> CellFarmingPlan:
         """
         Create complete cell farming plan.
@@ -365,6 +367,7 @@ class FarmSurveyor:
             farm_state: Response from /farm endpoint
             seed_count: Number of seeds to plant
             seed_type: Type of seeds to assign to cells
+            seed_slot: Inventory slot containing seeds
 
         Returns:
             CellFarmingPlan with ordered cells
@@ -375,10 +378,11 @@ class FarmSurveyor:
         # Find optimal cells
         cells = self.find_optimal_cells(tiles, seed_count)
 
-        # Assign seed type and calculate estimates
+        # Assign seed type/slot and calculate estimates
         total_energy = 0
         for cell in cells:
             cell.seed_type = seed_type
+            cell.seed_slot = seed_slot
             # Energy estimate: clear(2) + till(2) + plant(0) + water(2)
             energy = 0
             if cell.needs_clear:
@@ -400,7 +404,7 @@ class FarmSurveyor:
         )
 
         logger.info(f"FarmSurveyor: Created plan with {len(cells)} cells, "
-                   f"energy={total_energy}, time={estimated_time}s")
+                   f"energy={total_energy}, time={estimated_time}s, seed_slot={seed_slot}")
 
         return plan
 
