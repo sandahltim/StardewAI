@@ -70,16 +70,29 @@ if yesterday and yesterday.get("lessons"):
     context += f"Yesterday's lessons: {yesterday['lessons']}"
 ```
 
-### 3. Re-Survey Loop Bug
+### 3. Re-Survey Loop Bug - ✅ FIXED (Session 69)
 
-**Symptom:** Agent keeps re-surveying and selecting same tree-blocked cells.
+**Fix:** Added `_cell_farming_done_today` flag to prevent re-survey after completion.
+- Flag set True when cell farming finishes
+- Reset to False on new day
+- Checked before starting new coordinator
 
-**Root Cause:** After skipping cells, coordinator completes but surveyor doesn't know those cells failed. Next survey selects them again.
+### 4. Agent Stability Issue (NEW)
 
-**Fix Options:**
-1. Persist skipped cells to file, exclude from next survey
-2. Mark tiles as "blocked" in FarmSurveyor
-3. Add cooldown before re-survey
+**Symptom:** Agent crashes or freezes during cell farming. Stats show 2/15 cells but agent stopped.
+
+**Investigation needed for Session 70:**
+- Check navigation stuck detection
+- Look for exceptions in agent logs
+- May need timeout handling or crash recovery
+
+### 5. Inventory Manager - ✅ Codex Complete
+
+New module `execution/inventory_manager.py` for dynamic slot lookup.
+- `find_seeds()` - Find all seed items
+- `find_tool()` - Find tools regardless of slot
+- `get_seed_priority()` - Best seed to plant
+- `get_tool_mapping()` - Actual tool→slot mapping
 
 ---
 

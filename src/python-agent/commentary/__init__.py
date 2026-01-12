@@ -14,6 +14,7 @@ from .rusty_character import (
     get_voice_list,
 )
 from .tts import PiperTTS
+from .async_worker import AsyncCommentaryWorker
 
 # Legacy exports for backward compatibility
 # These now map to the new voice system
@@ -24,6 +25,7 @@ PERSONALITIES = {}  # Empty - templates are gone
 __all__ = [
     "CommentaryGenerator",
     "PiperTTS",
+    "AsyncCommentaryWorker",
     # New exports
     "RUSTY_CHARACTER",
     "INNER_MONOLOGUE_PROMPT", 

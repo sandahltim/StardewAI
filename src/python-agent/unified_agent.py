@@ -83,16 +83,12 @@ except ImportError:
     HAS_CONSTANTS = False
 
 try:
-    from commentary import CommentaryGenerator, PiperTTS, INNER_MONOLOGUE_PROMPT
+    from commentary import AsyncCommentaryWorker, INNER_MONOLOGUE_PROMPT
     HAS_COMMENTARY = True
 except ImportError:
-    CommentaryGenerator = None
-    PiperTTS = None
+    AsyncCommentaryWorker = None
     INNER_MONOLOGUE_PROMPT = ""
     HAS_COMMENTARY = False
-
-# TEMPORARY: Disable TTS - it's interfering with agent
-HAS_COMMENTARY = False
 
 try:
     from planning import PlotManager
@@ -1947,8 +1943,8 @@ class StardewAgent:
         self.last_surroundings: Optional[Dict[str, Any]] = None
         self.ui = None
         self.ui_enabled = False
-        self.commentary_generator = CommentaryGenerator() if HAS_COMMENTARY and CommentaryGenerator else None
-        self.commentary_tts = PiperTTS() if HAS_COMMENTARY and PiperTTS else None
+        # Async commentary worker - runs in background thread
+        self.commentary_worker = None  # Initialized after UI is set up
         self.last_mood: str = ""
 
         # Obstacle failure tolerance - give up on unclearable blockers
@@ -2217,6 +2213,17 @@ class StardewAgent:
             logging.warning(f"UI disabled: {exc}")
             self.ui = None
             self.ui_enabled = False
+            
+        # Start async commentary worker (runs in background thread)
+        if HAS_COMMENTARY and AsyncCommentaryWorker and self.ui_enabled:
+            try:
+                ui_callback = lambda **kw: self._ui_safe(self.ui.update_commentary, **kw)
+                self.commentary_worker = AsyncCommentaryWorker(ui_callback=ui_callback)
+                self.commentary_worker.start()
+                logging.info("Commentary worker started")
+            except Exception as exc:
+                logging.warning(f"Commentary disabled: {exc}")
+                self.commentary_worker = None
 
     def _ui_safe(self, func, *args, **kwargs) -> Optional[Dict[str, Any]]:
         if not self.ui_enabled or not self.ui:
@@ -3983,101 +3990,29 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
                     f"{summary['cells_skipped']} skipped, {len(lessons)} lessons")
 
     def _send_commentary(self, action: Action, success: bool) -> None:
-        if not self.ui_enabled or not self.ui or not self.commentary_generator:
+        """Push commentary event to background worker (non-blocking)."""
+        if not self.commentary_worker:
             return
-
-        # Track commentary count for TTS throttling
-        if not hasattr(self, '_commentary_count'):
-            self._commentary_count = 0
-        self._commentary_count += 1
-
+            
+        # Build minimal state for commentary
         state = self.last_state or {}
-        stats = {
-            "crops_harvested_count": self.crops_harvested_count,
-            "crops_watered_count": self.crops_watered_count,
-            "distance_traveled": self.distance_traveled,
-            "action_count": self.action_count,
+        state_data = {
+            "stats": {
+                "crops_harvested_count": self.crops_harvested_count,
+                "crops_watered_count": self.crops_watered_count,
+                "distance_traveled": self.distance_traveled,
+                "action_count": self.action_count,
+            },
+            "location": state.get("location", {}).get("name", ""),
+            "crops": state.get("location", {}).get("crops", []),
         }
-        state_data = dict(state)
-        state_data["stats"] = stats
-
-        # Ensure location is top-level for generator
-        loc_data = state.get("location") or {}
-        if loc_data.get("name") and "location" not in state_data:
-            state_data["location"] = loc_data.get("name")
-        state_data["crops"] = loc_data.get("crops") or []
-        if self.plot_manager and self.plot_manager.is_active():
-            active_state = self.plot_manager.farm_plan.get_active_state() if self.plot_manager.farm_plan else None
-            state_data["farm_plan"] = {
-                "active": True,
-                "phase": active_state.phase.value if active_state else None,
-            }
-        personality = None
-        tts_enabled = None
-        volume = None
-        voice_override = None
-        try:
-            settings = self.ui.get_commentary()
-            personality = settings.get("personality")
-            tts_enabled = settings.get("tts_enabled")
-            volume = settings.get("volume")
-            voice_override = settings.get("voice")  # Manual voice override from UI
-        except Exception:
-            settings = {}
-
-        if personality:
-            self.commentary_generator.set_voice(personality)
-
-        # Get display text for UI (can show same thing repeatedly)
-        ui_text = self.commentary_generator.get_display_text(
-            action.action_type, 
-            state_data, 
-            vlm_monologue=self.last_mood or ""
-        )
         
-        # Get TTS text - only returns content if it's NEW (won't repeat)
-        tts_text = self.commentary_generator.generate(
-            action.action_type,
-            state_data,
-            vlm_monologue=self.last_mood or ""
+        # Push to worker queue (non-blocking)
+        self.commentary_worker.push(
+            action_type=action.action_type,
+            state=state_data,
+            vlm_monologue=self.last_mood or "",
         )
-        
-        if tts_text:
-            logging.info(f"💭 Rusty (new): {tts_text[:80]}...")
-
-        self._ui_safe(
-            self.ui.update_commentary,
-            text=ui_text,
-            personality=self.commentary_generator.personality,
-            tts_enabled=tts_enabled,
-            volume=volume,
-        )
-
-        # TTS: Only speak if we have NEW content (tts_text non-empty)
-        if not hasattr(self, '_last_tts_time'):
-            self._last_tts_time = 0
-        import time
-        current_time = time.time()
-        tts_cooldown = 4.0  # Minimum seconds between TTS
-
-        # Only speak if: TTS enabled, we have NEW text, and cooldown passed
-        if tts_enabled and self.commentary_tts and tts_text and (current_time - self._last_tts_time) >= tts_cooldown:
-            try:
-                # Clean text for TTS - remove special chars that get read aloud
-                import re
-                clean_text = re.sub(r'["\'\*\_\#\`\[\]\(\)\{\}]', '', tts_text)
-                clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-
-                # Get voice: UI override > personality mapping > default
-                voice = voice_override
-                if not voice and self.commentary_generator:
-                    voice = self.commentary_generator.get_voice()
-
-                self.commentary_tts.speak(clean_text, voice=voice)
-                self._last_tts_time = current_time
-                logging.info(f"🔊 TTS: {clean_text[:50]}...")
-            except Exception:
-                pass
 
     def _check_memory_triggers(self, result: ThinkResult, game_day: str = "") -> None:
         """Check for events that should trigger memory storage."""
@@ -5179,6 +5114,8 @@ Recent: {recent}"""
     def stop(self):
         """Stop the agent."""
         self.running = False
+        if self.commentary_worker:
+            self.commentary_worker.stop()
 
 
 # =============================================================================
