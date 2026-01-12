@@ -44,7 +44,7 @@ class PiperTTS:
         return None
 
     def speak(self, text: str, voice: Optional[str] = None) -> bool:
-        """Speak text using Piper TTS. Returns True if successful."""
+        """Speak text using Piper TTS (non-blocking). Returns True if started."""
         if not self.available or not self.enabled:
             return False
 
@@ -57,11 +57,12 @@ class PiperTTS:
             if alt_model:
                 model = alt_model
 
+        # Non-blocking: use Popen instead of run so agent doesn't wait for speech
         cmd = f'echo "{safe_text}" | {self.piper_path} --model {model} --output-raw | aplay -r 22050 -f S16_LE -q'
         try:
-            subprocess.run(cmd, shell=True, check=False, timeout=30)
+            subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True
-        except subprocess.TimeoutExpired:
+        except Exception:
             return False
 
     def toggle(self, enabled: bool) -> None:
