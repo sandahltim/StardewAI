@@ -1183,15 +1183,18 @@ function init() {
     const personalities = Array.isArray(data) ? data : (data.personalities || []);
     const voices = data.voices || [];
     voiceMappings = data.voice_mappings || {};
+    const voiceDescriptions = data.voice_descriptions || {};
 
-    // Populate personality dropdown
+    // Populate voice selection dropdown (was "personality", now cosmetic voice choice)
     if (commentaryPersonality) {
       commentaryPersonality.innerHTML = "";
       const pList = personalities.length ? personalities : defaultPersonalities;
       pList.forEach((p) => {
         const option = document.createElement("option");
         option.value = p;
-        option.textContent = p;
+        // Use description if available, otherwise capitalize the key
+        const desc = voiceDescriptions[p];
+        option.textContent = desc ? `${p.charAt(0).toUpperCase() + p.slice(1)} - ${desc}` : p;
         commentaryPersonality.append(option);
       });
     }
