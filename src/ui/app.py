@@ -640,9 +640,14 @@ def _speak_text(text: str, voice: str) -> Dict[str, Any]:
 
     if cache_path.exists():
         try:
-            subprocess.run([APLAYER_CMD, str(cache_path)], check=True)
+            # Non-blocking playback - don't wait for audio to finish
+            subprocess.Popen(
+                [APLAYER_CMD, str(cache_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
             return {"ok": True, "output": str(cache_path), "voice": voice, "cached": True}
-        except subprocess.CalledProcessError as exc:
+        except Exception as exc:
             return {"ok": False, "error": f"TTS playback failed: {exc}"}
 
     try:
@@ -656,14 +661,19 @@ def _speak_text(text: str, voice: str) -> Dict[str, Any]:
         if model_info["config"]:
             command.extend(["--config", str(model_info["config"])])
         subprocess.run(command, input=text.encode("utf-8"), check=True)
-        subprocess.run([APLAYER_CMD, str(cache_path)], check=True)
+        # Non-blocking playback - don't wait for audio to finish
+        subprocess.Popen(
+            [APLAYER_CMD, str(cache_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
         try:
             shutil.copyfile(cache_path, output_path)
         except OSError:
             pass
         return {"ok": True, "output": str(cache_path), "voice": voice, "cached": False}
     except subprocess.CalledProcessError as exc:
-        return {"ok": False, "error": f"TTS command failed: {exc}"}
+        return {"ok": False, "error": f"TTS generation failed: {exc}"}
 
 
 @app.on_event("startup")

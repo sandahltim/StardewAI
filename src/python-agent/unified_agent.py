@@ -1946,6 +1946,10 @@ class StardewAgent:
         # Async commentary worker - runs in background thread
         self.commentary_worker = None  # Initialized after UI is set up
         self.last_mood: str = ""
+        # Commentary settings cache - avoid HTTP calls on every tick
+        self._commentary_settings_cache: Dict[str, Any] = {}
+        self._commentary_settings_last_fetch: float = 0.0
+        self._commentary_settings_ttl: float = 30.0  # Refresh every 30 seconds
 
         # Obstacle failure tolerance - give up on unclearable blockers
         # Key: (location, tile_x, tile_y, blocker_type) -> attempt count
@@ -3993,18 +3997,24 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
         """Push commentary event to background worker (non-blocking)."""
         if not self.commentary_worker:
             return
-        
-        # Sync UI settings to worker (periodically)
+
+        # Sync UI settings to worker (cached - only fetch every 30s)
+        now = time.time()
         if self.ui_enabled and self.ui:
-            try:
-                settings = self.ui.get_commentary()
+            if now - self._commentary_settings_last_fetch > self._commentary_settings_ttl:
+                try:
+                    self._commentary_settings_cache = self.ui.get_commentary()
+                    self._commentary_settings_last_fetch = now
+                except Exception:
+                    pass  # Don't block agent on UI failures
+
+            # Apply cached settings to worker
+            if self._commentary_settings_cache:
                 self.commentary_worker.set_settings(
-                    tts_enabled=settings.get("tts_enabled"),
-                    voice=settings.get("voice") or settings.get("personality"),
-                    volume=settings.get("volume"),
+                    tts_enabled=self._commentary_settings_cache.get("tts_enabled"),
+                    voice=self._commentary_settings_cache.get("voice") or self._commentary_settings_cache.get("personality"),
+                    volume=self._commentary_settings_cache.get("volume"),
                 )
-            except Exception:
-                pass  # Don't block agent on UI failures
             
         # Build minimal state for commentary
         state = self.last_state or {}
