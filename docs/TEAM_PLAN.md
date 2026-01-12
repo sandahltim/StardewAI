@@ -517,3 +517,31 @@ Final Logic- day starts- Rusty plans his day and creates todo list from day befo
 | slot detection | unified_agent.py | 2837-2864 |
 
 *Updated Session 66 — Claude (PM)*
+
+---
+
+## Session 67 Highlights
+
+**Obstacle Clearing During Navigation:**
+- Detect blockers via `/surroundings` endpoint after 2 stuck attempts
+- Clear debris (Weeds, Stone, Twig, Wood, Grass) with correct tool
+- Skip non-clearable obstacles (Tree, Boulder, Stump, Log) immediately
+- New helper method `_execute_obstacle_clear()` for face→tool→swing sequence
+
+**Test Results:**
+- 9/15 seeds planted (60%) vs 1/15 before (7%)
+- **9x improvement** from Session 66
+
+**Code Locations:**
+| Feature | File | Lines |
+|---------|------|-------|
+| Clearing state vars | unified_agent.py | 2876-2882 |
+| Blocker detection | unified_agent.py | 2941-2997 |
+| _execute_obstacle_clear | unified_agent.py | 3064-3108 |
+
+**Next Priorities:**
+- Cell grid layout optimization (compact farming pattern)
+- End-of-day summary for morning todo building
+- Full day autonomous test
+
+*Updated Session 67 — Claude (PM)*

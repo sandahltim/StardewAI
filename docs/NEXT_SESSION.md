@@ -1,71 +1,100 @@
-# Session 67: Improve Cell Navigation
+# Session 68: Cell Grid Layout + End-of-Day Summary
 
-**Last Updated:** 2026-01-11 Session 66 by Claude
-**Status:** Seed selection fixed. Navigation blocking most cells.
+**Last Updated:** 2026-01-11 Session 67 by Claude
+**Status:** Obstacle clearing working. 9/15 seeds planted. Ready for full day test.
 
 ---
 
-## Session 66 Summary
+## Session 67 Summary
 
-### Bug Fixed
+### Fixes Implemented
 
-| Bug | Fix Applied | Verified |
-|-----|-------------|----------|
-| **select_item not supported** | Changed to select_slot with inventory index | YES - seed slot 5 used |
+| Fix | Description | Result |
+|-----|-------------|--------|
+| **Obstacle clearing** | Detect blockers via /surroundings, clear with correct tool | Working |
+| **Fast tree skip** | Skip non-clearable obstacles (Tree, Boulder) after 2 ticks | Working |
 
 ### Test Results
-- **Cells Completed:** 1/15 (Cell 60,27 - full cycle worked)
-- **Cells Skipped:** 14/15 (stuck on debris navigation)
-- **Seeds Planted:** 1 (confirmed: 15→14 in inventory)
+- **Seeds Planted:** 9/15 (60%) vs 1/15 before (7%)
+- **9x improvement** from Session 66
 
-### Code Changes (Session 66)
+### Code Changes (Session 67)
 
 | File | Change |
 |------|--------|
-| `planning/farm_surveyor.py:56` | Added `seed_slot: int = 5` to CellPlan |
-| `planning/farm_surveyor.py:354` | `create_farming_plan` accepts `seed_slot` param |
-| `execution/cell_coordinator.py:197-204` | Changed `select_item` → `select_slot` |
-| `unified_agent.py:2837-2864` | Find seed slot index from inventory |
+| `unified_agent.py:2876-2882` | Added 4 state variables for obstacle clearing |
+| `unified_agent.py:2941-2997` | Detect blockers, clear or skip based on type |
+| `unified_agent.py:3064-3108` | New `_execute_obstacle_clear()` helper |
 
 ---
 
-## Problem for Session 67
+## Issues for Session 68
 
-### Navigation Blocked by Debris
+### 1. Cell Grid Layout (User Feedback)
 
-**Symptom:** Agent tries to move to cell but gets stuck on debris in path
+**Symptom:** Agent farms scattered cells instead of organized grid
 
-**Log evidence:**
+**Current Behavior:**
 ```
-🌱 Cell (57,27): player=(61, 24), nav_target=(57, 28)
-🌱 Cell (57,27): Moving south to (57, 28)
-[repeats 10 times at same position]
-🌱 Cell (57,27): STUCK after 10 attempts, skipping cell
+Selected cells: (57,27), (59,27), (60,27), (54,19), (55,19)...
+```
+Cells are spread out, causing long navigation paths.
+
+**Desired Behavior:**
+Farm a compact grid, like:
+```
+(54,19) (55,19) (56,19)
+(54,20) (55,20) (56,20)
+(54,21) (55,21) (56,21)
 ```
 
-**Impact:** 14/15 cells skipped, only 1 seed planted
+**Root Cause:** `find_optimal_cells()` uses BFS to find contiguous patches but doesn't optimize for walking order within patches.
 
-**Root Cause Options:**
-1. Surveyor picks cells that are far from farmhouse door (64,15)
-2. Debris blocks direct path, no pathfinding around obstacles
-3. Navigation uses simple directional moves, not A* pathfinding
+**Fix Location:** `planning/farm_surveyor.py:find_optimal_cells()`
 
-### Fix Options
+**Suggested Fix:**
+1. After BFS finds a patch, sort cells in serpentine/row-by-row order
+2. Or: Start from farmhouse door and expand outward in a grid pattern
 
-**Option 1: Smarter Cell Selection**
-- Prioritize cells closer to farmhouse door
-- Check if path is clear before adding cell to plan
-- Start with cells adjacent to already-clear areas
+### 2. End-of-Day Summary (Tim Request)
 
-**Option 2: Clear Path First**
-- Before farming a cell, clear debris along the route
-- Navigate to debris → clear → continue to cell
+**Goal:** Save daily summary at bedtime for next morning's todo building
 
-**Option 3: Better Pathfinding**
-- Use A* or BFS to find walkable path
-- Navigate around obstacles instead of through them
+**Current State:** No end-of-day persistence
 
-**Recommended:** Option 1 (simplest) - pick accessible cells first
+**Needed:**
+- Track what was accomplished during the day
+- Save to memory/file before sleep
+- Load on wake-up to inform morning planning
+
+**Suggested Implementation:**
+```python
+# In go_to_bed skill or daily_planner
+def save_daily_summary():
+    summary = {
+        "day": current_day,
+        "planted": cells_completed,
+        "cleared": debris_count,
+        "energy_remaining": player.stamina,
+        "gold_earned": gold_diff,
+        "lessons": [...]  # what went wrong
+    }
+    save_to_memory("daily_summary.json", summary)
+```
+
+---
+
+## Ready for Full Day Test
+
+The cell farming loop is working well enough for a full day test:
+
+1. Wake up
+2. Exit farmhouse
+3. Survey farm, select cells
+4. Farm cells (clear → till → plant → water)
+5. Handle obstacles en route
+6. Go to bed
+7. **NEW:** Save daily summary
 
 ---
 
@@ -73,9 +102,9 @@
 
 ```bash
 # Test cell farming
-python unified_agent.py --goal "Plant parsnip seeds" 2>&1 | grep -E "🌱|slot|Complete"
+python unified_agent.py --goal "Plant parsnip seeds" 2>&1 | grep -E "🌱|Complete|blocking"
 
-# Check cell selection
+# Check cell selection order
 curl -s localhost:8790/farm | python -c "
 import json, sys
 sys.path.insert(0, 'src/python-agent')
@@ -84,20 +113,18 @@ data = json.load(sys.stdin)
 surveyor = get_farm_surveyor()
 tiles = surveyor.survey(data)
 cells = surveyor.find_optimal_cells(tiles, 15)
-for c in cells[:5]:
-    print(f'Cell ({c.x},{c.y}) needs_clear={c.needs_clear}')
+for i, c in enumerate(cells):
+    print(f'{i+1}. ({c.x},{c.y})')
 "
-
-# Check player position
-curl -s localhost:8790/state | jq '.data.player'
 ```
 
 ---
 
 ## Files to Investigate
 
-- `planning/farm_surveyor.py` - `find_optimal_cells()` cell selection logic
-- `unified_agent.py` - `_process_cell_farming()` navigation logic
+- `planning/farm_surveyor.py` - Cell selection and ordering logic
+- `memory/daily_planner.py` - End-of-day summary hooks
+- `unified_agent.py:go_to_bed` handling - Trigger for daily summary save
 
 ---
 
@@ -106,9 +133,10 @@ curl -s localhost:8790/state | jq '.data.player'
 - Seed slot detection from inventory
 - select_slot action for seeds
 - Full cell cycle: face → clear → till → plant → water
+- Obstacle clearing during navigation (Weeds, Stone, Twig)
+- Fast skip for non-clearable obstacles (Tree, Boulder)
 - Stuck detection (skip after 10 attempts)
-- Re-survey guard (don't restart coordinator)
 
 ---
 
-*Session 66: Fixed seed selection bug. 1/15 cells planted successfully. Navigation is now the bottleneck - most cells skipped due to debris blocking path. — Claude (PM)*
+*Session 67: Added obstacle clearing during navigation. 9x improvement in seeds planted. Grid layout and end-of-day summary are next priorities. — Claude (PM)*
