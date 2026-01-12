@@ -1950,6 +1950,7 @@ class StardewAgent:
         self._commentary_settings_cache: Dict[str, Any] = {}
         self._commentary_settings_last_fetch: float = 0.0
         self._commentary_settings_ttl: float = 30.0  # Refresh every 30 seconds
+        self._commentary_settings_applied: bool = False  # Track if settings were pushed to worker
 
         # Obstacle failure tolerance - give up on unclearable blockers
         # Key: (location, tile_x, tile_y, blocker_type) -> attempt count
@@ -4001,20 +4002,23 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
         # Sync UI settings to worker (cached - only fetch every 30s)
         now = time.time()
         if self.ui_enabled and self.ui:
+            settings_refreshed = False
             if now - self._commentary_settings_last_fetch > self._commentary_settings_ttl:
                 try:
                     self._commentary_settings_cache = self.ui.get_commentary()
                     self._commentary_settings_last_fetch = now
+                    settings_refreshed = True
                 except Exception:
                     pass  # Don't block agent on UI failures
 
-            # Apply cached settings to worker
-            if self._commentary_settings_cache:
+            # Only apply settings to worker when refreshed or first time (Session 72 fix)
+            if self._commentary_settings_cache and (settings_refreshed or not self._commentary_settings_applied):
                 self.commentary_worker.set_settings(
                     tts_enabled=self._commentary_settings_cache.get("tts_enabled"),
                     voice=self._commentary_settings_cache.get("voice") or self._commentary_settings_cache.get("personality"),
                     volume=self._commentary_settings_cache.get("volume"),
                 )
+                self._commentary_settings_applied = True
             
         # Build minimal state for commentary
         state = self.last_state or {}
@@ -5101,14 +5105,20 @@ Recent: {recent}"""
                     for i, a in enumerate(self.action_queue):
                         logging.info(f"   [{i}] {a.action_type}: {a.params}")
                 elif self._task_executor_commentary_only:
-                    # TaskExecutor owns execution - IGNORE VLM actions
-                    logging.info(f"   🎭 VLM commentary (actions ignored): {result.reasoning[:80] if result.reasoning else 'no comment'}...")
+                    # TaskExecutor owns execution - use executor action if available
+                    logging.info(f"   🎭 VLM commentary: {result.reasoning[:80] if result.reasoning else 'no comment'}...")
                     if self._pending_executor_action:
+                        # Use executor's action, ignore VLM actions
                         self.action_queue = [self._pending_executor_action]
                         logging.info(f"   [0] 🎯 {self._pending_executor_action.action_type}: {self._pending_executor_action.params} (executor)")
                         self._pending_executor_action = None
                     else:
-                        self.action_queue = []
+                        # No executor action - fall back to VLM actions (Session 72 fix)
+                        # This prevents agent from freezing when executor finishes but flag wasn't cleared
+                        logging.info(f"   ⚠️ Commentary-only but no executor action - using VLM actions as fallback")
+                        self.action_queue = result.actions
+                        for i, a in enumerate(self.action_queue):
+                            logging.info(f"   [{i}] {a.action_type}: {a.params} (VLM fallback)")
                     # Clear the commentary-only flag for next tick
                     self._task_executor_commentary_only = False
                 else:

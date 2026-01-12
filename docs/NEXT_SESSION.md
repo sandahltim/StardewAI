@@ -1,121 +1,126 @@
-# Session 72: Fix TaskExecutor Stuck Bug
+# Session 73: TTS Overlapping Fix + Agent Autonomy
 
-**Last Updated:** 2026-01-11 Session 71 by Claude
-**Status:** TTS/commentary blocking fixed. TaskExecutor stuck bug identified.
+**Last Updated:** 2026-01-11 Session 72 by Claude
+**Status:** TaskExecutor stuck bug fixed. TTS overlapping still needs work.
 
 ---
 
-## Session 71 Summary
+## Session 72 Summary
 
 ### Completed This Session
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| **TTS Blocking Fix** | ✅ Fixed | `subprocess.Popen` instead of `run` for audio |
-| **Commentary Cache** | ✅ Fixed | Settings cached 30s, not fetched every tick |
-| **Warp Loop Fix** | ✅ Fixed | Was caused by blocking HTTP calls |
+| **TaskExecutor Stuck Bug** | ✅ Fixed | VLM fallback when no executor action |
+| **Settings Cache Optimization** | ✅ Fixed | Only push to worker when refreshed |
 
-### Bugs Found (Not Fixed)
+### Bugs Found / Partially Fixed
 
 | Bug | Severity | Notes |
 |-----|----------|-------|
-| **TaskExecutor Stuck** | HIGH | When commentary-only mode + no pending action = empty queue |
-| **Agent Not Autonomous** | MEDIUM | Requires explicit goals, should self-plan |
+| **TTS Overlapping** | MEDIUM | Attempted fix broke TTS, rolled back |
+| **UI Pulsing** | LOW | Voice/volume settings resetting in UI |
+| **Navigation Twig Bug** | LOW | Blocker coords show (0,0) incorrectly |
 
-### Code Changes (Session 71)
+### Code Changes (Session 72)
 
 | File | Change |
 |------|--------|
-| `unified_agent.py:1949-1952` | Add commentary settings cache variables |
-| `unified_agent.py:3996-4017` | Use cached settings (30s TTL) instead of HTTP every tick |
-| `src/ui/app.py:643-651` | Non-blocking TTS with `Popen` (cached playback) |
-| `src/ui/app.py:664-669` | Non-blocking TTS with `Popen` (new audio) |
-
-**Commit:** `ccc13fd` - Fix TTS/commentary blocking issues
+| `unified_agent.py:5103-5120` | VLM fallback when commentary-only but no executor action |
+| `unified_agent.py:1952` | Added `_commentary_settings_applied` flag |
+| `unified_agent.py:4003-4020` | Only apply settings to worker when refreshed |
 
 ---
 
-## Session 71 Test Results
+## Session 72 Test Results
 
-- **Cell farming**: 5/5 cells completed successfully
-- **Agent reached**: Day 1 7:40 PM, 154/270 energy
-- **Then stuck**: TaskExecutor commentary-only mode with empty action queue
+- **Agent autonomy**: Ran without `--goal`, generated own daily plan
+- **Cell farming**: Working, cleared debris and navigated
+- **TaskExecutor stuck bug**: FIXED - VLM fallback prevents freezing
+- **TTS**: Working but still overlaps (rolled back fix attempt)
 
 ---
 
-## Priority for Session 72
+## Priority for Session 73
 
-### 1. TaskExecutor Stuck Bug - HIGH
+### 1. TTS Overlapping Fix - MEDIUM
 
-**Location:** `unified_agent.py:5103-5113`
+**Problem:** When new TTS starts, previous audio should stop. Current Popen calls don't track/kill previous process.
 
-**Problem:** When `_task_executor_commentary_only=True` but `_pending_executor_action=None`:
-```python
-elif self._task_executor_commentary_only:
-    if self._pending_executor_action:
-        self.action_queue = [self._pending_executor_action]
-    else:
-        self.action_queue = []  # BUG: Empty queue = stuck!
-    self._task_executor_commentary_only = False
-```
+**Location:** `src/python-agent/commentary/tts.py:PiperTTS.speak()`
 
-VLM generates actions but they're ignored. Executor has nothing. Agent freezes.
+**Attempted Fix (rolled back):**
+- Added `_current_process` tracking
+- Kill previous process before starting new
+- Issue: Broke TTS entirely (unclear why)
 
-**Fix Options:**
-1. Fall back to VLM actions when executor has none
-2. Clear commentary-only flag when no pending action
-3. Never set commentary-only without a pending action
+**Investigation Needed:**
+- Test the fix in isolation vs in full agent context
+- Check if process tracking works with shell=True Popen
+- Consider using process groups for reliable kill
 
-**Likely Root Cause:** Cell farming finishes, sets commentary-only, but executor has no next task.
+### 2. UI Pulsing / Settings Reset - LOW
 
-### 2. Agent Autonomy
+**Problem:** Voice and volume controls in UI keep resetting/pulsing.
 
-**Goal:** Agent should plan its own day without explicit `--goal` parameter.
+**Hypothesis:** Too many commentary updates pushing to UI.
 
-**Current:** `--goal "Full Day 1: Plant seeds..."` required
+**Partial Fix Applied:**
+- `_commentary_settings_applied` flag prevents repeated `set_settings()` calls
+- Settings only fetched every 30s (cached)
 
-**Should be:** Agent wakes up, looks at farm state, plans day automatically
+### 3. Agent Autonomy - MEDIUM
+
+**Current:** Agent can run without `--goal` (uses "General assistance")
+**Desired:** Agent should look at farm state and plan its own day intelligently
 
 ---
 
 ## Debug Commands
 
 ```bash
-# Run agent without explicit goal (test autonomy)
-python src/python-agent/unified_agent.py
+# Test TTS in isolation
+cd /home/tim/StardewAI/src/python-agent
+python3 -c "
+from commentary.tts import PiperTTS
+tts = PiperTTS(voice='TARS')
+print('Available:', tts.available)
+result = tts.speak('Testing one two three')
+print('Result:', result)
+"
 
-# Check if stuck in commentary-only mode
-grep "_task_executor_commentary_only" /tmp/agent_run.log | tail -5
+# Run agent without goal
+python src/python-agent/unified_agent.py --ui
 
-# Monitor action queue
-grep "action_queue" /tmp/agent_run.log | tail -10
+# Check TTS calls in log
+grep "🔊 TTS" /tmp/agent_test.log | tail -10
 ```
 
 ---
 
 ## What's Working
 
-- TTS no longer blocks agent (async + cached settings)
-- Cell farming completes successfully
-- Obstacle clearing during navigation
-- Stats persistence to file
-- Daily summary saves
+- TTS commentary (no overlapping fix, but functional)
+- Cell farming with obstacle clearing
+- TaskExecutor with VLM fallback
+- Commentary settings caching (30s TTL)
+- Agent running without explicit goal
 
 ---
 
-## Commentary System Architecture
+## TTS Architecture
 
 ```
-Agent Loop → _send_commentary() → cached settings check (30s TTL)
+Agent Loop → _send_commentary() → CommentaryWorker.push()
                                         ↓
-                              commentary_worker.push() (non-blocking)
+                                  Worker Thread → PiperTTS.speak()
                                         ↓
-                              Worker Thread → PiperTTS.speak() (Popen)
+                                  subprocess.Popen(piper | aplay)
 ```
 
-Settings HTTP call: **Every 30 seconds** (not every tick)
-TTS playback: **Non-blocking** (subprocess.Popen)
+**The Fix Needed:**
+Track Popen process, kill before starting new. But shell=True Popen with pipes complicates this.
 
 ---
 
-*Session 71: Fixed TTS/commentary blocking. Found TaskExecutor stuck bug. — Claude (PM)*
+*Session 72: Fixed TaskExecutor stuck bug. TTS overlapping fix attempted but rolled back. — Claude (PM)*
