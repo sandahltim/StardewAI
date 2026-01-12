@@ -91,6 +91,9 @@ except ImportError:
     INNER_MONOLOGUE_PROMPT = ""
     HAS_COMMENTARY = False
 
+# TEMPORARY: Disable TTS - it's interfering with agent
+HAS_COMMENTARY = False
+
 try:
     from planning import PlotManager
     HAS_PLANNING = True
