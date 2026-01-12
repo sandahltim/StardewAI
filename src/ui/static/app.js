@@ -320,7 +320,6 @@ function updateStatus(status) {
   const skillUsageBars = document.getElementById("skillUsageBars");
   const skillFailureList = document.getElementById("skillFailureList");
   const commentaryText = document.getElementById("commentaryText");
-  const commentaryPersonality = document.getElementById("commentaryPersonality");
   const commentaryVoice = document.getElementById("commentaryVoice");
   const commentaryTts = document.getElementById("commentaryTts");
   const commentaryVolume = document.getElementById("commentaryVolume");
@@ -512,8 +511,8 @@ function updateStatus(status) {
   if (commentaryText && status.commentary_text !== undefined) {
     commentaryText.textContent = status.commentary_text || "Waiting for commentary...";
   }
-  if (commentaryPersonality && status.commentary_personality) {
-    commentaryPersonality.value = status.commentary_personality;
+  if (commentaryVoice && status.commentary_personality) {
+    commentaryVoice.value = status.commentary_personality;
   }
   if (commentaryVoice && status.commentary_voice) {
     commentaryVoice.value = status.commentary_voice;
@@ -661,7 +660,6 @@ function init() {
   const ttsVoice = document.getElementById("ttsVoice");
   const ttsTest = document.getElementById("ttsTest");
   const commentaryText = document.getElementById("commentaryText");
-  const commentaryPersonality = document.getElementById("commentaryPersonality");
   const commentaryVoice = document.getElementById("commentaryVoice");
   const commentaryTts = document.getElementById("commentaryTts");
   const commentaryVolume = document.getElementById("commentaryVolume");
@@ -680,13 +678,15 @@ function init() {
   let currentStatus = {};
   let latestState = null;
   let latestPlayer = null;
-  const defaultPersonalities = [
-    "sarcastic",
-    "enthusiastic",
-    "grumpy",
-    "zen",
+  // Default voice options (fallback if API fails)
+  const defaultVoices = [
+    "default",
+    "warm", 
+    "dry",
+    "gravelly",
+    "soft",
+    "energetic",
     "tars",
-    "rodney_dangerfield",
   ];
 
   const updateMovementHistory = (events, actionEvents) => {
@@ -1164,8 +1164,8 @@ function init() {
     if (commentaryText && payload.text !== undefined) {
       commentaryText.textContent = payload.text || "Waiting for commentary...";
     }
-    if (commentaryPersonality && payload.personality) {
-      commentaryPersonality.value = payload.personality;
+    if (commentaryVoice && payload.personality) {
+      commentaryVoice.value = payload.personality;
     }
     if (commentaryTts && payload.tts_enabled !== undefined) {
       commentaryTts.checked = Boolean(payload.tts_enabled);
@@ -1179,43 +1179,36 @@ function init() {
   let voiceMappings = {};
 
   const updateCommentaryVoices = (data) => {
-    // Handle old format (array) or new format (object with personalities, voices, voice_mappings)
-    const personalities = Array.isArray(data) ? data : (data.personalities || []);
-    const voices = data.voices || [];
-    voiceMappings = data.voice_mappings || {};
+    // Voice options from backend (personalities array now = voice keys)
+    const voiceKeys = Array.isArray(data) ? data : (data.personalities || []);
     const voiceDescriptions = data.voice_descriptions || {};
+    const voices = data.voices || [];  // Raw TTS voice files
+    voiceMappings = data.voice_mappings || {};
 
-    // Populate voice selection dropdown (was "personality", now cosmetic voice choice)
-    if (commentaryPersonality) {
-      commentaryPersonality.innerHTML = "";
-      const pList = personalities.length ? personalities : defaultPersonalities;
-      pList.forEach((p) => {
+    // Populate commentary voice dropdown with friendly names
+    if (commentaryVoice) {
+      commentaryVoice.innerHTML = "";
+      const vList = voiceKeys.length ? voiceKeys : ["default", "warm", "dry"];
+      vList.forEach((v) => {
         const option = document.createElement("option");
-        option.value = p;
-        // Use description if available, otherwise capitalize the key
-        const desc = voiceDescriptions[p];
-        option.textContent = desc ? `${p.charAt(0).toUpperCase() + p.slice(1)} - ${desc}` : p;
-        commentaryPersonality.append(option);
+        option.value = v;
+        const desc = voiceDescriptions[v];
+        option.textContent = desc 
+          ? `${v.charAt(0).toUpperCase() + v.slice(1)} - ${desc}` 
+          : v.charAt(0).toUpperCase() + v.slice(1);
+        commentaryVoice.append(option);
       });
     }
 
-    // Populate voice dropdowns
-    const populateVoiceDropdown = (el) => {
-      if (!el) return;
-      el.innerHTML = "";
+    // Populate TTS voice dropdown with raw voice files (for advanced users)
+    if (ttsVoice) {
+      ttsVoice.innerHTML = "";
       voices.forEach((v) => {
         const option = document.createElement("option");
         option.value = v;
         option.textContent = v;
-        el.append(option);
+        ttsVoice.append(option);
       });
-    };
-    populateVoiceDropdown(ttsVoice);
-    populateVoiceDropdown(commentaryVoice);
-
-    // Set commentary voice based on current personality mapping
-    if (commentaryVoice && commentaryPersonality && voiceMappings[commentaryPersonality.value]) {
-      commentaryVoice.value = voiceMappings[commentaryPersonality.value];
     }
   };
 
@@ -2131,22 +2124,12 @@ function init() {
     });
   }
 
-  if (commentaryPersonality) {
-    commentaryPersonality.addEventListener("change", () => {
-      const newPersonality = commentaryPersonality.value;
-      const newVoice = voiceMappings[newPersonality] || "";
-      // Update voice dropdown to match personality's default voice
-      if (commentaryVoice && newVoice) {
-        commentaryVoice.value = newVoice;
-      }
-      // POST both personality and voice together
-      postJSON("/api/commentary", { personality: newPersonality, voice: newVoice });
-    });
-  }
-
   if (commentaryVoice) {
     commentaryVoice.addEventListener("change", () => {
-      postJSON("/api/commentary", { voice: commentaryVoice.value });
+      const selectedVoice = commentaryVoice.value;
+      // Send as personality (backend key) and get TTS voice from mapping
+      const ttsVoice = voiceMappings[selectedVoice] || selectedVoice;
+      postJSON("/api/commentary", { personality: selectedVoice, voice: ttsVoice });
     });
   }
 
@@ -2600,14 +2583,14 @@ function init() {
     });
   }
 
-  if (commentaryPersonality) {
+  if (commentaryVoice) {
     fetch("/api/commentary/voices")
       .then((res) => res.json())
       .then((payload) => {
         updateCommentaryVoices(payload);
       })
       .catch(() => {
-        updateCommentaryVoices({ personalities: defaultPersonalities, voices: [], voice_mappings: {} });
+        updateCommentaryVoices({ personalities: ["default", "warm", "dry"], voices: [], voice_mappings: {} });
       });
   }
 
