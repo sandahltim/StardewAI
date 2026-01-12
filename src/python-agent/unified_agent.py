@@ -597,6 +597,12 @@ class UnifiedVLM:
             # Vision-first specific fields
             result.observation = data.get("observation", "")
             result.reasoning = data.get("reasoning", "")
+            
+            # Inner monologue for streaming narration (stored in mood field)
+            inner = data.get("inner_monologue", "")
+            if inner:
+                result.mood = inner
+                logging.info(f"🧠 Inner monologue: {inner[:60]}...")
 
             # Parse actions (same as regular think)
             actions_data = data.get("actions", [])
@@ -2026,7 +2032,7 @@ class StardewAgent:
 
         # Task Executor (deterministic task execution)
         self.task_executor = None
-        self._vlm_commentary_interval = 5  # VLM commentary every N ticks during task execution
+        self._vlm_commentary_interval = 2  # VLM commentary every N ticks (lower = more frequent narration)
         self._commentary_event = None  # Event context for VLM prompt injection
         self._pending_executor_action = None  # Executor action to prepend after VLM runs
         self._task_executor_commentary_only = False  # When True, VLM observes only, no actions
@@ -4006,15 +4012,16 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             volume=volume,
         )
 
-        # TTS: Read commentary every 4 actions with time throttle (prevents doubling)
+        # TTS: Read commentary with time throttle (prevents overlapping speech)
         if not hasattr(self, '_last_tts_time'):
             self._last_tts_time = 0
         import time
         current_time = time.time()
-        tts_cooldown = 8.0  # Minimum seconds between TTS
+        tts_cooldown = 4.0  # Minimum seconds between TTS (shorter = more frequent narration)
         time_ok = (current_time - self._last_tts_time) >= tts_cooldown
 
-        if tts_enabled and self.commentary_tts and self._commentary_count % 4 == 0 and time_ok:
+        # Speak every 2nd action (was every 4th) if cooldown allows
+        if tts_enabled and self.commentary_tts and self._commentary_count % 2 == 0 and time_ok:
             try:
                 # Clean text for TTS - remove special chars that get read aloud
                 import re
