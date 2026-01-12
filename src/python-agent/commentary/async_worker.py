@@ -10,6 +10,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from .generator import CommentaryGenerator
@@ -62,6 +63,7 @@ class AsyncCommentaryWorker:
         self._tts_enabled = True
         self._voice_override: Optional[str] = None
         self._volume = 1.0
+        self._coqui_voice: Optional[str] = None
         
     def start(self) -> None:
         """Start the background worker thread."""
@@ -118,6 +120,7 @@ class AsyncCommentaryWorker:
         tts_enabled: Optional[bool] = None,
         voice: Optional[str] = None,
         volume: Optional[float] = None,
+        coqui_voice: Optional[str] = None,
     ) -> None:
         """Update settings from UI (thread-safe)."""
         if tts_enabled is not None:
@@ -127,6 +130,14 @@ class AsyncCommentaryWorker:
             self.generator.set_voice(voice)
         if volume is not None:
             self._volume = volume
+        if coqui_voice is not None:
+            self._coqui_voice = coqui_voice
+            # Update CoquiTTS voice file if using Coqui backend
+            if isinstance(self.tts, CoquiTTS):
+                voice_path = Path(f"/home/tim/StardewAI/assets/voices/{coqui_voice}.wav")
+                if voice_path.exists():
+                    self.tts.voice_file = voice_path
+                    logging.info(f"Coqui voice changed to: {coqui_voice}")
             
     def _worker_loop(self) -> None:
         """Main worker loop - processes events from queue."""

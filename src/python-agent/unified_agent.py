@@ -4065,6 +4065,7 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
                     tts_enabled=self._commentary_settings_cache.get("tts_enabled"),
                     voice=self._commentary_settings_cache.get("voice") or self._commentary_settings_cache.get("personality"),
                     volume=self._commentary_settings_cache.get("volume"),
+                    coqui_voice=self._commentary_settings_cache.get("coqui_voice"),
                 )
                 self._commentary_settings_applied = True
             

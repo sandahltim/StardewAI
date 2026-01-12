@@ -164,7 +164,7 @@ equip_seeds:
 # =============================================================================
 
 till_soil:
-  description: "Use hoe to till clear ground for planting (auto-equips)"
+  description: "Use hoe to till adjacent ground for planting (specify direction)"
   category: farming
   energy_cost: 2
 
@@ -175,10 +175,11 @@ till_soil:
 
   actions:
     - select_slot: 1  # Hoe
+    - face: "{target_direction}"  # VLM must specify: north/south/east/west
     - use_tool
 
   on_success:
-    message: "Tilled the soil"
+    message: "Tilled the soil to the {target_direction}"
     updates:
       - tile.state: tilled
 
@@ -364,29 +365,28 @@ chop_tree:
 # =============================================================================
 
 ship_item:
-  description: "Put held crop in shipping bin to sell overnight (auto-selects crop)"
+  description: "Ship crop to sell overnight (works from anywhere on Farm - SMAPI handles bin access)"
   category: farming
   energy_cost: 0
 
   preconditions:
     required:
-      - type: adjacent_to
-        target: shipping_bin
+      - type: at_location
+        location: Farm
       - type: has_item_category
         category: sellable
 
   actions:
     - select_item_type: crop  # Auto-select first crop to ship
-    - face: "{target_direction}"
-    - ship: -1  # Ship currently selected item (slot -1 = use current)
+    - ship: -1  # Ship currently selected item (SMAPI accesses bin remotely)
 
   on_success:
     message: "Shipped {item_name} - will sell overnight"
 
   on_failure:
-    not_adjacent:
-      message: "Not adjacent to shipping bin"
-      recovery_skill: navigate_to_shipping_bin
+    not_on_farm:
+      message: "Must be on Farm to ship items"
+      recovery_skill: go_to_farm
     no_items:
       message: "No sellable items in inventory"
 

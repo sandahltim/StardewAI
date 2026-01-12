@@ -50,7 +50,7 @@ class CoquiTTS:
         Path.home() / ".local/share/stardew-ai/voices",
     ]
     
-    DEFAULT_VOICE_FILE = "rusty_reference.wav"
+    DEFAULT_VOICE_FILE = "david_attenborough.wav"
     
     def __init__(self, voice_file: Optional[str] = None):
         """Initialize Coqui TTS.

@@ -321,6 +321,7 @@ function updateStatus(status) {
   const skillFailureList = document.getElementById("skillFailureList");
   const commentaryText = document.getElementById("commentaryText");
   const commentaryVoice = document.getElementById("commentaryVoice");
+  const coquiVoiceSelect = document.getElementById("coquiVoice");
   const commentaryTts = document.getElementById("commentaryTts");
   const commentaryVolume = document.getElementById("commentaryVolume");
   const sessionUptime = document.getElementById("sessionUptime");
@@ -661,6 +662,7 @@ function init() {
   const ttsTest = document.getElementById("ttsTest");
   const commentaryText = document.getElementById("commentaryText");
   const commentaryVoice = document.getElementById("commentaryVoice");
+  const coquiVoiceSelect = document.getElementById("coquiVoice");
   const commentaryTts = document.getElementById("commentaryTts");
   const commentaryVolume = document.getElementById("commentaryVolume");
   const pendingBannerApprove = document.getElementById("pendingBannerApprove");
@@ -1164,6 +1166,11 @@ function init() {
     if (commentaryText && payload.text !== undefined) {
       commentaryText.textContent = payload.text || "Waiting for commentary...";
     }
+    // Set Coqui voice dropdown
+    const coquiVoiceSelect = document.getElementById("coquiVoice");
+    if (coquiVoiceSelect && payload.coqui_voice) {
+      coquiVoiceSelect.value = payload.coqui_voice;
+    }
     if (commentaryVoice && payload.personality) {
       commentaryVoice.value = payload.personality;
     }
@@ -1182,10 +1189,24 @@ function init() {
     // Voice options from backend (personalities array now = voice keys)
     const voiceKeys = Array.isArray(data) ? data : (data.personalities || []);
     const voiceDescriptions = data.voice_descriptions || {};
-    const voices = data.voices || [];  // Raw TTS voice files
+    const voices = data.voices || [];  // Raw TTS voice files (Piper)
+    const coquiVoices = data.coqui_voices || [];  // Coqui XTTS reference voices
     voiceMappings = data.voice_mappings || {};
 
-    // Populate commentary voice dropdown with friendly names
+    // Populate Coqui voice dropdown (main voice selector now)
+    const coquiVoiceSelect = document.getElementById("coquiVoice");
+    if (coquiVoiceSelect) {
+      coquiVoiceSelect.innerHTML = "";
+      coquiVoices.forEach((v) => {
+        const option = document.createElement("option");
+        option.value = v;
+        /// Friendly name: replace underscores, capitalize
+        option.textContent = v.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+        coquiVoiceSelect.append(option);
+      });
+    }
+
+    // Populate commentary voice dropdown with friendly names (legacy Piper)
     if (commentaryVoice) {
       commentaryVoice.innerHTML = "";
       const vList = voiceKeys.length ? voiceKeys : ["default", "warm", "dry"];
@@ -2124,6 +2145,14 @@ function init() {
     });
   }
 
+  // Coqui voice selection (main TTS voice)
+  if (coquiVoiceSelect) {
+    coquiVoiceSelect.addEventListener("change", () => {
+      postJSON("/api/commentary", { coqui_voice: coquiVoiceSelect.value });
+    });
+  }
+
+  // Legacy Piper voice selection
   if (commentaryVoice) {
     commentaryVoice.addEventListener("change", () => {
       const selectedVoice = commentaryVoice.value;
@@ -2574,14 +2603,14 @@ function init() {
     });
   }
 
-  if (commentaryVoice) {
+  if (commentaryVoice || coquiVoiceSelect) {
     fetch("/api/commentary/voices")
       .then((res) => res.json())
       .then((payload) => {
         updateCommentaryVoices(payload);
       })
       .catch(() => {
-        updateCommentaryVoices({ personalities: ["default", "warm", "dry"], voices: [], voice_mappings: {} });
+        updateCommentaryVoices({ personalities: ["default", "warm", "dry"], voices: [], coqui_voices: [], voice_mappings: {} });
       });
   }
 

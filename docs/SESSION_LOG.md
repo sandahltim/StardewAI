@@ -4,6 +4,116 @@ Coordination log between Claude (agent/prompt) and Codex (UI/memory).
 
 ---
 
+## 2026-01-12 - Session 76: Elias Character Created
+
+**Agent: Claude (Opus)**
+
+### Summary
+Created Elias - the VLM chose its own name and personality. Set up Coqui TTS voices. Ready for full harvest run.
+
+### Major Achievement: Elias Born
+
+The VLM was asked to choose its own name. It chose **Elias** - "quiet strength, someone who works hard, values the land."
+
+**Elias's Character Traits:**
+- Grandfather's wisdom: "The land remembers"
+- Contemplative, finds poetry in dirt
+- Talks to crops like old friends
+- Dry humor, catches himself getting too philosophical
+- Stoic in failure - "the earth is patient"
+- Prefers crops to conversations (introverted)
+
+### Files Created/Modified
+
+| File | Change |
+|------|--------|
+| `commentary/elias_character.py` | NEW - Full character definition, INNER_MONOLOGUE_PROMPT, TTS_VOICES |
+| `commentary/__init__.py` | Import from elias_character, RUSTY_CHARACTER alias for backwards compat |
+| `commentary/coqui_tts.py:53` | Default voice = david_attenborough.wav |
+| `config/settings.yaml:116-130` | System prompt updated to Elias personality |
+| `src/ui/app.py:43,331,738,816` | Import elias_character, default voice david_attenborough |
+| `src/ui/static/app.js:324,665,2148-2153,2606` | Fixed coquiVoiceSelect dropdown population |
+
+### Coqui TTS Voice Options
+
+| Voice Key | File | Best For |
+|-----------|------|----------|
+| default | david_attenborough.wav | Contemplative naturalist |
+| wise | morgan_freeman.wav | Grandfatherly wisdom |
+| gravelly | clint_eastwood.wav | Weathered farmer |
+| dramatic | james_earl_jones.wav | Deep, commanding |
+| action | arnold.wav | Intense parsnip moments |
+
+### Elias Voice Samples
+
+**Watering:** "The soil drinks deep, like it's remembering thirst from last winter."
+
+**Rocks:** "Another rock appeared. Wonder if they reproduce. The land remembers, and so do the stones."
+
+**Bedtime:** "Ah, the earth sighs as I lay down my tools. Let the moon watch over the sleeping fields."
+
+### Next Session (77)
+- Full harvest cycle test (parsnips ready Day 6)
+- Test ship_item → buy_seeds flow
+- Extended autonomy with Elias commentary
+- Monitor voice quality
+
+---
+
+## 2026-01-12 - Session 75: SMAPI Actions Simplified + Multi-Day Test
+
+**Agent: Claude (Opus)**
+
+### Summary
+Simplified high-level SMAPI actions, tested multi-day farming cycle. 13 crops planted and growing.
+
+### Changes
+
+1. **go_to_bed Simplified** - `navigation.yaml:281-297`
+   - Old: warp FarmHouse → move west → interact (buggy positioning)
+   - New: Single `go_to_bed` SMAPI action (handles warp, bed finding, NewDay)
+   - Verified bed position: (10, 9) in FarmHouse
+
+2. **ship_item Simplified** - `farming.yaml:366-390`
+   - Old: Required `adjacent_to: shipping_bin`
+   - New: Just requires `at_location: Farm` (SMAPI accesses bin remotely)
+   - No navigation to bin needed
+
+3. **till_soil Fixed** - `farming.yaml:166-182`
+   - Bug: Missing `face` action caused phantom failures
+   - Fix: Added `face: "{target_direction}"` before use_tool
+   - VLM must now specify direction when calling
+
+### SMAPI High-Level Actions Audit
+
+| Action | Capability |
+|--------|------------|
+| `go_to_bed` | Full sleep flow from anywhere |
+| `ship` | Ship from anywhere on Farm |
+| `buy` | Direct purchase by item name |
+| `eat` | Consume item for energy |
+
+### Test Results
+
+| Day | Weather | Actions | Result |
+|-----|---------|---------|--------|
+| 2 | Sunny | Plant 15 seeds | 9 crops planted |
+| 3 | Rainy | Auto-water, plant more | +4 crops (13 total) |
+| 4 | Sunny | Ready for watering test | - |
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `skills/definitions/farming.yaml` | ship_item simplified, till_soil fixed |
+| `skills/definitions/navigation.yaml` | go_to_bed simplified |
+
+### Next Session
+- Extended autonomy test (Day 4 → Day 8)
+- Harvest + ship cycle test
+- Verify watering on sunny day
+
+---
+
 ## 2026-01-11 - Session 52: Pierre Navigation & Popup Handling
 
 **Agent: Claude (Opus)**

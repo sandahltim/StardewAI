@@ -279,7 +279,7 @@ exit_building:
     message: "Exited building"
 
 go_to_bed:
-  description: "Go to bed to end the day and restore energy (auto-warps home)"
+  description: "Go to bed to end the day and restore energy (SMAPI handles everything)"
   category: navigation
   energy_cost: 0
 
@@ -287,21 +287,14 @@ go_to_bed:
     required: []  # No preconditions - works from anywhere
 
   actions:
-    - warp: FarmHouse    # Teleport home first (lands at 10,9)
-    - wait: 0.5          # Let warp complete
-    - face: west         # Bed is to the WEST at (9,9)
-    - move:
-        direction: west
-        tiles: 1         # Walk one tile to be adjacent to bed
-    - wait: 0.3
-    - interact           # Get in bed
+    - go_to_bed  # SMAPI action: warps home, finds bed, triggers NewDay
 
   on_success:
     message: "Going to sleep - good night!"
 
   on_failure:
-    warp_failed:
-      message: "Could not warp to FarmHouse"
+    failed:
+      message: "Could not go to bed"
 
 # =============================================================================
 # SHOP NAVIGATION

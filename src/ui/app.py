@@ -40,8 +40,8 @@ except Exception:  # pragma: no cover - optional for UI
     SpatialMap = None
 
 try:
-    from commentary.rusty_character import TTS_VOICES, get_voice_list
-    # Legacy compat - map to new structure
+    from commentary.elias_character import TTS_VOICES, get_voice_list
+    # Map to UI-friendly structure
     COMMENTARY_PERSONALITIES = {k: v["name"] for k, v in TTS_VOICES.items()}
     COMMENTARY_VOICES = {k: v["id"] for k, v in TTS_VOICES.items()}
 except Exception:  # pragma: no cover - optional for UI
@@ -80,6 +80,9 @@ TTS_MODEL_DIRS = [
     Path.home() / ".local/share/piper-voices",
     Path("/usr/share/piper-voices"),
 ]
+
+# Coqui XTTS voice reference files
+COQUI_VOICE_DIR = Path("/home/tim/StardewAI/assets/voices")
 DEFAULT_TTS_VOICE = "en_US-lessac-medium"
 PIPER_CMD = os.environ.get("PIPER_CMD", "piper")
 APLAYER_CMD = os.environ.get("APLAYER_CMD", "aplay")
@@ -141,6 +144,8 @@ class CommentaryUpdate(BaseModel):
     voice: Optional[str] = None
     tts_enabled: Optional[bool] = None
     volume: Optional[int] = None
+    tts_backend: Optional[str] = None  # "coqui" or "piper"
+    coqui_voice: Optional[str] = None  # Coqui reference voice name
 
 
 class CommentaryPersonalityUpdate(BaseModel):
@@ -322,6 +327,8 @@ def _default_status() -> Dict[str, Any]:
         "commentary_voice": "",  # Empty = use personality default
         "commentary_tts_enabled": False,
         "commentary_volume": 70,
+        "commentary_tts_backend": "coqui",  # "coqui" or "piper"
+        "commentary_coqui_voice": "david_attenborough",  # Elias default voice
         "vlm_observation": None,
         "proposed_action": None,
         "validation_status": None,
@@ -727,6 +734,8 @@ def get_commentary() -> Dict[str, Any]:
         "voice": status.get("commentary_voice", ""),
         "tts_enabled": status.get("commentary_tts_enabled", False),
         "volume": status.get("commentary_volume", 70),
+        "tts_backend": status.get("commentary_tts_backend", "coqui"),
+        "coqui_voice": status.get("commentary_coqui_voice", "david_attenborough"),
     }
 
 
@@ -749,22 +758,31 @@ def get_commentary_voices() -> Dict[str, Any]:
         personalities = ["default", "warm", "dry", "gravelly"]
         voice_descriptions = {}
     
-    # Get available TTS voices from model files
-    available_voices = []
+    # Get available Piper TTS voices from model files
+    piper_voices = []
     for model_dir in TTS_MODEL_DIRS:
         if model_dir.exists():
             for model in model_dir.glob("*.onnx"):
                 voice_name = model.stem
-                if voice_name not in available_voices:
-                    available_voices.append(voice_name)
-    available_voices.sort()
+                if voice_name not in piper_voices:
+                    piper_voices.append(voice_name)
+    piper_voices.sort()
+    
+    # Get available Coqui XTTS voices (reference .wav files)
+    coqui_voices = []
+    if COQUI_VOICE_DIR.exists():
+        for wav_file in COQUI_VOICE_DIR.glob("*.wav"):
+            voice_name = wav_file.stem
+            coqui_voices.append(voice_name)
+    coqui_voices.sort()
     
     # Get voice ID mappings
     voice_mappings = COMMENTARY_VOICES if COMMENTARY_VOICES else {}
     
     return {
         "personalities": personalities,  # Now voice options, not personality templates
-        "voices": available_voices,
+        "voices": piper_voices,  # Piper voices (legacy)
+        "coqui_voices": coqui_voices,  # Coqui XTTS reference voices
         "voice_mappings": voice_mappings,
         "voice_descriptions": voice_descriptions,  # New: descriptions for UI
     }
@@ -783,6 +801,10 @@ async def update_commentary(payload: CommentaryUpdate) -> Dict[str, Any]:
         update["commentary_tts_enabled"] = payload.tts_enabled
     if payload.volume is not None:
         update["commentary_volume"] = payload.volume
+    if payload.tts_backend is not None:
+        update["commentary_tts_backend"] = payload.tts_backend
+    if payload.coqui_voice is not None:
+        update["commentary_coqui_voice"] = payload.coqui_voice
     status = _write_status(update)
     response = {
         "text": status.get("commentary_text", ""),
@@ -790,6 +812,8 @@ async def update_commentary(payload: CommentaryUpdate) -> Dict[str, Any]:
         "voice": status.get("commentary_voice", ""),
         "tts_enabled": status.get("commentary_tts_enabled", False),
         "volume": status.get("commentary_volume", 70),
+        "tts_backend": status.get("commentary_tts_backend", "coqui"),
+        "coqui_voice": status.get("commentary_coqui_voice", "david_attenborough"),
     }
     await manager.broadcast("commentary_updated", response)
     return response
