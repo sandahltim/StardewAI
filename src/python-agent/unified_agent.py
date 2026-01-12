@@ -1268,7 +1268,7 @@ class ModBridgeController:
         location_hint = ""
         if location_name == "FarmHouse":
             # Bed is at tile (10, 9) - for sleeping
-            bed_x, bed_y = 10, 9
+            bed_x, bed_y = 9, 9  # Bed is 1 tile west of warp point (10,9)
             dy_to_bed = bed_y - player_y
             dx_to_bed = bed_x - player_x
             bed_distance = abs(dx_to_bed) + abs(dy_to_bed)

@@ -287,12 +287,12 @@ go_to_bed:
     required: []  # No preconditions - works from anywhere
 
   actions:
-    - warp: FarmHouse    # Teleport home first
+    - warp: FarmHouse    # Teleport home first (lands at 10,9)
     - wait: 0.5          # Let warp complete
-    - face: east         # Bed is to the right in FarmHouse
+    - face: west         # Bed is to the WEST at (9,9)
     - move:
-        direction: east
-        tiles: 3         # Walk toward bed
+        direction: west
+        tiles: 1         # Walk one tile to be adjacent to bed
     - wait: 0.3
     - interact           # Get in bed
 
