@@ -68,11 +68,11 @@ class CellFarmingCoordinator:
                 coordinator.mark_cell_complete(cell)
     """
 
-    # Tool slots
+    # Default tool slots
     HOE_SLOT = 1
     WATERING_CAN_SLOT = 2
 
-    def __init__(self, plan: CellFarmingPlan):
+    def __init__(self, plan: CellFarmingPlan, tool_map: Optional[Dict[str, int]] = None):
         """
         Initialize with a farming plan.
 
@@ -80,6 +80,9 @@ class CellFarmingCoordinator:
             plan: CellFarmingPlan from FarmSurveyor
         """
         self.plan = plan
+        tool_map = tool_map or {}
+        self.hoe_slot = tool_map.get("Hoe", self.HOE_SLOT)
+        self.watering_can_slot = tool_map.get("Watering Can", self.WATERING_CAN_SLOT)
         self.current_index = 0
         self.completed_cells: Set[Tuple[int, int]] = set()
         self.skipped_cells: Dict[Tuple[int, int], str] = {}  # (x,y) → reason
@@ -190,7 +193,7 @@ class CellFarmingCoordinator:
         if cell.needs_till:
             actions.append(CellAction(
                 action_type="select_slot",
-                params={"slot": self.HOE_SLOT},
+                params={"slot": self.hoe_slot},
             ))
             actions.append(CellAction(
                 action_type="use_tool",
@@ -212,7 +215,7 @@ class CellFarmingCoordinator:
         if cell.needs_water:
             actions.append(CellAction(
                 action_type="select_slot",
-                params={"slot": self.WATERING_CAN_SLOT},
+                params={"slot": self.watering_can_slot},
             ))
             actions.append(CellAction(
                 action_type="use_tool",

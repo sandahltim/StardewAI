@@ -6,6 +6,158 @@
 
 ---
 
+## 🆕 NEW: Inventory Manager Module (Session 69)
+
+### TASK: Inventory Manager
+
+**Priority:** MEDIUM
+**Assigned:** 2026-01-11 Session 69
+**Status:** ✅ Complete
+
+#### Background
+
+During Day 1 testing, we discovered that seeds can end up in different inventory slots depending on how they're acquired (starting seeds, picked up, bought from Pierre). The current cell farming code finds seeds wherever they are, but we need better inventory management for:
+
+1. **Multiple seed types** - If player has parsnips in slot 5 and potatoes in slot 7, which to use?
+2. **Tool organization** - Hoe=1, Can=2, Axe=0, Pickaxe=3, Scythe=4 is hardcoded but items shift
+3. **Stack consolidation** - Avoid fragmented stacks across multiple slots
+4. **Dynamic slot lookup** - Find items by name, not hardcoded slot numbers
+
+#### Requirements
+
+**1. Create `src/python-agent/execution/inventory_manager.py`**
+
+```python
+from typing import Dict, List, Optional, Tuple, Any
+from dataclasses import dataclass
+
+@dataclass
+class InventoryItem:
+    slot: int
+    name: str
+    stack: int
+    category: str  # "tool", "seed", "crop", "resource", etc.
+
+class InventoryManager:
+    """
+    Manages inventory slot lookups and tool/item organization.
+    Pure state reader - no side effects.
+    """
+
+    # Expected tool slots (default positions)
+    TOOL_SLOTS = {
+        "Axe": 0,
+        "Hoe": 1,
+        "Watering Can": 2,
+        "Pickaxe": 3,
+        "Scythe": 4,
+    }
+
+    def __init__(self, inventory: List[Dict[str, Any]]):
+        """Parse inventory from SMAPI /state response."""
+        self.items: List[Optional[InventoryItem]] = []
+        self._parse(inventory)
+
+    def find_item(self, name: str) -> Optional[int]:
+        """Find slot containing item by name (case-insensitive partial match)."""
+        pass
+
+    def find_seeds(self) -> List[Tuple[int, str, int]]:
+        """Find all seed items. Returns [(slot, name, stack), ...]"""
+        pass
+
+    def find_tool(self, tool_name: str) -> Optional[int]:
+        """Find slot for a specific tool."""
+        pass
+
+    def get_seed_priority(self) -> Optional[Tuple[int, str]]:
+        """Get (slot, name) of highest-priority seed to plant.
+
+        Priority: Parsnip > Potato > Cauliflower (by growth time)
+        """
+        pass
+
+    def total_seeds(self) -> int:
+        """Count total seeds across all slots."""
+        pass
+
+    def get_tool_mapping(self) -> Dict[str, int]:
+        """Build actual tool→slot mapping from current inventory."""
+        pass
+```
+
+**2. Integration Points**
+
+In `unified_agent.py:_start_cell_farming()`:
+```python
+# Current (hardcoded):
+seed_slot = 5  # Assumes seeds always in slot 5
+
+# New (dynamic):
+from execution.inventory_manager import InventoryManager
+inv_mgr = InventoryManager(inventory)
+seed_slot, seed_type = inv_mgr.get_seed_priority()
+```
+
+In `cell_coordinator.py`:
+```python
+# Current (hardcoded tool slots):
+HOE_SLOT = 1
+WATERING_CAN_SLOT = 2
+
+# New (dynamic from inventory_manager):
+tool_map = inv_mgr.get_tool_mapping()
+HOE_SLOT = tool_map.get("Hoe", 1)
+```
+
+**3. Test Cases**
+
+```python
+def test_find_seeds_multiple_types():
+    """Seeds in different slots should all be found."""
+    inv = [
+        {"name": "Parsnip Seeds", "stack": 5},
+        None,
+        {"name": "Potato Seeds", "stack": 3},
+    ]
+    mgr = InventoryManager(inv)
+    seeds = mgr.find_seeds()
+    assert len(seeds) == 2
+    assert mgr.total_seeds() == 8
+
+def test_tool_in_unexpected_slot():
+    """Tools can shift from default positions."""
+    inv = [
+        {"name": "Parsnip Seeds", "stack": 5},  # Tool displaced
+        {"name": "Hoe", "stack": 1},  # Hoe in slot 1 (correct)
+        {"name": "Axe", "stack": 1},  # Axe moved from slot 0
+    ]
+    mgr = InventoryManager(inv)
+    assert mgr.find_tool("Axe") == 2
+    assert mgr.find_tool("Hoe") == 1
+```
+
+#### Files to Create
+- `src/python-agent/execution/inventory_manager.py` - Main module
+- `src/python-agent/execution/test_inventory_manager.py` - Tests
+
+#### Test Command
+```bash
+cd /home/tim/StardewAI
+source venv/bin/activate
+python -m pytest src/python-agent/execution/test_inventory_manager.py -v
+```
+
+#### Acceptance Criteria
+- [ ] `find_seeds()` returns all seed items with slot, name, stack
+- [ ] `find_tool()` finds tools regardless of slot position
+- [ ] `get_seed_priority()` returns best seed type to plant
+- [ ] `total_seeds()` counts across all slots
+- [ ] All tests pass
+- [ ] No external dependencies (pure Python)
+
+---
+
 ## 🆕 NEW: Daily Summary UI Panel (Session 68)
 
 ### TASK: Daily Summary Panel

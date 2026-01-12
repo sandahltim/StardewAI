@@ -17,6 +17,7 @@ class CommentaryGenerator:
     def __init__(self, voice: str = DEFAULT_VOICE):
         self.voice = voice if voice in TTS_VOICES else DEFAULT_VOICE
         self._last_monologue = ""
+        self._last_spoken = ""  # Track what TTS already said to avoid repeats
 
     def set_voice(self, voice: str) -> None:
         """Set the TTS voice (cosmetic only - doesn't change personality)."""
@@ -42,7 +43,7 @@ class CommentaryGenerator:
         return TTS_VOICES
 
     def generate(self, action: Optional[str], state: Optional[Dict], vlm_monologue: str = "") -> str:
-        """Get commentary - prefer VLM inner_monologue, fallback to simple description.
+        """Get commentary - only return NEW VLM monologue, never repeat.
         
         Args:
             action: Current action type
@@ -50,20 +51,29 @@ class CommentaryGenerator:
             vlm_monologue: Inner monologue from VLM response (preferred)
         
         Returns:
-            Commentary text for display/TTS
+            Commentary text for display/TTS, or empty string if nothing new
         """
-        # Prefer VLM-generated inner monologue
+        # Only use VLM monologue if it's NEW (different from last spoken)
         if vlm_monologue and vlm_monologue.strip():
-            self._last_monologue = vlm_monologue.strip()
-            return self._last_monologue
+            monologue = vlm_monologue.strip()
+            if monologue != self._last_spoken:
+                self._last_monologue = monologue
+                self._last_spoken = monologue
+                return monologue
+            # Same as last time - return empty to skip TTS
+            return ""
 
-        # Fallback: simple action description (not a template, just clarity)
-        if action:
-            return self._simple_description(action, state)
-
-        # Last resort: return last monologue or waiting message
+        # No VLM monologue - return empty (don't fall back to descriptions for TTS)
+        return ""
+    
+    def get_display_text(self, action: Optional[str], state: Optional[Dict], vlm_monologue: str = "") -> str:
+        """Get text for UI display (can repeat, just for visual)."""
+        if vlm_monologue and vlm_monologue.strip():
+            return vlm_monologue.strip()
         if self._last_monologue:
             return self._last_monologue
+        if action:
+            return self._simple_description(action, state)
         return "..."
 
     def _simple_description(self, action: str, state: Optional[Dict]) -> str:
@@ -89,5 +99,6 @@ class CommentaryGenerator:
         return f"{action_lower.capitalize()}..."
 
     def reset_session_stats(self) -> None:
-        """Reset for new day - clear last monologue."""
+        """Reset for new day - clear cached monologues."""
         self._last_monologue = ""
+        self._last_spoken = ""

@@ -102,6 +102,7 @@ except ImportError:
 try:
     from planning.farm_surveyor import FarmSurveyor, CellFarmingPlan, get_farm_surveyor
     from execution.cell_coordinator import CellFarmingCoordinator, CellAction
+    from execution.inventory_manager import InventoryManager
     HAS_CELL_FARMING = True
 except ImportError:
     FarmSurveyor = None
@@ -109,6 +110,7 @@ except ImportError:
     CellFarmingCoordinator = None
     CellAction = None
     get_farm_surveyor = None
+    InventoryManager = None
     HAS_CELL_FARMING = False
 
 # =============================================================================
@@ -2048,6 +2050,8 @@ class StardewAgent:
         self._cell_farming_plan: Optional[CellFarmingPlan] = None
         self._current_cell_actions: List[CellAction] = []
         self._cell_action_index = 0
+        self._cell_farming_done_today = False  # Prevent re-survey after completion
+        self._cell_farming_last_day = 0  # Track day for reset
         if HAS_CELL_FARMING:
             logging.info("🌱 Cell-by-cell farming available")
 
@@ -2830,10 +2834,26 @@ class StardewAgent:
         if not HAS_CELL_FARMING or not get_farm_surveyor:
             return False
 
+        # Get current day to detect day change
+        data = game_state.get("data") or game_state
+        location = data.get("location", {})
+        current_day = location.get("day", 0) or data.get("day", 0)
+        
+        # Reset flag on new day
+        if current_day != self._cell_farming_last_day:
+            self._cell_farming_done_today = False
+            self._cell_farming_last_day = current_day
+            logging.info(f"🌱 Cell farming: New day {current_day}, reset done flag")
+
         # Don't restart if already actively farming cells
         if self.cell_coordinator and not self.cell_coordinator.is_complete():
             logging.debug("🌱 Cell farming: Coordinator already active, skipping restart")
             return True  # Already running, return True so caller knows farming is active
+
+        # Don't re-survey if already completed today
+        if self._cell_farming_done_today:
+            logging.debug("🌱 Cell farming: Already completed today, skipping re-survey")
+            return False  # Don't start new farming, let other tasks run
 
         try:
             # Get farm state from /farm endpoint
@@ -2845,17 +2865,26 @@ class StardewAgent:
             # Count seeds in inventory and find seed slot
             data = game_state.get("data") or game_state
             inventory = data.get("inventory", [])
-            
-            # Find first seed item and its slot index
+
             seed_slot = None
             seed_type = "Parsnip Seeds"
             total_seeds = 0
-            for i, item in enumerate(inventory):
-                if item and "seed" in item.get("name", "").lower():
-                    if seed_slot is None:
-                        seed_slot = i
-                        seed_type = item.get("name", "Parsnip Seeds")
-                    total_seeds += item.get("stack", 1)
+            tool_map: Dict[str, int] = {}
+
+            if InventoryManager:
+                inv_mgr = InventoryManager(inventory)
+                seed_priority = inv_mgr.get_seed_priority()
+                if seed_priority:
+                    seed_slot, seed_type = seed_priority
+                total_seeds = inv_mgr.total_seeds()
+                tool_map = inv_mgr.get_tool_mapping()
+            else:
+                for i, item in enumerate(inventory):
+                    if item and "seed" in item.get("name", "").lower():
+                        if seed_slot is None:
+                            seed_slot = i
+                            seed_type = item.get("name", "Parsnip Seeds")
+                        total_seeds += item.get("stack", 1)
             
             if seed_slot is None:
                 logging.warning("🌱 Cell farming: No seeds in inventory")
@@ -2877,7 +2906,7 @@ class StardewAgent:
                 return False
 
             # Create coordinator
-            self.cell_coordinator = CellFarmingCoordinator(self._cell_farming_plan)
+            self.cell_coordinator = CellFarmingCoordinator(self._cell_farming_plan, tool_map=tool_map)
             self._current_cell_actions = []
             self._cell_action_index = 0
             self._cell_nav_last_pos = None  # Track position for stuck detection
@@ -3088,6 +3117,9 @@ class StardewAgent:
 
         completed, total = self.cell_coordinator.get_progress()
         logging.info(f"🌱 Cell farming complete: {completed}/{total} cells processed")
+        
+        # Mark as done for today to prevent re-survey loop
+        self._cell_farming_done_today = True
 
         # Mark the plant_seeds task as complete
         if self.daily_planner:
@@ -3993,16 +4025,22 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
         if personality:
             self.commentary_generator.set_voice(personality)
 
-        # Generate commentary - VLM inner_monologue preferred, fallback to simple description
-        ui_text = self.commentary_generator.generate(
+        # Get display text for UI (can show same thing repeatedly)
+        ui_text = self.commentary_generator.get_display_text(
             action.action_type, 
             state_data, 
             vlm_monologue=self.last_mood or ""
         )
-        if self.last_mood and len(self.last_mood) > 10:
-            logging.info(f"💭 Rusty: {ui_text[:80]}...")
-        else:
-            logging.info(f"📝 Fallback: {ui_text[:80]}...")
+        
+        # Get TTS text - only returns content if it's NEW (won't repeat)
+        tts_text = self.commentary_generator.generate(
+            action.action_type,
+            state_data,
+            vlm_monologue=self.last_mood or ""
+        )
+        
+        if tts_text:
+            logging.info(f"💭 Rusty (new): {tts_text[:80]}...")
 
         self._ui_safe(
             self.ui.update_commentary,
@@ -4012,30 +4050,29 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             volume=volume,
         )
 
-        # TTS: Read commentary with time throttle (prevents overlapping speech)
+        # TTS: Only speak if we have NEW content (tts_text non-empty)
         if not hasattr(self, '_last_tts_time'):
             self._last_tts_time = 0
         import time
         current_time = time.time()
-        tts_cooldown = 4.0  # Minimum seconds between TTS (shorter = more frequent narration)
-        time_ok = (current_time - self._last_tts_time) >= tts_cooldown
+        tts_cooldown = 4.0  # Minimum seconds between TTS
 
-        # Speak every 2nd action (was every 4th) if cooldown allows
-        if tts_enabled and self.commentary_tts and self._commentary_count % 2 == 0 and time_ok:
+        # Only speak if: TTS enabled, we have NEW text, and cooldown passed
+        if tts_enabled and self.commentary_tts and tts_text and (current_time - self._last_tts_time) >= tts_cooldown:
             try:
                 # Clean text for TTS - remove special chars that get read aloud
                 import re
-                tts_text = ui_text
-                tts_text = re.sub(r'["\'\*\_\#\`\[\]\(\)\{\}]', '', tts_text)  # Remove quotes, markdown
-                tts_text = re.sub(r'\s+', ' ', tts_text).strip()  # Normalize whitespace
+                clean_text = re.sub(r'["\'\*\_\#\`\[\]\(\)\{\}]', '', tts_text)
+                clean_text = re.sub(r'\s+', ' ', clean_text).strip()
 
                 # Get voice: UI override > personality mapping > default
                 voice = voice_override
                 if not voice and self.commentary_generator:
                     voice = self.commentary_generator.get_voice()
 
-                self.commentary_tts.speak(tts_text, voice=voice)
+                self.commentary_tts.speak(clean_text, voice=voice)
                 self._last_tts_time = current_time
+                logging.info(f"🔊 TTS: {clean_text[:50]}...")
             except Exception:
                 pass
 
