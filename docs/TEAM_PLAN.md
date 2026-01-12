@@ -540,8 +540,42 @@ Final Logic- day starts- Rusty plans his day and creates todo list from day befo
 | _execute_obstacle_clear | unified_agent.py | 3064-3108 |
 
 **Next Priorities:**
-- Cell grid layout optimization (compact farming pattern)
-- End-of-day summary for morning todo building
+- ✅ Cell grid layout optimization (compact farming pattern) - Session 68
+- ✅ End-of-day summary for morning todo building - Session 68
 - Full day autonomous test
 
 *Updated Session 67 — Claude (PM)*
+
+---
+
+## Session 68 Highlights
+
+**Grid Layout Fix:**
+- Patches sorted by proximity to farmhouse (not size)
+- Global cell sort for row-by-row walking order
+- Before: `(57,27), (59,27), (54,19)...` → After: `(54,19), (55,19), (56,19)...`
+
+**End-of-Day Summary:**
+- `_save_daily_summary()` called before go_to_bed action
+- Saves to `logs/daily_summary.json`: cells completed, skipped, reasons, lessons
+- Derives next_day_goals from summary
+
+**Skip Tracking:**
+- CellCoordinator now tracks `skipped_cells` dict with reasons
+- `get_daily_summary()` method for end-of-day persistence
+
+**Code Locations:**
+| Feature | File | Lines |
+|---------|------|-------|
+| Patch proximity sort | farm_surveyor.py | 257-266 |
+| Global cell sort | farm_surveyor.py | 319-324 |
+| Skip tracking | cell_coordinator.py | 83, 249 |
+| Daily summary method | cell_coordinator.py | 258-276 |
+| Save summary | unified_agent.py | 3837-3916 |
+| Go-to-bed hook | unified_agent.py | 4675-4678 |
+
+**Next: Session 69**
+- Morning planning integration (load yesterday's summary)
+- Full day autonomous test
+
+*Updated Session 68 — Claude (PM)*

@@ -2,7 +2,82 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-11 Session 54
+**Last Updated:** 2026-01-11 Session 68
+
+---
+
+## 🆕 NEW: Daily Summary UI Panel (Session 68)
+
+### TASK: Daily Summary Panel
+
+**Priority:** MEDIUM
+**Assigned:** 2026-01-11 Session 68
+**Status:** ✅ Complete (UI panel + endpoint ready; backend file still needed)
+
+#### Background
+
+Session 68 is adding **end-of-day summary persistence**. Before Rusty goes to bed, the agent saves what was accomplished. Next morning, this summary informs the daily planning.
+
+Codex: Create a UI panel to display yesterday's summary and today's derived goals.
+
+#### Requirements
+
+**1. Add Daily Summary Panel**
+
+New panel showing yesterday's accomplishments and today's plan:
+```
+┌──────────────────────────────────────────┐
+│ 📊 DAILY SUMMARY - Day 4                 │
+├──────────────────────────────────────────┤
+│ YESTERDAY (Day 3):                       │
+│ • Planted: 9 parsnip seeds               │
+│ • Watered: 12 crops                      │
+│ • Cleared: 5 debris tiles                │
+│ • Energy used: 45/270                    │
+├──────────────────────────────────────────┤
+│ LESSONS LEARNED:                         │
+│ • 6 cells skipped (tree blocked)         │
+│ • Watering can ran dry once              │
+├──────────────────────────────────────────┤
+│ TODAY'S GOALS (from summary):            │
+│ • Continue planting (6 seeds remaining)  │
+│ • Water all 12 crops                     │
+│ • Avoid tree-blocked area                │
+└──────────────────────────────────────────┘
+```
+
+**2. API Endpoint**
+
+Add endpoint in `src/ui/app.py`:
+```python
+@app.get("/api/daily-summary")
+def get_daily_summary():
+    """Load yesterday's summary and today's derived goals."""
+    try:
+        with open("logs/daily_summary.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"status": "no_summary", "message": "No summary yet. Complete a day first."}
+```
+
+**3. Data Fields**
+
+From `logs/daily_summary.json` (Claude will create this):
+- `day`, `season`, `year` - When summary was saved
+- `planted_count`, `watered_count`, `cleared_count` - Accomplishments
+- `cells_skipped` - With reasons (tree blocked, etc.)
+- `energy_used`, `energy_remaining` - Resource tracking
+- `lessons` - What went wrong, to avoid next time
+- `next_day_goals` - Derived from summary
+
+#### Files to Modify
+- `src/ui/app.py` - Add `/api/daily-summary` endpoint
+- `src/ui/static/app.js` - Add `pollDailySummary()`, `renderDailySummary()`
+- `src/ui/templates/index.html` - Add panel section
+- `src/ui/static/app.css` - Style for summary sections
+
+#### Blocked By
+Claude implementing `save_daily_summary()` in unified_agent.py (Session 68).
 
 ---
 

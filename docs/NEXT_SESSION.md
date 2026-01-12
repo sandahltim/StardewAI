@@ -1,110 +1,109 @@
-# Session 68: Cell Grid Layout + End-of-Day Summary
+# Session 69: Stats Persistence + Morning Planning
 
-**Last Updated:** 2026-01-11 Session 67 by Claude
-**Status:** Obstacle clearing working. 9/15 seeds planted. Ready for full day test.
+**Last Updated:** 2026-01-11 Session 68 by Claude
+**Status:** Grid layout and daily summary implemented. 17 crops planted on Day 1. Ready for stats persistence fix.
 
 ---
 
-## Session 67 Summary
-
-### Fixes Implemented
-
-| Fix | Description | Result |
-|-----|-------------|--------|
-| **Obstacle clearing** | Detect blockers via /surroundings, clear with correct tool | Working |
-| **Fast tree skip** | Skip non-clearable obstacles (Tree, Boulder) after 2 ticks | Working |
+## Session 68 Summary
 
 ### Test Results
-- **Seeds Planted:** 9/15 (60%) vs 1/15 before (7%)
-- **9x improvement** from Session 66
 
-### Code Changes (Session 67)
+| Feature | Status | Notes |
+|---------|--------|-------|
+| **Grid Layout** | ✅ Working | Cells in compact rows: `(60,19), (61,19), (62,19)...` |
+| **17 Crops Planted** | ✅ Success | Day 1 complete |
+| **go_to_bed Skill** | ✅ Working | Auto-warped home + slept |
+| **Daily Summary Save** | ⚠️ Partial | File created but stats empty (see issue below) |
+
+### Code Changes (Session 68)
 
 | File | Change |
 |------|--------|
-| `unified_agent.py:2876-2882` | Added 4 state variables for obstacle clearing |
-| `unified_agent.py:2941-2997` | Detect blockers, clear or skip based on type |
-| `unified_agent.py:3064-3108` | New `_execute_obstacle_clear()` helper |
+| `farm_surveyor.py:257-266` | Patches sorted by min distance to farmhouse |
+| `farm_surveyor.py:319-324` | Global (y,x) sort on selected cells |
+| `cell_coordinator.py:83` | Added `skipped_cells` dict |
+| `cell_coordinator.py:249` | Track skip reasons |
+| `cell_coordinator.py:258-276` | New `get_daily_summary()` method |
+| `unified_agent.py:3837-3916` | New `_save_daily_summary()` method |
+| `unified_agent.py:4675-4678` | Hook: save summary before go_to_bed |
 
 ---
 
-## Issues for Session 68
+## Issues for Session 69
 
-### 1. Cell Grid Layout (User Feedback)
+### 1. Stats Persistence (Bug Found)
 
-**Symptom:** Agent farms scattered cells instead of organized grid
+**Symptom:** Daily summary shows `cells_completed: 0` even though 17 crops were planted.
 
-**Current Behavior:**
-```
-Selected cells: (57,27), (59,27), (60,27), (54,19), (55,19)...
-```
-Cells are spread out, causing long navigation paths.
+**Root Cause:** When user runs separate agent instances (e.g., "Plant seeds" then later "Go to bed"), the `cell_coordinator` is None in the second instance. Stats only exist in memory during active farming.
 
-**Desired Behavior:**
-Farm a compact grid, like:
-```
-(54,19) (55,19) (56,19)
-(54,20) (55,20) (56,20)
-(54,21) (55,21) (56,21)
-```
+**Fix:** Persist cell farming stats to a file as cells complete, load them in `_save_daily_summary()`.
 
-**Root Cause:** `find_optimal_cells()` uses BFS to find contiguous patches but doesn't optimize for walking order within patches.
-
-**Fix Location:** `planning/farm_surveyor.py:find_optimal_cells()`
-
-**Suggested Fix:**
-1. After BFS finds a patch, sort cells in serpentine/row-by-row order
-2. Or: Start from farmhouse door and expand outward in a grid pattern
-
-### 2. End-of-Day Summary (Tim Request)
-
-**Goal:** Save daily summary at bedtime for next morning's todo building
-
-**Current State:** No end-of-day persistence
-
-**Needed:**
-- Track what was accomplished during the day
-- Save to memory/file before sleep
-- Load on wake-up to inform morning planning
-
-**Suggested Implementation:**
+**Implementation:**
 ```python
-# In go_to_bed skill or daily_planner
-def save_daily_summary():
-    summary = {
-        "day": current_day,
-        "planted": cells_completed,
-        "cleared": debris_count,
-        "energy_remaining": player.stamina,
-        "gold_earned": gold_diff,
-        "lessons": [...]  # what went wrong
+# In cell_coordinator.py - save stats after each cell
+def _persist_stats(self):
+    stats = {
+        "cells_completed": len(self.completed_cells) - len(self.skipped_cells),
+        "cells_skipped": len(self.skipped_cells),
+        "skip_reasons": dict(self.skipped_cells),
     }
-    save_to_memory("daily_summary.json", summary)
+    with open("logs/cell_farming_stats.json", "w") as f:
+        json.dump(stats, f)
+
+# In unified_agent.py - load in _save_daily_summary()
+def _load_cell_stats(self) -> Dict:
+    try:
+        with open("logs/cell_farming_stats.json") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
 ```
 
----
+### 2. Morning Planning Integration
 
-## Ready for Full Day Test
+**Goal:** Load yesterday's summary to inform today's plan.
 
-The cell farming loop is working well enough for a full day test:
+**Implementation:**
+```python
+# In daily_planner.py
+def load_yesterday_summary() -> Optional[Dict]:
+    try:
+        with open("logs/daily_summary.json") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return None
 
-1. Wake up
-2. Exit farmhouse
-3. Survey farm, select cells
-4. Farm cells (clear → till → plant → water)
-5. Handle obstacles en route
-6. Go to bed
-7. **NEW:** Save daily summary
+# Add to VLM context
+yesterday = load_yesterday_summary()
+if yesterday and yesterday.get("lessons"):
+    context += f"Yesterday's lessons: {yesterday['lessons']}"
+```
+
+### 3. Re-Survey Loop Bug
+
+**Symptom:** Agent keeps re-surveying and selecting same tree-blocked cells.
+
+**Root Cause:** After skipping cells, coordinator completes but surveyor doesn't know those cells failed. Next survey selects them again.
+
+**Fix Options:**
+1. Persist skipped cells to file, exclude from next survey
+2. Mark tiles as "blocked" in FarmSurveyor
+3. Add cooldown before re-survey
 
 ---
 
 ## Debug Commands
 
 ```bash
-# Test cell farming
-python unified_agent.py --goal "Plant parsnip seeds" 2>&1 | grep -E "🌱|Complete|blocking"
+# Check cell farming stats file
+cat logs/cell_farming_stats.json | jq .
 
-# Check cell selection order
+# Check daily summary
+cat logs/daily_summary.json | jq .
+
+# Test grid layout
 curl -s localhost:8790/farm | python -c "
 import json, sys
 sys.path.insert(0, 'src/python-agent')
@@ -113,30 +112,31 @@ data = json.load(sys.stdin)
 surveyor = get_farm_surveyor()
 tiles = surveyor.survey(data)
 cells = surveyor.find_optimal_cells(tiles, 15)
-for i, c in enumerate(cells):
+for i, c in enumerate(cells[:10]):
     print(f'{i+1}. ({c.x},{c.y})')
 "
+
+# Run Day 2 test
+python src/python-agent/unified_agent.py --goal "Water the crops"
 ```
-
----
-
-## Files to Investigate
-
-- `planning/farm_surveyor.py` - Cell selection and ordering logic
-- `memory/daily_planner.py` - End-of-day summary hooks
-- `unified_agent.py:go_to_bed` handling - Trigger for daily summary save
 
 ---
 
 ## What's Working
 
-- Seed slot detection from inventory
-- select_slot action for seeds
-- Full cell cycle: face → clear → till → plant → water
-- Obstacle clearing during navigation (Weeds, Stone, Twig)
-- Fast skip for non-clearable obstacles (Tree, Boulder)
-- Stuck detection (skip after 10 attempts)
+- Grid layout: patches by proximity, cells row-by-row
+- Cell farming: clear → till → plant → water cycle
+- Obstacle clearing: Weeds, Stone, Twig during navigation
+- Fast skip: Trees, Boulders skipped after 2 ticks
+- go_to_bed: auto-warp + sleep
+- Daily summary file creation
 
 ---
 
-*Session 67: Added obstacle clearing during navigation. 9x improvement in seeds planted. Grid layout and end-of-day summary are next priorities. — Claude (PM)*
+## Codex Status
+
+**Daily Summary UI Panel** - ✅ Complete (waiting for backend stats fix)
+
+---
+
+*Session 68: Grid layout working, 17 crops planted Day 1, daily summary needs stats persistence. — Claude (PM)*
