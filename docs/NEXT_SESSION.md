@@ -1,182 +1,121 @@
-# Session 71: Continue Testing
+# Session 72: Fix TaskExecutor Stuck Bug
 
-**Last Updated:** 2026-01-11 Session 70 by Claude
-**Status:** Async commentary worker implemented. TTS no longer blocks agent.
+**Last Updated:** 2026-01-11 Session 71 by Claude
+**Status:** TTS/commentary blocking fixed. TaskExecutor stuck bug identified.
 
 ---
 
-## Session 70 Summary
+## Session 71 Summary
 
 ### Completed This Session
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| **Async Commentary Worker** | ✅ Fixed | TTS/UI updates now run in background thread |
-| **Non-blocking Architecture** | ✅ Complete | Agent pushes to queue and continues immediately |
+| **TTS Blocking Fix** | ✅ Fixed | `subprocess.Popen` instead of `run` for audio |
+| **Commentary Cache** | ✅ Fixed | Settings cached 30s, not fetched every tick |
+| **Warp Loop Fix** | ✅ Fixed | Was caused by blocking HTTP calls |
 
-### Code Changes (Session 70)
+### Bugs Found (Not Fixed)
 
-| File | Change |
-|------|--------|
-| `commentary/async_worker.py` | **NEW** - Background thread worker with queue |
-| `commentary/__init__.py` | Export AsyncCommentaryWorker |
-| `unified_agent.py` | Use AsyncCommentaryWorker, simplified _send_commentary |
+| Bug | Severity | Notes |
+|-----|----------|-------|
+| **TaskExecutor Stuck** | HIGH | When commentary-only mode + no pending action = empty queue |
+| **Agent Not Autonomous** | MEDIUM | Requires explicit goals, should self-plan |
 
----
-
-## Session 69 Summary (Previous)
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| **Stats Persistence** | ✅ Fixed | `cell_coordinator.py` now persists to `logs/cell_farming_stats.json` |
-| **Commentary Refactor** | ✅ Complete | VLM-driven inner monologue replaces templates |
-| **TTS Voice Selection** | ✅ Updated | Now cosmetic only (7 voice actors, same Rusty character) |
-| **UI Updates** | ✅ Complete | "Personality" → "Voice" dropdown with descriptions |
-
-### Code Changes (Session 69)
+### Code Changes (Session 71)
 
 | File | Change |
 |------|--------|
-| `commentary/rusty_character.py` | **NEW** - Single source of truth for Rusty's character |
-| `commentary/generator.py` | Simplified - passes VLM monologue, no templates |
-| `commentary/__init__.py` | Updated exports, legacy compat |
-| `config/settings.yaml` | Cleaner character prompt, better inner_monologue instructions |
-| `unified_agent.py` | Import INNER_MONOLOGUE_PROMPT, pass VLM monologue to generator |
-| `ui/app.py` | Use new voice system with descriptions |
-| `ui/static/app.js` | Show voice descriptions in dropdown |
-| `ui/templates/index.html` | Label: "Personality" → "Voice" |
-| `cell_coordinator.py` | Add `_persist_stats()` for cross-session access |
+| `unified_agent.py:1949-1952` | Add commentary settings cache variables |
+| `unified_agent.py:3996-4017` | Use cached settings (30s TTL) instead of HTTP every tick |
+| `src/ui/app.py:643-651` | Non-blocking TTS with `Popen` (cached playback) |
+| `src/ui/app.py:664-669` | Non-blocking TTS with `Popen` (new audio) |
+
+**Commit:** `ccc13fd` - Fix TTS/commentary blocking issues
 
 ---
 
-## Session 68 Summary (Previous)
+## Session 71 Test Results
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| **Grid Layout** | ✅ Working | Cells in compact rows: `(60,19), (61,19), (62,19)...` |
-| **17 Crops Planted** | ✅ Success | Day 1 complete |
-| **go_to_bed Skill** | ✅ Working | Auto-warped home + slept |
-| **Daily Summary Save** | ✅ Fixed (S69) | Stats now persist to file |
+- **Cell farming**: 5/5 cells completed successfully
+- **Agent reached**: Day 1 7:40 PM, 154/270 energy
+- **Then stuck**: TaskExecutor commentary-only mode with empty action queue
 
 ---
 
-## Issues for Session 70
+## Priority for Session 72
 
-### 1. Stats Persistence - ✅ FIXED (Session 69)
+### 1. TaskExecutor Stuck Bug - HIGH
 
-Stats now persist to `logs/cell_farming_stats.json` after each cell completion.
-Daily summary can load these stats even when running in separate agent instance.
+**Location:** `unified_agent.py:5103-5113`
 
-### 2. Morning Planning Integration
-
-**Goal:** Load yesterday's summary to inform today's plan.
-
-**Implementation:**
+**Problem:** When `_task_executor_commentary_only=True` but `_pending_executor_action=None`:
 ```python
-# In daily_planner.py
-def load_yesterday_summary() -> Optional[Dict]:
-    try:
-        with open("logs/daily_summary.json") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return None
-
-# Add to VLM context
-yesterday = load_yesterday_summary()
-if yesterday and yesterday.get("lessons"):
-    context += f"Yesterday's lessons: {yesterday['lessons']}"
+elif self._task_executor_commentary_only:
+    if self._pending_executor_action:
+        self.action_queue = [self._pending_executor_action]
+    else:
+        self.action_queue = []  # BUG: Empty queue = stuck!
+    self._task_executor_commentary_only = False
 ```
 
-### 3. Re-Survey Loop Bug - ✅ FIXED (Session 69)
+VLM generates actions but they're ignored. Executor has nothing. Agent freezes.
 
-**Fix:** Added `_cell_farming_done_today` flag to prevent re-survey after completion.
-- Flag set True when cell farming finishes
-- Reset to False on new day
-- Checked before starting new coordinator
+**Fix Options:**
+1. Fall back to VLM actions when executor has none
+2. Clear commentary-only flag when no pending action
+3. Never set commentary-only without a pending action
 
-### 4. Agent Stability Issue (NEW)
+**Likely Root Cause:** Cell farming finishes, sets commentary-only, but executor has no next task.
 
-**Symptom:** Agent crashes or freezes during cell farming. Stats show 2/15 cells but agent stopped.
+### 2. Agent Autonomy
 
-**Investigation needed for Session 70:**
-- Check navigation stuck detection
-- Look for exceptions in agent logs
-- May need timeout handling or crash recovery
+**Goal:** Agent should plan its own day without explicit `--goal` parameter.
 
-### 5. Inventory Manager - ✅ Codex Complete
+**Current:** `--goal "Full Day 1: Plant seeds..."` required
 
-New module `execution/inventory_manager.py` for dynamic slot lookup.
-- `find_seeds()` - Find all seed items
-- `find_tool()` - Find tools regardless of slot
-- `get_seed_priority()` - Best seed to plant
-- `get_tool_mapping()` - Actual tool→slot mapping
+**Should be:** Agent wakes up, looks at farm state, plans day automatically
 
 ---
 
 ## Debug Commands
 
 ```bash
-# Check cell farming stats file
-cat logs/cell_farming_stats.json | jq .
+# Run agent without explicit goal (test autonomy)
+python src/python-agent/unified_agent.py
 
-# Check daily summary
-cat logs/daily_summary.json | jq .
+# Check if stuck in commentary-only mode
+grep "_task_executor_commentary_only" /tmp/agent_run.log | tail -5
 
-# Test grid layout
-curl -s localhost:8790/farm | python -c "
-import json, sys
-sys.path.insert(0, 'src/python-agent')
-from planning.farm_surveyor import get_farm_surveyor
-data = json.load(sys.stdin)
-surveyor = get_farm_surveyor()
-tiles = surveyor.survey(data)
-cells = surveyor.find_optimal_cells(tiles, 15)
-for i, c in enumerate(cells[:10]):
-    print(f'{i+1}. ({c.x},{c.y})')
-"
-
-# Run Day 2 test
-python src/python-agent/unified_agent.py --goal "Water the crops"
+# Monitor action queue
+grep "action_queue" /tmp/agent_run.log | tail -10
 ```
 
 ---
 
 ## What's Working
 
-- Grid layout: patches by proximity, cells row-by-row
-- Cell farming: clear → till → plant → water cycle
-- Obstacle clearing: Weeds, Stone, Twig during navigation
-- Fast skip: Trees, Boulders skipped after 2 ticks
-- go_to_bed: auto-warp + sleep
-- Daily summary file creation
+- TTS no longer blocks agent (async + cached settings)
+- Cell farming completes successfully
+- Obstacle clearing during navigation
+- Stats persistence to file
+- Daily summary saves
 
 ---
 
-## Codex Status
+## Commentary System Architecture
 
-**Daily Summary UI Panel** - ✅ Complete (waiting for backend stats fix)
-
----
-
----
-
-## Commentary System (Session 70 Fix)
-
-**Problem:** Commentary was blocking agent, causing loops. Even non-blocking TTS wasn't enough - all the UI syncing and text processing was synchronous.
-
-**Solution:** Background worker thread with queue-based architecture:
 ```
-Agent Loop → Queue (non-blocking) → Worker Thread → TTS + UI
+Agent Loop → _send_commentary() → cached settings check (30s TTL)
+                                        ↓
+                              commentary_worker.push() (non-blocking)
+                                        ↓
+                              Worker Thread → PiperTTS.speak() (Popen)
 ```
 
-**Key files:**
-- `commentary/async_worker.py` - **NEW** - Background thread worker
-- `commentary/rusty_character.py` - Rusty's character definition  
-- `commentary/generator.py` - Passes VLM output, no templates
-- TTS voices are now cosmetic (7 "voice actors", same character)
-
-**Voice options:** default, warm, dry, gravelly, soft, energetic, tars
+Settings HTTP call: **Every 30 seconds** (not every tick)
+TTS playback: **Non-blocking** (subprocess.Popen)
 
 ---
 
-*Session 70: Async commentary worker implemented. TTS no longer blocks agent. — Claude (PM)*
+*Session 71: Fixed TTS/commentary blocking. Found TaskExecutor stuck bug. — Claude (PM)*
