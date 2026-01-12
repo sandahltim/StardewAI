@@ -5163,17 +5163,8 @@ Recent: {recent}"""
             if self.awaiting_user_reply and result.parse_success:
                 reply_text = (result.reasoning or "").strip()
                 if reply_text and not reply_text.lower().startswith("could not parse json"):
+                    # Send to UI - UI's JavaScript handles TTS for messages
                     self._ui_safe(self.ui.send_message, "agent", reply_text)
-                    # TTS for agent reply - but skip if it's just hints/action planning
-                    # Hints are wrapped in >>> <<< markers
-                    is_hint_heavy = ">>>" in reply_text or "<<<" in reply_text
-                    is_action_only = reply_text.lower().startswith(("moving", "watering", "planting", "harvesting", "tilling"))
-                    if self.commentary_worker and not is_hint_heavy and not is_action_only:
-                        self.commentary_worker.push(
-                            action_type="reply",
-                            state={},
-                            vlm_monologue=reply_text,
-                        )
                 self.awaiting_user_reply = False
 
             # Queue actions (with post-processing filters)
