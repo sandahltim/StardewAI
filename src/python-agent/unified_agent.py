@@ -3834,6 +3834,87 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
 
         self._send_commentary(action, success)
 
+    def _save_daily_summary(self) -> None:
+        """
+        Save end-of-day summary for morning planning.
+
+        Called before go_to_bed to persist:
+        - Cells planted/watered/cleared
+        - Cells skipped with reasons
+        - Energy stats
+        - Lessons learned
+        """
+        import json
+        from pathlib import Path
+
+        summary = {
+            "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "day": 0,
+            "season": "Spring",
+            "year": 1,
+        }
+
+        # Get game state for day/season
+        if self.last_state:
+            player = self.last_state.get("player", {})
+            location = self.last_state.get("location", {})
+            summary["day"] = location.get("day") or self.last_state.get("day", 0)
+            summary["season"] = location.get("season") or self.last_state.get("season", "Spring")
+            summary["year"] = location.get("year") or self.last_state.get("year", 1)
+            summary["energy_remaining"] = player.get("stamina", 0)
+            summary["max_energy"] = player.get("maxStamina", 270)
+            summary["gold"] = player.get("money", 0)
+
+        # Get cell farming stats from coordinator
+        if self.cell_coordinator:
+            cell_summary = self.cell_coordinator.get_daily_summary()
+            summary["cells_completed"] = cell_summary.get("cells_completed", 0)
+            summary["cells_skipped"] = cell_summary.get("cells_skipped", 0)
+            summary["skip_reasons"] = cell_summary.get("skip_reasons", {})
+            summary["total_cells"] = cell_summary.get("total_cells", 0)
+            summary["completion_rate"] = cell_summary.get("completion_rate", 0)
+        else:
+            # No coordinator - use action counts as fallback
+            summary["cells_completed"] = 0
+            summary["cells_skipped"] = 0
+            summary["skip_reasons"] = {}
+
+        # Add session stats
+        summary["actions_executed"] = self.action_count
+        summary["actions_failed"] = self.action_fail_count
+        summary["crops_watered"] = self.crops_watered_count
+        summary["crops_harvested"] = self.crops_harvested_count
+
+        # Derive lessons from skip reasons
+        lessons = []
+        skip_reasons = summary.get("skip_reasons", {})
+        if skip_reasons:
+            # Count by reason type
+            reason_counts: Dict[str, int] = {}
+            for reason in skip_reasons.values():
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            for reason, count in reason_counts.items():
+                lessons.append(f"{count} cells skipped: {reason}")
+        summary["lessons"] = lessons
+
+        # Derive goals for tomorrow
+        next_goals = []
+        if summary.get("cells_skipped", 0) > 0:
+            next_goals.append(f"Retry {summary['cells_skipped']} skipped cells (avoid blocked areas)")
+        if summary.get("cells_completed", 0) > 0:
+            next_goals.append(f"Water {summary['cells_completed']} planted crops")
+        summary["next_day_goals"] = next_goals
+
+        # Save to file
+        summary_path = Path("logs/daily_summary.json")
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(summary_path, "w") as f:
+            json.dump(summary, f, indent=2, default=str)
+
+        logging.info(f"📊 Daily summary saved: {summary['cells_completed']} planted, "
+                    f"{summary['cells_skipped']} skipped, {len(lessons)} lessons")
+
     def _send_commentary(self, action: Action, success: bool) -> None:
         if not self.ui_enabled or not self.ui or not self.commentary_generator:
             return
@@ -4590,6 +4671,11 @@ Recent: {recent}"""
                 self.movement_attempts += 1
             self.recent_actions.append(self._format_action(action))
             self.recent_actions = self.recent_actions[-10:]  # Keep last 10 for pattern detection
+
+            # Save daily summary before going to bed
+            if action.action_type in ("go_to_bed", "sleep"):
+                logging.info("🛏️ Going to bed - saving daily summary...")
+                self._save_daily_summary()
 
             # Check if this is a skill (multi-step action sequence)
             if self.is_skill(action.action_type):

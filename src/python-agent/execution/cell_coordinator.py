@@ -80,6 +80,7 @@ class CellFarmingCoordinator:
         self.plan = plan
         self.current_index = 0
         self.completed_cells: Set[Tuple[int, int]] = set()
+        self.skipped_cells: Dict[Tuple[int, int], str] = {}  # (x,y) → reason
         self.current_action_index = 0
         self._current_cell_actions: List[CellAction] = []
 
@@ -245,6 +246,7 @@ class CellFarmingCoordinator:
         """
         logger.warning(f"CellCoordinator: Skipping ({cell.x},{cell.y}): {reason}")
         self.completed_cells.add((cell.x, cell.y))
+        self.skipped_cells[(cell.x, cell.y)] = reason  # Track skip reason
         self.current_index += 1
         self.current_action_index = 0
         self._current_cell_actions = []
@@ -252,6 +254,26 @@ class CellFarmingCoordinator:
     def get_progress(self) -> Tuple[int, int]:
         """Get (completed, total) cell counts."""
         return (len(self.completed_cells), len(self.plan.cells))
+
+    def get_daily_summary(self) -> Dict[str, Any]:
+        """
+        Generate daily summary for end-of-day persistence.
+
+        Returns dict with:
+        - cells_completed: Successfully processed cells
+        - cells_skipped: Cells skipped with reasons
+        - total_cells: Total in plan
+        """
+        # Count successfully completed (not skipped)
+        successful = self.completed_cells - set(self.skipped_cells.keys())
+
+        return {
+            "cells_completed": len(successful),
+            "cells_skipped": len(self.skipped_cells),
+            "skip_reasons": dict(self.skipped_cells),
+            "total_cells": len(self.plan.cells),
+            "completion_rate": len(successful) / max(1, len(self.plan.cells)),
+        }
 
     def get_status_summary(self) -> str:
         """Get human-readable status."""

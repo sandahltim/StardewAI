@@ -254,11 +254,16 @@ class FarmSurveyor:
                 if len(patch) >= 3:  # Minimum patch size
                     patches.append(patch)
 
-        # Sort by patch size (largest first)
-        patches.sort(key=len, reverse=True)
+        # Sort by proximity to center (nearest patch first)
+        # Calculate min distance from any cell in patch to center
+        def patch_distance(patch: List[Tuple[int, int]]) -> int:
+            return min(abs(x - center[0]) + abs(y - center[1]) for x, y in patch)
+
+        patches.sort(key=patch_distance)
 
         logger.info(f"FarmSurveyor: Found {len(patches)} patches, "
-                   f"sizes: {[len(p) for p in patches[:5]]}")
+                   f"sizes: {[len(p) for p in patches[:5]]}, "
+                   f"distances: {[patch_distance(p) for p in patches[:5]]}")
 
         return patches
 
@@ -310,6 +315,13 @@ class FarmSurveyor:
                     break
                 selected_cells.append(cell)
                 patch_assignments[cell] = patch_id
+
+        # Global sort: row-by-row walking order regardless of patch origin
+        # This creates a compact grid pattern even when cells come from multiple patches
+        selected_cells.sort(key=lambda c: (c[1], c[0]))
+
+        logger.info(f"FarmSurveyor: Selected cells in walking order: "
+                   f"{[(c[0], c[1]) for c in selected_cells[:8]]}...")
 
         # Build CellPlan objects
         cell_plans = []
