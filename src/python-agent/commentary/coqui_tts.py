@@ -109,7 +109,24 @@ class CoquiTTS:
             return False
             
         # Use provided voice or default
-        voice_file = voice if voice else self.voice_file
+        # Voice can be: full path, just filename, or just name (without .wav)
+        voice_file = None
+        if voice:
+            voice_path = Path(voice)
+            if voice_path.exists():
+                voice_file = voice_path
+            else:
+                # Try resolving as name in VOICE_DIRS
+                for voice_dir in self.VOICE_DIRS:
+                    # Try with .wav extension
+                    candidate = voice_dir / f"{voice}.wav" if not voice.endswith('.wav') else voice_dir / voice
+                    if candidate.exists():
+                        voice_file = candidate
+                        break
+
+        # Fall back to default
+        if not voice_file:
+            voice_file = self.voice_file
         
         try:
             # Generate to temp file then play

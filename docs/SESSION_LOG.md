@@ -4,6 +4,54 @@ Coordination log between Claude (agent/prompt) and Codex (UI/memory).
 
 ---
 
+## 2026-01-12 - Session 77: Multi-Day Cycle + Harvest Bug
+
+**Agent: Claude (Opus)**
+
+### Summary
+Ran full multi-day test (Days 1-5). Planting and watering work. Harvest detection blocked by hint bug. Several bugs identified for Session 78.
+
+### What Worked
+- ✅ Elias character + david_attenborough TTS voice
+- ✅ Multi-day farming cycle (Days 1-5)
+- ✅ Planting 14 parsnip seeds
+- ✅ Daily watering (all crops watered each day)
+- ✅ Coqui voice path fix in `coqui_tts.py` (was falling back to female voice)
+- ✅ Bedtime transitions (Day 1→2, 2→3, 3→4, 4→5)
+
+### What Failed
+- ❌ Harvest not triggered - 12 crops ready but agent keeps clearing debris
+- ❌ Hint shows "needs watering" for harvest-ready crops
+- ❌ Refill navigation - loops empty instead of navigating to water
+- ❌ Bedtime late - passes out clearing debris past 2 AM
+
+### Code Changes (Session 77)
+
+| File | Change |
+|------|--------|
+| `commentary/coqui_tts.py:111-129` | Fixed voice path resolution (was passing name not path) |
+
+### Bugs to Fix (Session 78)
+
+| Bug | Severity | Location |
+|-----|----------|----------|
+| Harvest hint priority | HIGH | `unified_agent.py:1000-1200` |
+| Refill navigation | MEDIUM | `farming.yaml` + skill executor |
+| Bedtime override | MEDIUM | `unified_agent.py` tick loop |
+| Cell centering | LOW | Movement logic |
+
+### Elias Voice Samples (Session 77)
+
+> "I wonder if these trees remember the last time someone tried to grow parsnips here. Probably not. But maybe they're thinking, 'Why are you still doing this? It's just dirt and seeds.'"
+
+> "Maybe we're all just roots in the dark, waiting for something to happen."
+
+### Game State at End
+- Day 5, 12 crops ready to harvest, 0 parsnips harvested
+- Agent stuck on clear_debris task instead of harvesting
+
+---
+
 ## 2026-01-12 - Session 76: Elias Character Created
 
 **Agent: Claude (Opus)**

@@ -1,92 +1,89 @@
-# Session 77: Full Harvest Run with Elias
+# Session 78: Fix Harvest Detection + Bedtime Bugs
 
-**Last Updated:** 2026-01-12 Session 76 by Claude
-**Status:** Elias character complete. Ready for full harvest cycle test.
+**Last Updated:** 2026-01-12 Session 77 by Claude
+**Status:** Multi-day cycle working. Harvest detection broken.
 
 ---
 
-## Session 76 Summary
+## Session 77 Summary
 
-### Major Achievement: Elias Character Created
+### What Worked
+- ✅ Elias character + david_attenborough TTS voice
+- ✅ Multi-day farming cycle (Days 1-5)
+- ✅ Planting 14 parsnip seeds
+- ✅ Daily watering (all 14 crops watered)
+- ✅ Coqui voice path fix (was falling back to Ana Florence)
+- ✅ Bedtime cycle (eventually - sometimes passes out)
 
-The VLM was asked to choose its own name and personality. It chose **Elias** - "quiet strength, someone who works hard, values the land, and builds a life with care and patience."
+### What Failed
+- ❌ Harvest not triggered - 12 crops ready but agent keeps clearing debris
+- ❌ Hint system shows "needs watering" for harvest-ready crops
+- ❌ Refill navigation - agent loops empty instead of finding water
+- ❌ Bedtime override - stays out past 2 AM clearing debris
 
-**Elias's Key Traits:**
-- Grandfather's wisdom: "The land remembers"
-- Contemplative, finds poetry in dirt
-- Talks to crops like old friends
-- Dry humor, catches himself getting too philosophical
-- Stoic in failure - "the earth is patient"
-- Prefers crops to conversations
+### Elias Voice Samples (Session 77)
 
-### Completed This Session
+> "I wonder if these trees remember the last time someone tried to grow parsnips here. Probably not. They're just trees. But maybe they're thinking, 'Why are you still doing this? It's just dirt and seeds.'"
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| **Elias character definition** | ✅ Done | Full personality in `elias_character.py` |
-| **VLM system prompt updated** | ✅ Done | `settings.yaml` uses Elias voice |
-| **Coqui TTS voices configured** | ✅ Done | David Attenborough default |
-| **UI voice dropdown fixed** | ✅ Done | All voices selectable |
-| **Commentary exports updated** | ✅ Done | `__init__.py` uses Elias |
+> "The dirt stretches out like a blank page. So many possibilities. So many rocks. I'm not just planting seeds—I'm planting hope. Or maybe it's just habit."
 
-### Code Changes (Session 76)
+> "Maybe we're all just roots in the dark, waiting for something to happen."
 
-| File | Change |
-|------|--------|
-| `commentary/elias_character.py` | NEW - Full character definition, TTS voices |
-| `commentary/__init__.py` | Import from elias_character, RUSTY_CHARACTER alias |
-| `commentary/coqui_tts.py:53` | Default voice = david_attenborough.wav |
-| `config/settings.yaml:116-130` | System prompt uses Elias personality |
-| `src/ui/app.py:43,331` | Import elias_character, default voice |
-| `src/ui/static/app.js:324,665,2606` | Fixed coquiVoiceSelect dropdown |
+---
 
-### Available Coqui Voices
+## Bugs to Fix (Priority Order)
 
-| Voice | File | Best For |
-|-------|------|----------|
-| Naturalist | david_attenborough.wav | Default - contemplative |
-| Wise | morgan_freeman.wav | Grandfatherly wisdom |
-| Gravelly | clint_eastwood.wav | Weathered farmer |
-| Dramatic | james_earl_jones.wav | Deep, commanding |
-| Action | arnold.wav | Intense parsnip moments |
+### 1. Harvest Hint Bug (HIGH)
+**File:** `unified_agent.py` ~line 1000-1200
+**Problem:** Hint says "14 CROPS NEED WATERING" when 12 are `isReadyForHarvest=true`
+**Cause:** Watering hint logic doesn't check harvest status first
+**Fix:** Check `isReadyForHarvest` before generating watering hints
+
+```python
+# Current (broken):
+if unwatered:
+    hint = f">>> {len(unwatered)} CROPS NEED WATERING! ..."
+
+# Should be:
+harvestable = [c for c in crops if c.get("isReadyForHarvest")]
+if harvestable:
+    hint = f">>> 🌾 {len(harvestable)} READY TO HARVEST! ..."
+elif unwatered:
+    hint = f">>> {len(unwatered)} CROPS NEED WATERING! ..."
+```
+
+### 2. Refill Navigation Bug (MEDIUM)
+**File:** `skills/definitions/farming.yaml` line 35-59
+**Problem:** `refill_watering_can` executes but doesn't navigate to water first
+**Cause:** Precondition `adjacent_to: water_source` not enforced, recovery skill not triggered
+**Fix:** Verify precondition check in skill executor, or add explicit navigate step
+
+### 3. Bedtime Override Bug (MEDIUM)
+**File:** `unified_agent.py`
+**Problem:** Agent stays clearing debris past 2 AM, passes out
+**Cause:** TaskExecutor keeps running clear_debris despite late hour
+**Fix:** Add hard bedtime check that interrupts any task after 11 PM
+
+```python
+# In tick loop, before TaskExecutor:
+if hour >= 23 or (hour == 0 and minute > 0):
+    self._execute_skill("go_to_bed", {})
+    return
+```
+
+### 4. Cell Movement Centering (LOW)
+**Problem:** Agent doesn't center on tile when moving
+**Note:** User observed this during gameplay
 
 ---
 
 ## Current Game State
 
-- **Day:** 5 (Spring, Year 1) - advanced from Day 4 last session
-- **Weather:** Unknown (check on start)
-- **Crops:** 13 planted (parsnips from Day 2)
+- **Day:** 5 (Spring, Year 1)
+- **Crops:** 14 planted, 12 ready to harvest
 - **Seeds:** 0 remaining
-- **Money:** ~500g
-- **Harvest ETA:** Day 6 (parsnips take 4 days)
-
----
-
-## Priority for Session 77
-
-### 1. Full Harvest Cycle Test
-- [ ] Start agent on Day 5/6
-- [ ] Let parsnips mature and harvest automatically
-- [ ] Test `harvest_crop` skill with Elias commentary
-- [ ] Test `ship_item` skill (simplified - works from anywhere on Farm)
-
-### 2. Buy Seeds Flow
-- [ ] After shipping, agent should recognize no seeds
-- [ ] Navigate to Pierre's (SeedShop warp)
-- [ ] Buy new parsnip seeds
-- [ ] Return to Farm, plant new cycle
-
-### 3. Extended Autonomy
-- [ ] Run Day 6 through Day 10+
-- [ ] Monitor Elias's inner monologue quality
-- [ ] Watch for stuck states or phantom failures
-- [ ] Test multi-day continuous operation
-
-### 4. Voice Quality Check
-- [ ] Listen to Elias's TTS commentary during gameplay
-- [ ] Adjust voice if needed (UI dropdown)
-- [ ] Verify inner monologue matches character
+- **Money:** ~450g
+- **Location:** Farm
 
 ---
 
@@ -96,39 +93,36 @@ The VLM was asked to choose its own name and personality. It chose **Elias** - "
 cd /home/tim/StardewAI
 source venv/bin/activate
 
-# Start servers (if not running)
+# Start servers
 ./scripts/start-llama-server.sh &
 python src/ui/app.py &
 
-# Run agent with Elias
-python src/python-agent/unified_agent.py --ui --goal "Farm autonomously - harvest when ready, ship crops, buy more seeds"
+# Run agent
+python src/python-agent/unified_agent.py --ui --goal "Farm autonomously - harvest ready crops, ship them, buy more seeds"
 ```
 
 ---
 
-## Elias Voice Samples (from Session 76 testing)
+## Code Locations for Fixes
 
-**Watering:**
-> "The soil drinks deep, like it's remembering thirst from last winter. Funny—what looks like just mud to most folks, I see the slow dance of roots turning light into something sweet."
-
-**Rocks:**
-> "Another rock appeared. Wonder if they reproduce. Probably just rolling down the hill, like I did when I was young. The land remembers, and so do the stones—quiet witnesses to the slow march of time."
-
-**Rain:**
-> "The earth drinks deep, and I wonder if the seeds remember the thirst of last summer. Even the sky knows its duty—every drop a promise kept."
-
-**Bedtime:**
-> "Ah, the earth sighs as I lay down my tools—this old soil remembers every seed and storm. Let the moon watch over the sleeping fields, and me too, like a drowsy scarecrow."
+| Bug | File | Lines |
+|-----|------|-------|
+| Harvest hint | unified_agent.py | 1000-1200 (hint generation) |
+| Refill nav | farming.yaml + skill_executor.py | precondition check |
+| Bedtime override | unified_agent.py | tick loop |
+| Daily planner harvest | memory/daily_planner.py | 402-412 |
 
 ---
 
-## Known Issues
+## Test Checklist for Session 78
 
-| Issue | Severity | Notes |
-|-------|----------|-------|
-| Phantom watering | MEDIUM | May need timing delay - monitor |
-| UI server auto-stops | LOW | Restart with `python src/ui/app.py &` |
+- [ ] Fix harvest hint priority
+- [ ] Verify agent harvests 12 ready crops
+- [ ] Test ship_item skill after harvest
+- [ ] Test buy_seeds flow at Pierre's
+- [ ] Verify bedtime triggers before 2 AM
+- [ ] Test refill_watering_can navigation
 
 ---
 
-*Session 76: Elias born. The land remembers. Ready for harvest. — Claude (PM)*
+*Session 77: Multi-day works, harvest blocked by hint bug. — Claude (PM)*
