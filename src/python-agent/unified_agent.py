@@ -3020,7 +3020,9 @@ class StardewAgent:
                         dir_info = surr_data.get("directions", {}).get(direction)
                         if dir_info and not dir_info.get("clear") and dir_info.get("tilesUntilBlocked", 99) <= 1:
                             blocker = dir_info.get("blocker")
-                            if blocker and blocker in ("Weeds", "Stone", "Twig", "Wood", "Grass"):
+                            # Use centralized debris/obstacle definitions
+                            from planning.farm_surveyor import FarmSurveyor
+                            if blocker and blocker in FarmSurveyor.DEBRIS_TOOL_SLOTS:
                                 # Start clearing sequence
                                 logging.info(f"🌱 Cell ({cell.x},{cell.y}): {blocker} blocking {direction}, clearing it")
                                 self._cell_clearing_obstacle = True
@@ -3028,7 +3030,7 @@ class StardewAgent:
                                 self._cell_clear_direction = direction
                                 self._cell_clear_blocker = blocker
                                 return self._execute_obstacle_clear()
-                            elif blocker and blocker in ("Tree", "Boulder", "Stump", "Log"):
+                            elif blocker and blocker in FarmSurveyor.NON_CLEARABLE:
                                 # Non-clearable obstacle - skip cell immediately
                                 logging.warning(f"🌱 Cell ({cell.x},{cell.y}): {blocker} blocking {direction}, skipping (not clearable)")
                                 self.cell_coordinator.skip_cell(cell, f"{blocker} blocking")
@@ -4581,18 +4583,38 @@ Recent: {recent}"""
                     if not dir_info.get("clear", True) and dir_info.get("tilesUntilBlocked", 1) == 0:
                         blocker = dir_info.get('blocker', 'obstacle')
 
+                        # Early skip check: have we already given up on this blocker?
+                        player = surroundings.get("player", {})
+                        px, py = player.get("tileX", 0), player.get("tileY", 0)
+                        loc_name = self.last_state.get("location", {}).get("name", "Farm") if self.last_state else "Farm"
+                        dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}.get(direction, (0, 0))
+                        target_x, target_y = px + dx, py + dy
+                        blocker_key = (loc_name, target_x, target_y, blocker)
+
+                        if blocker_key in self._skip_blockers:
+                            # Already know this is impassable, skip immediately
+                            logging.debug(f"⏭️ Known impassable: {blocker} at ({target_x},{target_y})")
+                            self.recent_actions.append(f"SKIP: {blocker} at ({target_x},{target_y}) (known impassable)")
+                            self.recent_actions = self.recent_actions[-10:]
+                            # Don't try to execute this move, let VLM pick alternative
+                            return
+
                         # Check if blocker is clearable debris
+                        # Use FarmSurveyor for tool slots, add tool names for logging
+                        from planning.farm_surveyor import FarmSurveyor
+                        TOOL_NAMES = {0: "AXE", 3: "PICKAXE", 4: "SCYTHE"}
+
+                        # Build clearable dict from surveyor + extras
                         CLEARABLE_DEBRIS = {
-                            "Weeds": ("AXE", 0),  # Scythe or axe works
-                            "Grass": ("SCYTHE", 4),
-                            "Twig": ("AXE", 0),
-                            "Wood": ("AXE", 0),
-                            "Stump": ("AXE", 0),  # May require upgraded axe
+                            k: (TOOL_NAMES.get(v, "TOOL"), v)
+                            for k, v in FarmSurveyor.DEBRIS_TOOL_SLOTS.items()
+                        }
+                        # Add variants the surveyor doesn't track
+                        CLEARABLE_DEBRIS.update({
                             "Tree Stump": ("AXE", 0),  # Large stump variant
-                            "Stone": ("PICKAXE", 3),
                             "Boulder": ("PICKAXE", 3),
                             "Large Rock": ("PICKAXE", 3),  # May require upgraded pick
-                        }
+                        })
 
                         if blocker in CLEARABLE_DEBRIS:
                             # Get blocker position for failure tracking
@@ -4663,8 +4685,18 @@ Recent: {recent}"""
                                     self._send_ui_status()
                                     return  # Will execute select_slot next tick
 
-                        # Non-clearable obstacle (or gave up) - just skip
-                        logging.warning(f"⚠️ Skipping move {direction} - blocked by {blocker}")
+                        # Non-clearable obstacle (or gave up) - track it so we don't loop
+                        player = surroundings.get("player", {})
+                        px, py = player.get("tileX", 0), player.get("tileY", 0)
+                        loc_name = self.last_state.get("location", {}).get("name", "Farm") if self.last_state else "Farm"
+                        dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}.get(direction, (0, 0))
+                        target_x, target_y = px + dx, py + dy
+                        blocker_key = (loc_name, target_x, target_y, blocker)
+
+                        # Add to skip set if not already there (prevents infinite loops on non-clearable)
+                        if blocker_key not in self._skip_blockers:
+                            self._skip_blockers.add(blocker_key)
+                            logging.warning(f"⚠️ Marking {blocker} at ({target_x},{target_y}) as impassable")
 
                         # Record lesson for future VLM context
                         if self.lesson_memory:
@@ -5086,6 +5118,13 @@ Recent: {recent}"""
                 reply_text = (result.reasoning or "").strip()
                 if reply_text and not reply_text.lower().startswith("could not parse json"):
                     self._ui_safe(self.ui.send_message, "agent", reply_text)
+                    # TTS for agent reply
+                    if self.commentary_worker:
+                        self.commentary_worker.push(
+                            action_type="reply",
+                            state={},
+                            vlm_monologue=reply_text,
+                        )
                 self.awaiting_user_reply = False
 
             # Queue actions (with post-processing filters)
