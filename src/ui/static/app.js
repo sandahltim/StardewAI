@@ -2268,16 +2268,7 @@ function init() {
     if (!data) return;
     if (data.type === "message_created" || data.type === "message_updated") {
       appendChatMessage(data.payload);
-      if (
-        data.payload &&
-        data.payload.role === "agent" &&
-        currentStatus.tts_enabled &&
-        data.payload.content &&
-        !spokenMessages.has(data.payload.id)
-      ) {
-        spokenMessages.add(data.payload.id);
-        postJSON("/api/tts", { message_id: data.payload.id, voice: currentStatus.tts_voice });
-      }
+      // Message TTS disabled - using commentary worker for inner monologue only
     } else if (data.type === "task_created" || data.type === "task_updated") {
       upsertTask(data.payload);
     } else if (data.type === "status_updated") {
