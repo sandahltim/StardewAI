@@ -906,19 +906,9 @@ async def stream_message(payload: MessageStream) -> Dict[str, Any]:
 
 @app.post("/api/tts")
 async def speak_message(payload: TtsRequest) -> Dict[str, Any]:
-    voice = payload.voice or _read_status().get("tts_voice") or DEFAULT_TTS_VOICE
-
-    text = payload.text
-    if payload.message_id is not None:
-        message = storage.get_message(payload.message_id)
-        if not message:
-            raise HTTPException(status_code=404, detail="Message not found")
-        text = message["content"]
-
-    if not text:
-        raise HTTPException(status_code=400, detail="No text provided for TTS")
-
-    return _speak_text(text, voice)
+    # DISABLED: Using commentary worker for inner monologue only
+    # UI TTS was causing overlap with agent's PiperTTS
+    return {"ok": False, "disabled": True, "reason": "Using commentary worker only"}
 
 
 @app.get("/api/goals")
