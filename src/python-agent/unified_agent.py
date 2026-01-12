@@ -1152,61 +1152,63 @@ class ModBridgeController:
                 else:
                     front_info = f">>> TILE: {tile_obj} - select_slot {needed_slot} for {needed_tool.upper()}, then use_tool! <<<"
             elif tile_state == "clear" and can_till:
-                # Check for unwatered crops first - prioritize watering over tilling
-                crops = state.get("location", {}).get("crops", []) if state else []
-                unwatered = [c for c in crops if not c.get("isWatered", False)]
-                if unwatered:
-                    # Guide to nearest unwatered crop
-                    player_x = state.get("player", {}).get("tileX", 0) if state else 0
-                    player_y = state.get("player", {}).get("tileY", 0) if state else 0
-                    nearest = min(unwatered, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
-                    dx = nearest["x"] - player_x
-                    dy = nearest["y"] - player_y
-
-                    # Use adjacent movement hint (stop 1 tile away from crop)
-                    adj_hint = self._calc_adjacent_hint(dx, dy, action="water")
-                    front_info = f">>> {len(unwatered)} CROPS NEED WATERING! {adj_hint} <<<"
-                else:
-                    # Check if we have seeds before suggesting tilling
-                    inventory = state.get("inventory", []) if state else []
-                    has_seeds = any(item and "seed" in item.get("name", "").lower() for item in inventory)
-                    if has_seeds:
-                        if "Hoe" in current_tool:
-                            front_info = f">>> TILE: CLEAR DIRT - You have {current_tool}, use_tool to TILL! <<<"
-                        else:
-                            front_info = ">>> TILE: CLEAR DIRT - select_slot 1 for HOE, then use_tool to TILL! <<<"
-                    else:
-                        # No seeds - use done farming hint (will suggest shipping/clearing)
-                        front_info = self._get_done_farming_hint(state, data)
-            elif tile_state == "clear" or tile_state == "blocked":
-                # Check if there are crops nearby that need watering
+                # Priority: 1) Harvest ready crops, 2) Water unwatered crops, 3) Till/plant
                 crops = state.get("location", {}).get("crops", []) if state else []
                 player_x = state.get("player", {}).get("tileX", 0) if state else 0
                 player_y = state.get("player", {}).get("tileY", 0) if state else 0
 
-                # Find nearest unwatered crop
-                unwatered = [c for c in crops if not c.get("isWatered", False)]
-                if unwatered:
-                    # Calculate distance and direction to nearest unwatered crop
-                    nearest = min(unwatered, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+                # HARVEST FIRST - check for ready-to-harvest crops
+                harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
+                if harvestable:
+                    nearest = min(harvestable, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
                     dx = nearest["x"] - player_x
                     dy = nearest["y"] - player_y
-
-                    # Use adjacent movement hint (stop 1 tile away from crop)
-                    adj_hint = self._calc_adjacent_hint(dx, dy, action="water")
-                    front_info = f">>> TILE: NOT FARMABLE - {len(unwatered)} CROPS! {adj_hint} <<<"
+                    adj_hint = self._calc_adjacent_hint(dx, dy, action="harvest")
+                    front_info = f">>> 🌾 {len(harvestable)} CROPS READY TO HARVEST! {adj_hint} <<<"
                 else:
-                    # Check for harvestable crops first
-                    harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
-                    if harvestable:
-                        nearest_h = min(harvestable, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
-                        dx = nearest_h["x"] - player_x
-                        dy = nearest_h["y"] - player_y
-                        dist = abs(dx) + abs(dy)
+                    # No harvestable - check for unwatered crops
+                    unwatered = [c for c in crops if not c.get("isWatered", False)]
+                    if unwatered:
+                        nearest = min(unwatered, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+                        dx = nearest["x"] - player_x
+                        dy = nearest["y"] - player_y
+                        adj_hint = self._calc_adjacent_hint(dx, dy, action="water")
+                        front_info = f">>> {len(unwatered)} CROPS NEED WATERING! {adj_hint} <<<"
+                    else:
+                        # No unwatered crops - check if we have seeds before suggesting tilling
+                        inventory = state.get("inventory", []) if state else []
+                        has_seeds = any(item and "seed" in item.get("name", "").lower() for item in inventory)
+                        if has_seeds:
+                            if "Hoe" in current_tool:
+                                front_info = f">>> TILE: CLEAR DIRT - You have {current_tool}, use_tool to TILL! <<<"
+                            else:
+                                front_info = ">>> TILE: CLEAR DIRT - select_slot 1 for HOE, then use_tool to TILL! <<<"
+                        else:
+                            # No seeds - use done farming hint (will suggest shipping/clearing)
+                            front_info = self._get_done_farming_hint(state, data)
+            elif tile_state == "clear" or tile_state == "blocked":
+                # Priority: 1) Harvest ready crops, 2) Water unwatered crops, 3) Done farming
+                crops = state.get("location", {}).get("crops", []) if state else []
+                player_x = state.get("player", {}).get("tileX", 0) if state else 0
+                player_y = state.get("player", {}).get("tileY", 0) if state else 0
 
-                        # Use adjacent movement hint (stop 1 tile away from crop)
-                        adj_hint = self._calc_adjacent_hint(dx, dy, action="harvest")
-                        front_info = f">>> 🌾 {len(harvestable)} READY! {adj_hint} <<<"
+                # HARVEST FIRST - check for ready-to-harvest crops
+                harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
+                if harvestable:
+                    nearest = min(harvestable, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+                    dx = nearest["x"] - player_x
+                    dy = nearest["y"] - player_y
+                    adj_hint = self._calc_adjacent_hint(dx, dy, action="harvest")
+                    front_info = f">>> 🌾 {len(harvestable)} CROPS READY TO HARVEST! {adj_hint} <<<"
+                else:
+                    # No harvestable - check for unwatered crops
+                    unwatered = [c for c in crops if not c.get("isWatered", False)]
+                    if unwatered:
+                        nearest = min(unwatered, key=lambda c: abs(c["x"] - player_x) + abs(c["y"] - player_y))
+                        dx = nearest["x"] - player_x
+                        dy = nearest["y"] - player_y
+                        adj_hint = self._calc_adjacent_hint(dx, dy, action="water")
+                        front_info = f">>> TILE: NOT FARMABLE - {len(unwatered)} CROPS! {adj_hint} <<<"
                     else:
                         # All crops watered, none harvestable - check for sellables, debris, bed
                         front_info = self._get_done_farming_hint(state, data)
@@ -3829,6 +3831,11 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             season = time_data.get("season", "spring")
             if day > 0 and day != self._last_planned_day:
                 logging.info(f"🌅 New day detected: Day {day} - generating plan...")
+                # Save previous day's summary BEFORE starting new day
+                # This handles the case where agent passed out (didn't call go_to_bed)
+                if self._last_planned_day > 0:
+                    logging.info(f"📝 Saving Day {self._last_planned_day} summary (recovery from pass-out or missed save)")
+                    self._save_daily_summary()
                 # Pass VLM reasoning function if available
                 reason_fn = self._vlm_reason if hasattr(self, '_vlm_reason') else None
                 # Get farm state for planning (works even when in FarmHouse)
@@ -5170,9 +5177,26 @@ Recent: {recent}"""
 
             # Queue actions (with post-processing filters)
             if self.config.mode in ("single", "splitscreen"):
-                # Check if VLM said PAUSE (emergency interrupt)
-                vlm_pause = "PAUSE" in (result.reasoning or "").upper()
-                if vlm_pause and self._task_executor_commentary_only:
+                # HARD BEDTIME CHECK - interrupts EVERYTHING including TaskExecutor
+                _bedtime_forced = False
+                if self.last_state:
+                    _hour = self.last_state.get("time", {}).get("hour", 6)
+                    if _hour >= 23:
+                        logging.warning(f"🛏️ BEDTIME OVERRIDE: Hour {_hour} >= 23, forcing go_to_bed (interrupting all tasks)")
+                        # Clear TaskExecutor state
+                        if self.task_executor:
+                            self.task_executor.clear()
+                        self._task_executor_commentary_only = False
+                        self._pending_executor_action = None
+                        self.action_queue = [Action("go_to_bed", {}, "Auto-bed (very late override)")]
+                        _bedtime_forced = True
+
+                # Check if VLM said PAUSE (emergency interrupt) - skip if bedtime forced
+                vlm_pause = "PAUSE" in (result.reasoning or "").upper() if not _bedtime_forced else False
+                if _bedtime_forced:
+                    # Already handled above - just log the action
+                    logging.info(f"   [0] go_to_bed: {{}} (bedtime override)")
+                elif vlm_pause and self._task_executor_commentary_only:
                     logging.warning(f"⚠️ VLM requested PAUSE: {result.reasoning[:100]}")
                     # Clear task executor state - VLM detected a problem
                     if self.task_executor:

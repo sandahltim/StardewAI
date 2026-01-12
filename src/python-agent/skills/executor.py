@@ -71,6 +71,22 @@ class SkillExecutor:
             if slot is None:
                 return False
             return await self._dispatch("select_slot", {"slot": slot}, state)
+        # Handle pathfind_to: translate to move action with target
+        if action_type == "pathfind_to":
+            target = params.get("target", "")
+            stop_adjacent = params.get("stop_adjacent", False)
+            # For nearest_water, get water coordinates from state/surroundings
+            if target == "nearest_water":
+                nearest_water = (state or {}).get("surroundings", {}).get("nearestWater", {})
+                if not nearest_water or not nearest_water.get("x"):
+                    logging.warning("No nearest water found in surroundings")
+                    return False
+                x, y = nearest_water.get("x"), nearest_water.get("y")
+                logging.info(f"Pathfinding to nearest water at ({x}, {y})")
+                return await self._dispatch("move", {"x": x, "y": y, "stop_adjacent": stop_adjacent}, state)
+            # For other targets, try to use the target as coordinates
+            logging.warning(f"pathfind_to target '{target}' not supported")
+            return False
         executor = self.action_executor
         if hasattr(executor, "execute_action"):
             result = bool(executor.execute_action(action_type, params))

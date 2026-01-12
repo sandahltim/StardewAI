@@ -4,6 +4,50 @@ Coordination log between Claude (agent/prompt) and Codex (UI/memory).
 
 ---
 
+## 2026-01-12 - Session 78: Bug Fix Marathon
+
+**Agent: Claude (Opus)**
+
+### Summary
+Fixed 6 major bugs blocking the harvest cycle. SMAPI mod rebuilt. Planner state cleared. Ready for full harvest test.
+
+### Bugs Fixed
+
+| Bug | Root Cause | Fix |
+|-----|------------|-----|
+| Harvest hint priority | Watering hints shown before harvest check | Check `isReadyForHarvest` first in hint logic |
+| Bedtime override | TaskExecutor bypassed bedtime check | Hard check at hour >= 23 before TaskExecutor |
+| Cell centering | Player at tile corner (0,0) not center | Add +32 offset to position (5 places in ActionExecutor.cs) |
+| Refill navigation | Refill called without navigating to water | Check adjacent, navigate if not |
+| Daily task carryover | Summary not saved on pass-out | Save summary when new day detected |
+| Daily planner priority | Harvestable crops counted as "needs water" | Exclude harvestable from unwatered list |
+
+### Code Changes
+
+| File | Change |
+|------|--------|
+| `unified_agent.py:1154-1214` | Harvest hint priority (2 places) |
+| `unified_agent.py:5175-5193` | Bedtime hard check |
+| `unified_agent.py:3834-3838` | Daily summary save on new day |
+| `ActionExecutor.cs` (5 places) | Cell centering +32 offset |
+| `task_executor.py:338-383` | Refill navigation logic |
+| `executor.py:74-89` | pathfind_to handler for nearest_water |
+| `daily_planner.py:391-392` | Exclude harvestable from unwatered |
+| `daily_planner.py:403-410` | Harvest priority = CRITICAL |
+
+### Game State at End
+- Day 5, Spring Year 1
+- 12 parsnips ready to harvest
+- 2 parsnips still growing
+- Planner state cleared for fresh test
+
+### Next Session (79)
+- Run full harvest cycle test
+- Verify all 6 fixes work in practice
+- Complete: harvest → ship → buy seeds → plant → water → bed
+
+---
+
 ## 2026-01-12 - Session 77: Multi-Day Cycle + Harvest Bug
 
 **Agent: Claude (Opus)**

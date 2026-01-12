@@ -150,8 +150,8 @@ public class ActionExecutor
             _pathIndex++;
             if (_pathIndex >= _currentPath.Count)
             {
-                // Snap to final tile center for consistent tool usage
-                player.Position = new Microsoft.Xna.Framework.Vector2(targetTile.X * 64f, targetTile.Y * 64f);
+                // Snap to final tile center (+32 offset) for consistent tool usage and SMAPI surroundings
+                player.Position = new Microsoft.Xna.Framework.Vector2(targetTile.X * 64f + 32f, targetTile.Y * 64f + 32f);
                 _state = ActionState.Complete;
                 _currentPath = null;
             }
@@ -206,10 +206,11 @@ public class ActionExecutor
 
         // SYNCHRONOUS MOVEMENT: Move directly to final tile (like WarpTo but with collision check)
         // This ensures movement works even when game loop isn't processing setMoving flags
+        // Center on tile (+32 offset) for accurate SMAPI surroundings data
         player.FacingDirection = facing;
         player.Halt();
         player.forceCanMove();
-        player.Position = new Microsoft.Xna.Framework.Vector2(finalTile.X * 64f, finalTile.Y * 64f);
+        player.Position = new Microsoft.Xna.Framework.Vector2(finalTile.X * 64f + 32f, finalTile.Y * 64f + 32f);
         
         _monitor.Log($"Moved {direction} {actualTiles} tiles to ({finalTile.X}, {finalTile.Y})", LogLevel.Debug);
         _state = ActionState.Complete;
@@ -237,8 +238,8 @@ public class ActionExecutor
         // Check if we've reached the target tile - snap to center for consistency
         if (currentTile.X == targetTile.X && currentTile.Y == targetTile.Y)
         {
-            // Snap to tile center to prevent tool misalignment from edge positions
-            player.Position = new Microsoft.Xna.Framework.Vector2(targetTile.X * 64f, targetTile.Y * 64f);
+            // Snap to tile center (+32 offset) to prevent tool misalignment from edge positions
+            player.Position = new Microsoft.Xna.Framework.Vector2(targetTile.X * 64f + 32f, targetTile.Y * 64f + 32f);
             return;
         }
 
@@ -1045,8 +1046,8 @@ public class ActionExecutor
         player.Halt();
         player.forceCanMove();
 
-        // Set position directly (tile * 64 = pixel position)
-        player.Position = new Vector2(target.X * 64f, target.Y * 64f);
+        // Set position directly (tile * 64 + 32 = centered pixel position)
+        player.Position = new Vector2(target.X * 64f + 32f, target.Y * 64f + 32f);
 
         _monitor.Log($"Warped {player.Name} to ({target.X}, {target.Y}) - pos now {player.Position}", LogLevel.Info);
 
@@ -1105,7 +1106,8 @@ public class ActionExecutor
             var bedSpot = farmHouse.GetPlayerBedSpot();
             if (bedSpot != Microsoft.Xna.Framework.Point.Zero)
             {
-                player.Position = new Microsoft.Xna.Framework.Vector2(bedSpot.X * 64f, bedSpot.Y * 64f);
+                // Center on bed tile
+                player.Position = new Microsoft.Xna.Framework.Vector2(bedSpot.X * 64f + 32f, bedSpot.Y * 64f + 32f);
             }
         }
 

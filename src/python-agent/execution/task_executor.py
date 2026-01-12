@@ -339,25 +339,48 @@ class TaskExecutor:
             # Check watering can water level
             water_level = player.get("wateringCanWater", 0)
             water_max = player.get("wateringCanMax", 40)
-            
+
             if water_level <= 0:
-                logger.info(f"💧 Watering can empty ({water_level}/{water_max}) - need to refill first")
-                
-                # Determine direction to water source from surroundings
-                target_direction = "south"  # Default - water is usually south on farm
+                logger.info(f"💧 Watering can empty ({water_level}/{water_max}) - need to refill")
+
+                # First check if we're adjacent to water
+                is_adjacent_to_water = False
+                target_direction = "south"  # Default direction
+
                 if surroundings:
+                    # Check each direction for water
                     dirs = surroundings.get("directions", {})
-                    # Find water direction from landmarks
-                    landmarks = data.get("landmarks", {})
-                    water_info = landmarks.get("water", {})
-                    if water_info.get("direction"):
-                        target_direction = water_info.get("direction", "south").lower()
-                
-                return ExecutorAction(
-                    action_type="refill_watering_can",
-                    params={"target_direction": target_direction},
-                    reason=f"Watering can empty - refilling before watering crops",
-                )
+                    for direction in ["north", "south", "east", "west"]:
+                        dir_data = dirs.get(direction, {})
+                        blocker = dir_data.get("blocker", "")
+                        tiles_until = dir_data.get("tilesUntilBlocked", 99)
+                        if blocker and "water" in blocker.lower() and tiles_until == 0:
+                            is_adjacent_to_water = True
+                            target_direction = direction
+                            break
+
+                    # Also check nearestWater
+                    nearest_water = surroundings.get("nearestWater", {})
+                    if not is_adjacent_to_water and nearest_water.get("distance", 99) <= 1:
+                        is_adjacent_to_water = True
+                        target_direction = nearest_water.get("direction", "south").lower()
+
+                if is_adjacent_to_water:
+                    # Adjacent to water - refill directly
+                    logger.info(f"💧 Adjacent to water ({target_direction}) - refilling can")
+                    return ExecutorAction(
+                        action_type="refill_watering_can",
+                        params={"target_direction": target_direction},
+                        reason=f"Watering can empty - refilling (adjacent to water)",
+                    )
+                else:
+                    # NOT adjacent to water - navigate there first
+                    logger.info(f"💧 Not adjacent to water - navigating to water source first")
+                    return ExecutorAction(
+                        action_type="navigate_to_water",
+                        params={},
+                        reason=f"Watering can empty - navigating to water source",
+                    )
         
         # Future: add plant_seeds check for seeds in inventory
         # Future: add clear_debris check for appropriate tools

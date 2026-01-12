@@ -388,7 +388,8 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
             ))
 
         # PRIORITY 2: Water crops (CRITICAL - they die without water!)
-        unwatered = [c for c in crops if not c.get("isWatered", False)]
+        # Exclude harvestable crops - they don't need water, they need harvesting!
+        unwatered = [c for c in crops if not c.get("isWatered", False) and not c.get("isReadyForHarvest", False)]
         if unwatered:
             self.tasks.append(DailyTask(
                 id=f"water_{self.current_day}_1",
@@ -399,14 +400,14 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 estimated_time=len(unwatered) * 2,
             ))
 
-        # PRIORITY 3: Harvest ready crops (HIGH - get money, clear space)
+        # PRIORITY 2b: Harvest ready crops (CRITICAL - get money, clear space for replanting)
         harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
         if harvestable:
             self.tasks.append(DailyTask(
                 id=f"harvest_{self.current_day}_1",
                 description=f"Harvest {len(harvestable)} mature crops",
                 category="farming",
-                priority=TaskPriority.HIGH.value,
+                priority=TaskPriority.CRITICAL.value,
                 target_location="Farm",
                 estimated_time=len(harvestable) * 3,
             ))
