@@ -2876,6 +2876,11 @@ class StardewAgent:
             self._cell_nav_last_pos = None  # Track position for stuck detection
             self._cell_nav_stuck_count = 0  # Count consecutive stuck attempts
             self._CELL_NAV_STUCK_THRESHOLD = 10  # Skip cell after this many stuck ticks
+            # Obstacle clearing state
+            self._cell_clearing_obstacle = False
+            self._cell_clear_action_index = 0
+            self._cell_clear_direction = None
+            self._cell_clear_blocker = None
 
             # Log plan summary
             cell_count = len(self._cell_farming_plan.cells)
@@ -2933,13 +2938,54 @@ class StardewAgent:
             self._finish_cell_farming()
             return None
 
+        # Check if we're currently clearing an obstacle
+        if self._cell_clearing_obstacle:
+            action = self._execute_obstacle_clear()
+            if action:
+                return action
+            # Clearing complete, will continue navigation next tick
+
         # Check if we need to navigate to this cell
         nav_target = self.cell_coordinator.get_navigation_target(cell, player_pos)
         logging.info(f"🌱 Cell ({cell.x},{cell.y}): player={player_pos}, nav_target={nav_target}")
         if player_pos != nav_target:
+            # Calculate direction to target
+            dx = nav_target[0] - player_pos[0]
+            dy = nav_target[1] - player_pos[1]
+            if abs(dx) > abs(dy):
+                direction = "east" if dx > 0 else "west"
+            else:
+                direction = "south" if dy > 0 else "north"
+
             # Stuck detection: if position hasn't changed since last tick, increment counter
             if self._cell_nav_last_pos == player_pos:
                 self._cell_nav_stuck_count += 1
+                
+                # After 2 stuck attempts, check if we can clear the obstacle
+                if self._cell_nav_stuck_count >= 2 and not self._cell_clearing_obstacle:
+                    surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
+                    if surroundings:
+                        surr_data = surroundings.get("data") or surroundings
+                        dir_info = surr_data.get("directions", {}).get(direction)
+                        if dir_info and not dir_info.get("clear") and dir_info.get("tilesUntilBlocked", 99) <= 1:
+                            blocker = dir_info.get("blocker")
+                            if blocker and blocker in ("Weeds", "Stone", "Twig", "Wood", "Grass"):
+                                # Start clearing sequence
+                                logging.info(f"🌱 Cell ({cell.x},{cell.y}): {blocker} blocking {direction}, clearing it")
+                                self._cell_clearing_obstacle = True
+                                self._cell_clear_action_index = 0
+                                self._cell_clear_direction = direction
+                                self._cell_clear_blocker = blocker
+                                return self._execute_obstacle_clear()
+                            elif blocker and blocker in ("Tree", "Boulder", "Stump", "Log"):
+                                # Non-clearable obstacle - skip cell immediately
+                                logging.warning(f"🌱 Cell ({cell.x},{cell.y}): {blocker} blocking {direction}, skipping (not clearable)")
+                                self.cell_coordinator.skip_cell(cell, f"{blocker} blocking")
+                                self._cell_nav_stuck_count = 0
+                                self._cell_nav_last_pos = None
+                                return None
+                
+                # Skip cell after threshold if clearing didn't help
                 if self._cell_nav_stuck_count >= self._CELL_NAV_STUCK_THRESHOLD:
                     logging.warning(f"🌱 Cell ({cell.x},{cell.y}): STUCK after {self._cell_nav_stuck_count} attempts, skipping cell")
                     self.cell_coordinator.skip_cell(cell, f"Stuck at {player_pos}")
@@ -2950,14 +2996,6 @@ class StardewAgent:
                 # Position changed, reset counter
                 self._cell_nav_stuck_count = 0
             self._cell_nav_last_pos = player_pos
-
-            # Need to move to adjacent position
-            dx = nav_target[0] - player_pos[0]
-            dy = nav_target[1] - player_pos[1]
-            if abs(dx) > abs(dy):
-                direction = "east" if dx > 0 else "west"
-            else:
-                direction = "south" if dy > 0 else "north"
 
             logging.info(f"🌱 Cell ({cell.x},{cell.y}): Moving {direction} to {nav_target}")
             return Action(
@@ -3056,6 +3094,53 @@ class StardewAgent:
         self._cell_farming_plan = None
         self._current_cell_actions = []
         self._cell_action_index = 0
+
+    def _execute_obstacle_clear(self) -> Optional[Action]:
+        """
+        Execute one step of obstacle clearing sequence: face → select_tool → use_tool.
+        
+        Called when navigation is blocked by clearable debris.
+        Returns Action to execute, or None when clearing is complete.
+        """
+        # Import tool mapping
+        from planning.farm_surveyor import FarmSurveyor
+        
+        actions = ["face", "select_slot", "use_tool"]
+        
+        if self._cell_clear_action_index >= len(actions):
+            # Clearing complete, reset state
+            logging.info(f"🌱 Cleared {self._cell_clear_blocker}, continuing navigation")
+            self._cell_clearing_obstacle = False
+            self._cell_clear_action_index = 0
+            self._cell_clear_direction = None
+            self._cell_clear_blocker = None
+            self._cell_nav_stuck_count = 0  # Reset stuck counter after clearing
+            return None  # Will retry movement next tick
+        
+        action_type = actions[self._cell_clear_action_index]
+        self._cell_clear_action_index += 1
+        
+        if action_type == "face":
+            return Action(
+                action_type="face",
+                params={"direction": self._cell_clear_direction},
+                description=f"Facing {self._cell_clear_direction} to clear obstacle"
+            )
+        elif action_type == "select_slot":
+            tool_slot = FarmSurveyor.DEBRIS_TOOL_SLOTS.get(self._cell_clear_blocker, 4)
+            return Action(
+                action_type="select_slot",
+                params={"slot": tool_slot},
+                description=f"Selecting tool for {self._cell_clear_blocker}"
+            )
+        elif action_type == "use_tool":
+            return Action(
+                action_type="use_tool",
+                params={},
+                description=f"Clearing {self._cell_clear_blocker}"
+            )
+        
+        return None
 
     def _remove_plant_prereqs_from_queue(self) -> None:
         """
