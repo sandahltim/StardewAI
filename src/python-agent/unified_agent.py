@@ -4630,8 +4630,8 @@ Recent: {recent}"""
                         blocker = dir_info.get('blocker', 'obstacle')
 
                         # Early skip check: have we already given up on this blocker?
-                        player = surroundings.get("player", {})
-                        px, py = player.get("tileX", 0), player.get("tileY", 0)
+                        position = surroundings.get("position", {})
+                        px, py = position.get("x", 0), position.get("y", 0)
                         loc_name = self.last_state.get("location", {}).get("name", "Farm") if self.last_state else "Farm"
                         dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}.get(direction, (0, 0))
                         target_x, target_y = px + dx, py + dy
@@ -4664,8 +4664,8 @@ Recent: {recent}"""
 
                         if blocker in CLEARABLE_DEBRIS:
                             # Get blocker position for failure tracking
-                            player = surroundings.get("player", {})
-                            px, py = player.get("tileX", 0), player.get("tileY", 0)
+                            position = surroundings.get("position", {})
+                            px, py = position.get("x", 0), position.get("y", 0)
                             loc_name = self.last_state.get("location", {}).get("name", "Farm") if self.last_state else "Farm"
                             # Calculate target tile based on direction
                             dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}.get(direction, (0, 0))
@@ -4732,8 +4732,8 @@ Recent: {recent}"""
                                     return  # Will execute select_slot next tick
 
                         # Non-clearable obstacle (or gave up) - track it so we don't loop
-                        player = surroundings.get("player", {})
-                        px, py = player.get("tileX", 0), player.get("tileY", 0)
+                        position = surroundings.get("position", {})
+                        px, py = position.get("x", 0), position.get("y", 0)
                         loc_name = self.last_state.get("location", {}).get("name", "Farm") if self.last_state else "Farm"
                         dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}.get(direction, (0, 0))
                         target_x, target_y = px + dx, py + dy
@@ -5164,8 +5164,11 @@ Recent: {recent}"""
                 reply_text = (result.reasoning or "").strip()
                 if reply_text and not reply_text.lower().startswith("could not parse json"):
                     self._ui_safe(self.ui.send_message, "agent", reply_text)
-                    # TTS for agent reply
-                    if self.commentary_worker:
+                    # TTS for agent reply - but skip if it's just hints/action planning
+                    # Hints are wrapped in >>> <<< markers
+                    is_hint_heavy = ">>>" in reply_text or "<<<" in reply_text
+                    is_action_only = reply_text.lower().startswith(("moving", "watering", "planting", "harvesting", "tilling"))
+                    if self.commentary_worker and not is_hint_heavy and not is_action_only:
                         self.commentary_worker.push(
                             action_type="reply",
                             state={},
