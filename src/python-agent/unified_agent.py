@@ -4633,7 +4633,7 @@ Recent: {recent}"""
                         position = surroundings.get("position", {})
                         px, py = position.get("x", 0), position.get("y", 0)
                         loc_name = self.last_state.get("location", {}).get("name", "Farm") if self.last_state else "Farm"
-                        dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}.get(direction, (0, 0))
+                        dx, dy = {"north": (0, -1), "south": (0, 1), "west": (-1, 0), "east": (1, 0), "up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}.get(direction, (0, 0))
                         target_x, target_y = px + dx, py + dy
                         blocker_key = (loc_name, target_x, target_y, blocker)
 
@@ -4668,7 +4668,7 @@ Recent: {recent}"""
                             px, py = position.get("x", 0), position.get("y", 0)
                             loc_name = self.last_state.get("location", {}).get("name", "Farm") if self.last_state else "Farm"
                             # Calculate target tile based on direction
-                            dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}.get(direction, (0, 0))
+                            dx, dy = {"north": (0, -1), "south": (0, 1), "west": (-1, 0), "east": (1, 0), "up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}.get(direction, (0, 0))
                             target_x, target_y = px + dx, py + dy
                             blocker_key = (loc_name, target_x, target_y, blocker)
 
@@ -4735,7 +4735,7 @@ Recent: {recent}"""
                         position = surroundings.get("position", {})
                         px, py = position.get("x", 0), position.get("y", 0)
                         loc_name = self.last_state.get("location", {}).get("name", "Farm") if self.last_state else "Farm"
-                        dx, dy = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}.get(direction, (0, 0))
+                        dx, dy = {"north": (0, -1), "south": (0, 1), "west": (-1, 0), "east": (1, 0), "up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}.get(direction, (0, 0))
                         target_x, target_y = px + dx, py + dy
                         blocker_key = (loc_name, target_x, target_y, blocker)
 
