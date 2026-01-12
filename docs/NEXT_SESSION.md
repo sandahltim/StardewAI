@@ -1,13 +1,30 @@
-# Session 70: Morning Planning + Commentary Testing
+# Session 71: Continue Testing
 
-**Last Updated:** 2026-01-11 Session 69 by Claude
-**Status:** Stats persistence implemented. Commentary refactored to VLM-driven. Ready for morning planning integration.
+**Last Updated:** 2026-01-11 Session 70 by Claude
+**Status:** Async commentary worker implemented. TTS no longer blocks agent.
 
 ---
 
-## Session 69 Summary
+## Session 70 Summary
 
 ### Completed This Session
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| **Async Commentary Worker** | ✅ Fixed | TTS/UI updates now run in background thread |
+| **Non-blocking Architecture** | ✅ Complete | Agent pushes to queue and continues immediately |
+
+### Code Changes (Session 70)
+
+| File | Change |
+|------|--------|
+| `commentary/async_worker.py` | **NEW** - Background thread worker with queue |
+| `commentary/__init__.py` | Export AsyncCommentaryWorker |
+| `unified_agent.py` | Use AsyncCommentaryWorker, simplified _send_commentary |
+
+---
+
+## Session 69 Summary (Previous)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -143,16 +160,18 @@ python src/python-agent/unified_agent.py --goal "Water the crops"
 
 ---
 
-## Commentary System (Refactored Session 69)
+## Commentary System (Session 70 Fix)
 
-**Before:** 7 template-based "personalities" with canned responses like:
-> "Watered crop 5 of 15. Energy at 73%. Day 12 of pretending I know what I'm doing."
+**Problem:** Commentary was blocking agent, causing loops. Even non-blocking TTS wasn't enough - all the UI syncing and text processing was synchronous.
 
-**After:** VLM generates inner monologue directly. Natural stream-of-consciousness:
-> "The parsnips are coming along. Three more days maybe. I keep checking them like they're gonna do something interesting. They're not. They're parsnips. But I check anyway..."
+**Solution:** Background worker thread with queue-based architecture:
+```
+Agent Loop → Queue (non-blocking) → Worker Thread → TTS + UI
+```
 
 **Key files:**
-- `commentary/rusty_character.py` - Rusty's character definition
+- `commentary/async_worker.py` - **NEW** - Background thread worker
+- `commentary/rusty_character.py` - Rusty's character definition  
 - `commentary/generator.py` - Passes VLM output, no templates
 - TTS voices are now cosmetic (7 "voice actors", same character)
 
@@ -160,4 +179,4 @@ python src/python-agent/unified_agent.py --goal "Water the crops"
 
 ---
 
-*Session 69: Stats persistence fixed, commentary refactored to VLM-driven inner monologue. — Claude (PM)*
+*Session 70: Async commentary worker implemented. TTS no longer blocks agent. — Claude (PM)*

@@ -3993,6 +3993,18 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
         """Push commentary event to background worker (non-blocking)."""
         if not self.commentary_worker:
             return
+        
+        # Sync UI settings to worker (periodically)
+        if self.ui_enabled and self.ui:
+            try:
+                settings = self.ui.get_commentary()
+                self.commentary_worker.set_settings(
+                    tts_enabled=settings.get("tts_enabled"),
+                    voice=settings.get("voice") or settings.get("personality"),
+                    volume=settings.get("volume"),
+                )
+            except Exception:
+                pass  # Don't block agent on UI failures
             
         # Build minimal state for commentary
         state = self.last_state or {}
