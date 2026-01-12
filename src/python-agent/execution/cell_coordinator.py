@@ -14,8 +14,10 @@ Design decisions:
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from planning.farm_surveyor import CellPlan, CellFarmingPlan
@@ -235,6 +237,9 @@ class CellFarmingCoordinator:
 
         remaining = len(self.plan.cells) - len(self.completed_cells)
         logger.info(f"CellCoordinator: Completed ({cell.x},{cell.y}), {remaining} remaining")
+        
+        # Persist stats for cross-session access
+        self._persist_stats()
 
     def skip_cell(self, cell: CellPlan, reason: str = ""):
         """
@@ -250,6 +255,9 @@ class CellFarmingCoordinator:
         self.current_index += 1
         self.current_action_index = 0
         self._current_cell_actions = []
+        
+        # Persist stats for cross-session access
+        self._persist_stats()
 
     def get_progress(self) -> Tuple[int, int]:
         """Get (completed, total) cell counts."""
@@ -274,6 +282,32 @@ class CellFarmingCoordinator:
             "total_cells": len(self.plan.cells),
             "completion_rate": len(successful) / max(1, len(self.plan.cells)),
         }
+
+    def _persist_stats(self) -> None:
+        """
+        Persist cell farming stats to file for cross-session access.
+        
+        Called after each cell completion so that go_to_bed in a separate
+        agent instance can load these stats for the daily summary.
+        """
+        successful = self.completed_cells - set(self.skipped_cells.keys())
+        
+        stats = {
+            "cells_completed": len(successful),
+            "cells_skipped": len(self.skipped_cells),
+            "skip_reasons": {f"{x},{y}": reason for (x, y), reason in self.skipped_cells.items()},
+            "total_cells": len(self.plan.cells),
+            "completed_coords": [f"{x},{y}" for x, y in successful],
+            "skipped_coords": [f"{x},{y}" for x, y in self.skipped_cells.keys()],
+        }
+        
+        stats_path = Path("logs/cell_farming_stats.json")
+        stats_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(stats_path, "w") as f:
+            json.dump(stats, f, indent=2)
+        
+        logger.debug(f"📊 Stats persisted: {len(successful)} completed, {len(self.skipped_cells)} skipped")
 
     def get_status_summary(self) -> str:
         """Get human-readable status."""
