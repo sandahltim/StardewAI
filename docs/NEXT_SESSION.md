@@ -1,65 +1,54 @@
-# Session 69: Stats Persistence + Morning Planning
+# Session 70: Morning Planning + Commentary Testing
 
-**Last Updated:** 2026-01-11 Session 68 by Claude
-**Status:** Grid layout and daily summary implemented. 17 crops planted on Day 1. Ready for stats persistence fix.
+**Last Updated:** 2026-01-11 Session 69 by Claude
+**Status:** Stats persistence implemented. Commentary refactored to VLM-driven. Ready for morning planning integration.
 
 ---
 
-## Session 68 Summary
+## Session 69 Summary
 
-### Test Results
+### Completed This Session
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| **Stats Persistence** | ✅ Fixed | `cell_coordinator.py` now persists to `logs/cell_farming_stats.json` |
+| **Commentary Refactor** | ✅ Complete | VLM-driven inner monologue replaces templates |
+| **TTS Voice Selection** | ✅ Updated | Now cosmetic only (7 voice actors, same Rusty character) |
+| **UI Updates** | ✅ Complete | "Personality" → "Voice" dropdown with descriptions |
+
+### Code Changes (Session 69)
+
+| File | Change |
+|------|--------|
+| `commentary/rusty_character.py` | **NEW** - Single source of truth for Rusty's character |
+| `commentary/generator.py` | Simplified - passes VLM monologue, no templates |
+| `commentary/__init__.py` | Updated exports, legacy compat |
+| `config/settings.yaml` | Cleaner character prompt, better inner_monologue instructions |
+| `unified_agent.py` | Import INNER_MONOLOGUE_PROMPT, pass VLM monologue to generator |
+| `ui/app.py` | Use new voice system with descriptions |
+| `ui/static/app.js` | Show voice descriptions in dropdown |
+| `ui/templates/index.html` | Label: "Personality" → "Voice" |
+| `cell_coordinator.py` | Add `_persist_stats()` for cross-session access |
+
+---
+
+## Session 68 Summary (Previous)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
 | **Grid Layout** | ✅ Working | Cells in compact rows: `(60,19), (61,19), (62,19)...` |
 | **17 Crops Planted** | ✅ Success | Day 1 complete |
 | **go_to_bed Skill** | ✅ Working | Auto-warped home + slept |
-| **Daily Summary Save** | ⚠️ Partial | File created but stats empty (see issue below) |
-
-### Code Changes (Session 68)
-
-| File | Change |
-|------|--------|
-| `farm_surveyor.py:257-266` | Patches sorted by min distance to farmhouse |
-| `farm_surveyor.py:319-324` | Global (y,x) sort on selected cells |
-| `cell_coordinator.py:83` | Added `skipped_cells` dict |
-| `cell_coordinator.py:249` | Track skip reasons |
-| `cell_coordinator.py:258-276` | New `get_daily_summary()` method |
-| `unified_agent.py:3837-3916` | New `_save_daily_summary()` method |
-| `unified_agent.py:4675-4678` | Hook: save summary before go_to_bed |
+| **Daily Summary Save** | ✅ Fixed (S69) | Stats now persist to file |
 
 ---
 
-## Issues for Session 69
+## Issues for Session 70
 
-### 1. Stats Persistence (Bug Found)
+### 1. Stats Persistence - ✅ FIXED (Session 69)
 
-**Symptom:** Daily summary shows `cells_completed: 0` even though 17 crops were planted.
-
-**Root Cause:** When user runs separate agent instances (e.g., "Plant seeds" then later "Go to bed"), the `cell_coordinator` is None in the second instance. Stats only exist in memory during active farming.
-
-**Fix:** Persist cell farming stats to a file as cells complete, load them in `_save_daily_summary()`.
-
-**Implementation:**
-```python
-# In cell_coordinator.py - save stats after each cell
-def _persist_stats(self):
-    stats = {
-        "cells_completed": len(self.completed_cells) - len(self.skipped_cells),
-        "cells_skipped": len(self.skipped_cells),
-        "skip_reasons": dict(self.skipped_cells),
-    }
-    with open("logs/cell_farming_stats.json", "w") as f:
-        json.dump(stats, f)
-
-# In unified_agent.py - load in _save_daily_summary()
-def _load_cell_stats(self) -> Dict:
-    try:
-        with open("logs/cell_farming_stats.json") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-```
+Stats now persist to `logs/cell_farming_stats.json` after each cell completion.
+Daily summary can load these stats even when running in separate agent instance.
 
 ### 2. Morning Planning Integration
 
@@ -139,4 +128,23 @@ python src/python-agent/unified_agent.py --goal "Water the crops"
 
 ---
 
-*Session 68: Grid layout working, 17 crops planted Day 1, daily summary needs stats persistence. — Claude (PM)*
+---
+
+## Commentary System (Refactored Session 69)
+
+**Before:** 7 template-based "personalities" with canned responses like:
+> "Watered crop 5 of 15. Energy at 73%. Day 12 of pretending I know what I'm doing."
+
+**After:** VLM generates inner monologue directly. Natural stream-of-consciousness:
+> "The parsnips are coming along. Three more days maybe. I keep checking them like they're gonna do something interesting. They're not. They're parsnips. But I check anyway..."
+
+**Key files:**
+- `commentary/rusty_character.py` - Rusty's character definition
+- `commentary/generator.py` - Passes VLM output, no templates
+- TTS voices are now cosmetic (7 "voice actors", same character)
+
+**Voice options:** default, warm, dry, gravelly, soft, energetic, tars
+
+---
+
+*Session 69: Stats persistence fixed, commentary refactored to VLM-driven inner monologue. — Claude (PM)*
