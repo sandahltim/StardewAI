@@ -1,96 +1,71 @@
-# Session 66: Fix Seed Selection Bug
+# Session 67: Improve Cell Navigation
 
-**Last Updated:** 2026-01-11 Session 65 by Claude
-**Status:** Cell farming works but seeds not planted due to select_item bug.
+**Last Updated:** 2026-01-11 Session 66 by Claude
+**Status:** Seed selection fixed. Navigation blocking most cells.
 
 ---
 
-## Session 65 Summary
+## Session 66 Summary
 
-### Bugs Fixed
+### Bug Fixed
 
 | Bug | Fix Applied | Verified |
 |-----|-------------|----------|
-| **Re-Survey After Completion** | Guard in `_start_cell_farming()` - skip if coordinator already active | YES - only one survey |
-| **Navigation Stuck** | Stuck detection after 10 ticks, skip cell | YES - cells skipped |
-| **Planting Order** | Code order correct (plant before water) | YES |
-
-### New Bug Discovered
-
-**Bug: select_item Not Supported by ModBridge**
-- **Symptom:** "Unknown action for ModBridge: select_item" in logs
-- **Impact:** Seeds never get selected, planting fails silently
-- **Root Cause:** `CellAction.to_dict()` returns `{"select_item": "Parsnip Seeds"}` but mod only supports `{"select_slot": N}`
-- **Fix Needed:** Convert seed name to slot number before creating action
+| **select_item not supported** | Changed to select_slot with inventory index | YES - seed slot 5 used |
 
 ### Test Results
-- **Cells Completed:** 6/15 (actions ran but planting failed)
-- **Cells Skipped:** 9/15 (stuck on debris)
-- **Seeds Actually Planted:** ~3 (manual VLM intervention)
-- **Re-Survey Bug:** FIXED - only one survey per farming session
+- **Cells Completed:** 1/15 (Cell 60,27 - full cycle worked)
+- **Cells Skipped:** 14/15 (stuck on debris navigation)
+- **Seeds Planted:** 1 (confirmed: 15→14 in inventory)
+
+### Code Changes (Session 66)
+
+| File | Change |
+|------|--------|
+| `planning/farm_surveyor.py:56` | Added `seed_slot: int = 5` to CellPlan |
+| `planning/farm_surveyor.py:354` | `create_farming_plan` accepts `seed_slot` param |
+| `execution/cell_coordinator.py:197-204` | Changed `select_item` → `select_slot` |
+| `unified_agent.py:2837-2864` | Find seed slot index from inventory |
 
 ---
 
-## Fixes Applied (Session 65)
+## Problem for Session 67
 
-### 1. Re-Survey Guard (unified_agent.py:2826-2829)
-```python
-# Don't restart if already actively farming cells
-if self.cell_coordinator and not self.cell_coordinator.is_complete():
-    logging.debug("Cell farming: Coordinator already active, skipping restart")
-    return True  # Already running
+### Navigation Blocked by Debris
+
+**Symptom:** Agent tries to move to cell but gets stuck on debris in path
+
+**Log evidence:**
+```
+🌱 Cell (57,27): player=(61, 24), nav_target=(57, 28)
+🌱 Cell (57,27): Moving south to (57, 28)
+[repeats 10 times at same position]
+🌱 Cell (57,27): STUCK after 10 attempts, skipping cell
 ```
 
-### 2. Stuck Detection (unified_agent.py:2932-2944)
-```python
-# Stuck detection: if position hasn't changed since last tick, increment counter
-if self._cell_nav_last_pos == player_pos:
-    self._cell_nav_stuck_count += 1
-    if self._cell_nav_stuck_count >= self._CELL_NAV_STUCK_THRESHOLD:
-        logging.warning(f"Cell ({cell.x},{cell.y}): STUCK after {self._cell_nav_stuck_count} attempts, skipping cell")
-        self.cell_coordinator.skip_cell(cell, f"Stuck at {player_pos}")
-        self._cell_nav_stuck_count = 0
-        self._cell_nav_last_pos = None
-        return None  # Will process next cell on next tick
-```
+**Impact:** 14/15 cells skipped, only 1 seed planted
 
-### 3. New Variables Added (unified_agent.py:2867-2869)
-```python
-self._cell_nav_last_pos = None  # Track position for stuck detection
-self._cell_nav_stuck_count = 0  # Count consecutive stuck attempts
-self._CELL_NAV_STUCK_THRESHOLD = 10  # Skip cell after this many stuck ticks
-```
+**Root Cause Options:**
+1. Surveyor picks cells that are far from farmhouse door (64,15)
+2. Debris blocks direct path, no pathfinding around obstacles
+3. Navigation uses simple directional moves, not A* pathfinding
 
----
+### Fix Options
 
-## Fix Required for Session 66
+**Option 1: Smarter Cell Selection**
+- Prioritize cells closer to farmhouse door
+- Check if path is clear before adding cell to plan
+- Start with cells adjacent to already-clear areas
 
-### select_item -> select_slot Conversion
+**Option 2: Clear Path First**
+- Before farming a cell, clear debris along the route
+- Navigate to debris → clear → continue to cell
 
-**Location:** `execution/cell_coordinator.py` lines 196-205
+**Option 3: Better Pathfinding**
+- Use A* or BFS to find walkable path
+- Navigate around obstacles instead of through them
 
-**Current Code:**
-```python
-if cell.needs_plant:
-    actions.append(CellAction(
-        action_type="select_item",
-        params={"item": cell.seed_type},
-    ))
-```
-
-**Fix Options:**
-1. **Simple:** Hardcode seed slot (slot 5 for Parsnip Seeds)
-2. **Better:** Pass seed_slot to CellPlan from surveyor (query inventory)
-3. **Best:** Add `select_item` support to ModBridge
-
-**Recommended Fix (Option 2):**
-1. In FarmSurveyor, find seed slot from inventory when creating plan
-2. Add `seed_slot` field to `CellPlan` dataclass
-3. Change cell coordinator to use `select_slot` with `cell.seed_slot`
-
-### Files to Modify
-- `planning/farm_surveyor.py` - Add `seed_slot` detection
-- `execution/cell_coordinator.py` - Use `select_slot` instead of `select_item`
+**Recommended:** Option 1 (simplest) - pick accessible cells first
 
 ---
 
@@ -98,34 +73,42 @@ if cell.needs_plant:
 
 ```bash
 # Test cell farming
-python unified_agent.py --goal "Plant parsnip seeds" 2>&1 | grep -E "🌱|Complete|select"
+python unified_agent.py --goal "Plant parsnip seeds" 2>&1 | grep -E "🌱|slot|Complete"
 
-# Check for select_item errors
-grep "Unknown action" logs/agent.log
+# Check cell selection
+curl -s localhost:8790/farm | python -c "
+import json, sys
+sys.path.insert(0, 'src/python-agent')
+from planning.farm_surveyor import get_farm_surveyor
+data = json.load(sys.stdin)
+surveyor = get_farm_surveyor()
+tiles = surveyor.survey(data)
+cells = surveyor.find_optimal_cells(tiles, 15)
+for c in cells[:5]:
+    print(f'Cell ({c.x},{c.y}) needs_clear={c.needs_clear}')
+"
 
-# Verify seed slot
-curl -s localhost:8790/state | jq '.data.inventory[] | select(.name | contains("Seeds"))'
+# Check player position
+curl -s localhost:8790/state | jq '.data.player'
 ```
 
 ---
 
-## Files Modified (Session 65)
+## Files to Investigate
 
-| File | Lines | Change |
-|------|-------|--------|
-| `unified_agent.py` | 2826-2829 | Re-survey guard |
-| `unified_agent.py` | 2867-2869 | Stuck tracking variables |
-| `unified_agent.py` | 2932-2944 | Stuck detection logic |
-| `unified_agent.py` | 2959-2962 | Reset stuck tracking at target |
+- `planning/farm_surveyor.py` - `find_optimal_cells()` cell selection logic
+- `unified_agent.py` - `_process_cell_farming()` navigation logic
 
 ---
 
-## Remaining Work
+## What's Working
 
-1. **Fix select_item bug** - Critical, seeds not being planted
-2. **Improve navigation** - 9/15 cells skipped due to debris
-3. **End-to-end test** - Complete full farming cycle
+- Seed slot detection from inventory
+- select_slot action for seeds
+- Full cell cycle: face → clear → till → plant → water
+- Stuck detection (skip after 10 attempts)
+- Re-survey guard (don't restart coordinator)
 
 ---
 
-*Session 65: Fixed re-survey and stuck detection bugs. Discovered select_item not supported by mod - seeds not actually planted. 6 cells processed but only ~3 seeds planted via VLM fallback. — Claude (PM)*
+*Session 66: Fixed seed selection bug. 1/15 cells planted successfully. Navigation is now the bottleneck - most cells skipped due to debris blocking path. — Claude (PM)*

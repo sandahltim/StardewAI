@@ -493,3 +493,27 @@ Final Logic- day starts- Rusty plans his day and creates todo list from day befo
 | select_item bug | cell_coordinator.py | 196-205 |
 
 *Updated Session 65 — Claude (PM)*
+
+---
+
+## Session 66 Highlights
+
+**Seed Selection Bug Fixed:**
+- Root cause: `select_item` action not supported by ModBridge
+- Fix: Added `seed_slot` field to CellPlan, use `select_slot` instead
+- Verified: Seed slot 5 correctly selected during cell farming
+
+**Test Results:**
+- 1/15 cells completed successfully (full clear→till→plant→water cycle)
+- 14/15 cells skipped due to navigation blocked by debris
+- Navigation is now the primary bottleneck
+
+**Code Locations:**
+| Feature | File | Lines |
+|---------|------|-------|
+| seed_slot field | farm_surveyor.py | 56 |
+| seed_slot param | farm_surveyor.py | 354 |
+| select_slot fix | cell_coordinator.py | 197-204 |
+| slot detection | unified_agent.py | 2837-2864 |
+
+*Updated Session 66 — Claude (PM)*
