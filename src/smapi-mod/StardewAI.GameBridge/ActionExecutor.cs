@@ -68,6 +68,7 @@ public class ActionExecutor
                 "toolbar_next" => ToolbarNext(),
                 "toolbar_prev" => ToolbarPrev(),
                 "dismiss_menu" => DismissMenu(),
+                "confirm_dialog" => ConfirmDialog(),
                 _ => new ActionResult { Success = false, Error = $"Unknown action: {command.Action}", State = ActionState.Failed }
             };
         }
@@ -965,6 +966,49 @@ public class ActionExecutor
             Success = true,
             Message = string.Join(", ", messages),
             State = ActionState.Complete
+        };
+    }
+
+    private ActionResult ConfirmDialog()
+    {
+        // Handle Yes/No dialogue boxes (like sleep confirmation)
+        if (Game1.activeClickableMenu is DialogueBox dialogueBox)
+        {
+            // Check if this is a question dialogue with responses
+            if (dialogueBox.isQuestion && dialogueBox.responses != null && dialogueBox.responses.Length > 0)
+            {
+                // Select the first response (typically "Yes")
+                var yesResponse = dialogueBox.responses[0];
+                dialogueBox.selectedResponse = 0;
+                Game1.currentLocation.answerDialogue(yesResponse);
+                Game1.activeClickableMenu = null;
+
+                return new ActionResult
+                {
+                    Success = true,
+                    Message = $"Confirmed dialog: {yesResponse.responseText}",
+                    State = ActionState.Complete
+                };
+            }
+            else
+            {
+                // Regular dialogue box - just close it
+                Game1.activeClickableMenu = null;
+                return new ActionResult
+                {
+                    Success = true,
+                    Message = "Closed dialogue (no responses)",
+                    State = ActionState.Complete
+                };
+            }
+        }
+
+        // No dialog to confirm
+        return new ActionResult
+        {
+            Success = false,
+            Error = "No dialogue box active",
+            State = ActionState.Failed
         };
     }
 

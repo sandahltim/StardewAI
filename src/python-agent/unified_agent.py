@@ -2056,6 +2056,8 @@ class StardewAgent:
         self._cell_action_index = 0
         self._cell_farming_done_today = False  # Prevent re-survey after completion
         self._cell_farming_last_day = 0  # Track day for reset
+        self._pending_warp_location: Optional[str] = None  # Track pending warp to prevent loop
+        self._pending_warp_time: float = 0.0  # When warp was issued
         if HAS_CELL_FARMING:
             logging.info("🌱 Cell-by-cell farming available")
 
@@ -2974,12 +2976,32 @@ class StardewAgent:
         # Check if we need to warp to Farm first (can't farm from inside FarmHouse)
         location = data.get("location", {}).get("name", "")
         if location == "FarmHouse":
+            # Check if warp is already pending (prevent warp loop)
+            now = time.time()
+            if self._pending_warp_location == "Farm":
+                if now - self._pending_warp_time < 3.0:
+                    # Warp in progress, wait for it
+                    logging.debug("🌱 Cell farming: Warp to Farm pending, waiting...")
+                    return None
+                else:
+                    # Warp timed out, clear and retry
+                    logging.warning("🌱 Cell farming: Warp to Farm timed out, retrying")
+                    self._pending_warp_location = None
+
+            # Issue warp and track it
             logging.info("🌱 Cell farming: Player in FarmHouse → warping to Farm")
+            self._pending_warp_location = "Farm"
+            self._pending_warp_time = now
             return Action(
                 action_type="warp",
                 params={"location": "Farm"},
                 description="Warp to Farm for cell farming"
             )
+        else:
+            # Clear pending warp when we've arrived
+            if self._pending_warp_location:
+                logging.info(f"🌱 Warp complete: now in {location}")
+                self._pending_warp_location = None
 
         # Get current cell
         cell = self.cell_coordinator.get_current_cell()
@@ -3481,8 +3503,10 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
 
     def _fix_active_popup(self, actions: List[Action]) -> List[Action]:
         """
-        Override: If menu/event is active, dismiss it before continuing.
+        Override: If menu/event is active, handle it before continuing.
         This handles level-up screens, shipping summaries, dialogue boxes, etc.
+
+        Special case: Sleep confirmation dialog should be CONFIRMED, not dismissed.
         """
         state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
         if not state:
@@ -3496,6 +3520,18 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
 
         if menu or event or dialogue_up or paused:
             what = menu or event or ("dialogue" if dialogue_up else "pause")
+
+            # Special case: DialogueBox after go_to_bed should be CONFIRMED (sleep confirmation)
+            # Check if we recently tried to go to bed
+            recent_bed_action = any(
+                "bed" in a.lower() or "sleep" in a.lower()
+                for a in self.recent_actions[-3:]
+            )
+
+            if menu == "DialogueBox" and recent_bed_action:
+                logging.info(f"🛏️ SLEEP DIALOG: Confirming sleep (Yes)")
+                return [Action("confirm_dialog", {}, "Confirm sleep")]
+
             logging.info(f"🚫 POPUP OVERRIDE: {what} active → dismiss_menu first")
             # Return dismiss_menu as the only action - we'll resume normal actions next tick
             return [Action("dismiss_menu", {}, f"Dismiss {what}")]
@@ -3570,9 +3606,19 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
         dy = bin_y - player_y
         dist = abs(dx) + abs(dy)
 
-        # If in FarmHouse, override to warp to Farm first
+        # If in FarmHouse, override to warp to Farm first (with loop protection)
         if location == "FarmHouse":
+            now = time.time()
+            if self._pending_warp_location == "Farm":
+                if now - self._pending_warp_time < 3.0:
+                    logging.debug("📦 Warp to Farm pending, waiting...")
+                    return []  # Wait for warp
+                else:
+                    self._pending_warp_location = None  # Timeout, retry
+
             logging.info(f"📦 OVERRIDE: Have {total_to_ship} sellables in FarmHouse → warp to Farm")
+            self._pending_warp_location = "Farm"
+            self._pending_warp_time = now
             return [Action("warp", {"location": "Farm"}, f"Auto-warp to ship {total_to_ship} crops")]
 
         # If adjacent to shipping bin (dist <= 2 to be safe), ship immediately

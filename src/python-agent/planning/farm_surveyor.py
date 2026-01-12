@@ -90,7 +90,12 @@ class FarmSurveyor:
         "Twig": 0,    # Axe
         "Wood": 0,    # Axe
         "Grass": 4,   # Scythe
+        "Log": 0,     # Axe
+        "Stump": 0,   # Axe
     }
+
+    # Non-clearable obstacles (skip immediately)
+    NON_CLEARABLE = {"Tree", "Boulder", "Bush", "Building", "Fence", "Water"}
 
     def survey(self, farm_state: Dict[str, Any]) -> Dict[Tuple[int, int], TileState]:
         """

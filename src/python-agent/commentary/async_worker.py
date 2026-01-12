@@ -37,7 +37,7 @@ class AsyncCommentaryWorker:
     def __init__(
         self,
         ui_callback: Optional[Callable] = None,
-        tts_cooldown: float = 4.0,
+        tts_cooldown: float = 10.0,  # Increased from 4.0 - buffer for TTS completion
     ):
         self.generator = CommentaryGenerator()
         self.tts = PiperTTS()
@@ -156,13 +156,12 @@ class AsyncCommentaryWorker:
         )
         
         # Update UI (if callback set)
+        # Only send text/personality - NOT tts_enabled/volume (causes UI pulsing)
         if self.ui_callback and ui_text:
             try:
                 self.ui_callback(
                     text=ui_text,
                     personality=self.generator.personality,
-                    tts_enabled=self._tts_enabled,
-                    volume=self._volume,
                 )
             except Exception:
                 pass  # UI errors shouldn't crash worker
