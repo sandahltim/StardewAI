@@ -63,6 +63,7 @@ STATUS_PATH = Path("/home/tim/StardewAI/logs/ui/status.json")
 FARM_PLAN_PATH = Path("/home/tim/StardewAI/logs/farm_plans/current.json")
 LESSONS_PATH = Path("/home/tim/StardewAI/logs/lessons.json")
 RUSTY_STATE_PATH = Path("/home/tim/StardewAI/logs/rusty_state.json")
+DAILY_SUMMARY_PATH = Path("/home/tim/StardewAI/logs/daily_summary.json")
 GAME_KNOWLEDGE_DB = BASE_DIR.parents[1] / "data" / "game_knowledge.db"
 CHROMA_DIR = BASE_DIR.parents[1] / "data" / "chromadb"
 CHROMA_COLLECTION = "rusty_memories"
@@ -1076,6 +1077,17 @@ def get_daily_plan() -> Dict[str, Any]:
         raise HTTPException(status_code=503, detail="Daily planner unavailable")
     planner = get_daily_planner()
     return planner.to_api_format()
+
+
+@app.get("/api/daily-summary")
+def get_daily_summary() -> Dict[str, Any]:
+    """Load yesterday's summary and today's derived goals."""
+    try:
+        return json.loads(DAILY_SUMMARY_PATH.read_text())
+    except FileNotFoundError:
+        return {"status": "no_summary", "message": "No summary yet. Complete a day first."}
+    except json.JSONDecodeError:
+        return {"status": "error", "message": "Summary file is invalid."}
 
 
 @app.get("/api/action-failures")

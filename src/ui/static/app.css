@@ -168,6 +168,35 @@ h2 {
   font-size: 12px;
 }
 
+.daily-summary-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #f8fbff;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.daily-summary__meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.daily-summary__section {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.daily-summary__list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
 .daily-plan__meta {
   color: var(--muted);
   font-size: 11px;

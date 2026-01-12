@@ -421,6 +421,10 @@ function updateStatus(status) {
   const dailyPlanDone = document.getElementById("dailyPlanDone");
   const dailyPlanFill = document.getElementById("dailyPlanFill");
   const dailyPlanPercent = document.getElementById("dailyPlanPercent");
+  const dailySummaryMeta = document.getElementById("dailySummaryMeta");
+  const dailySummaryYesterday = document.getElementById("dailySummaryYesterday");
+  const dailySummaryLessons = document.getElementById("dailySummaryLessons");
+  const dailySummaryGoals = document.getElementById("dailySummaryGoals");
   const actionFailureList = document.getElementById("actionFailureList");
   const actionFailureStats = document.getElementById("actionFailureStats");
 
@@ -1605,6 +1609,81 @@ function init() {
     if (dailyPlanPercent) dailyPlanPercent.textContent = `${percent}% complete`;
   };
 
+  const updateDailySummary = (payload) => {
+    if (!dailySummaryMeta || !dailySummaryYesterday || !dailySummaryLessons || !dailySummaryGoals) return;
+    if (!payload || payload.status === "no_summary") {
+      dailySummaryMeta.textContent = "No summary yet.";
+      dailySummaryYesterday.innerHTML = "<li>Complete a day to generate a summary.</li>";
+      dailySummaryLessons.innerHTML = "<li>None</li>";
+      dailySummaryGoals.innerHTML = "<li>None</li>";
+      return;
+    }
+
+    const day = payload.day ?? "-";
+    const season = payload.season ?? "-";
+    const year = payload.year ?? "-";
+    dailySummaryMeta.textContent = `Day ${day} · ${season} Year ${year}`;
+
+    const yesterdayItems = [];
+    if (payload.planted_count !== undefined) {
+      yesterdayItems.push(`Planted: ${payload.planted_count}`);
+    }
+    if (payload.watered_count !== undefined) {
+      yesterdayItems.push(`Watered: ${payload.watered_count}`);
+    }
+    if (payload.cleared_count !== undefined) {
+      yesterdayItems.push(`Cleared: ${payload.cleared_count}`);
+    }
+    if (payload.energy_used !== undefined || payload.energy_remaining !== undefined) {
+      const used = payload.energy_used ?? "-";
+      const remaining = payload.energy_remaining ?? "-";
+      yesterdayItems.push(`Energy: ${used} used / ${remaining} remaining`);
+    }
+    if (Array.isArray(payload.cells_skipped) && payload.cells_skipped.length) {
+      yesterdayItems.push(`Cells skipped: ${payload.cells_skipped.length}`);
+    }
+    dailySummaryYesterday.innerHTML = "";
+    if (!yesterdayItems.length) {
+      const item = document.createElement("li");
+      item.textContent = "None";
+      dailySummaryYesterday.append(item);
+    } else {
+      yesterdayItems.forEach((entry) => {
+        const item = document.createElement("li");
+        item.textContent = entry;
+        dailySummaryYesterday.append(item);
+      });
+    }
+
+    dailySummaryLessons.innerHTML = "";
+    const lessons = Array.isArray(payload.lessons) ? payload.lessons : [];
+    if (!lessons.length) {
+      const item = document.createElement("li");
+      item.textContent = "None";
+      dailySummaryLessons.append(item);
+    } else {
+      lessons.slice(0, 6).forEach((entry) => {
+        const item = document.createElement("li");
+        item.textContent = typeof entry === "string" ? entry : entry?.text || JSON.stringify(entry);
+        dailySummaryLessons.append(item);
+      });
+    }
+
+    dailySummaryGoals.innerHTML = "";
+    const goals = Array.isArray(payload.next_day_goals) ? payload.next_day_goals : [];
+    if (!goals.length) {
+      const item = document.createElement("li");
+      item.textContent = "None";
+      dailySummaryGoals.append(item);
+    } else {
+      goals.slice(0, 6).forEach((entry) => {
+        const item = document.createElement("li");
+        item.textContent = typeof entry === "string" ? entry : entry?.text || JSON.stringify(entry);
+        dailySummaryGoals.append(item);
+      });
+    }
+  };
+
   const updateActionFailures = (payload) => {
     if (!actionFailureList || !actionFailureStats) return;
     const recent = Array.isArray(payload?.recent_failures) ? payload.recent_failures : [];
@@ -2363,6 +2442,15 @@ function init() {
       })
       .catch(() => {
         updateDailyPlan(null);
+      });
+
+    fetch("/api/daily-summary")
+      .then((res) => res.json())
+      .then((payload) => {
+        updateDailySummary(payload);
+      })
+      .catch(() => {
+        updateDailySummary(null);
       });
 
     fetch("/api/action-failures?limit=50&lesson_limit=10")
