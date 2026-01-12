@@ -1,6 +1,5 @@
 """Optional Piper TTS integration."""
 
-import os
 import shutil
 import subprocess
 import sys
@@ -22,7 +21,6 @@ class PiperTTS:
         self.model_path = self._find_model(voice)
         self.available = self.piper_path is not None and self.model_path is not None
         self.enabled = True  # Can be toggled by UI
-        self._current_process: Optional[subprocess.Popen] = None  # Track active TTS
 
     def _find_piper(self) -> Optional[Path]:
         """Find piper binary - check venv first, then PATH."""
@@ -44,26 +42,14 @@ class PiperTTS:
                 return model_file
         return None
 
-    def _kill_current(self) -> None:
-        """Kill any currently playing TTS to prevent overlap."""
-        if self._current_process is not None:
-            try:
-                self._current_process.terminate()
-                self._current_process.wait(timeout=0.5)
-            except Exception:
-                try:
-                    self._current_process.kill()
-                except Exception:
-                    pass
-            self._current_process = None
-
     def speak(self, text: str, voice: Optional[str] = None) -> bool:
-        """Speak text using Piper TTS (non-blocking). Returns True if started."""
+        """Speak text using Piper TTS (blocking - waits for completion).
+        
+        Runs on commentary worker thread, so blocking here doesn't
+        affect the main agent loop. This prevents TTS overlap.
+        """
         if not self.available or not self.enabled:
             return False
-
-        # Kill any previous TTS to prevent overlap
-        self._kill_current()
 
         # Sanitize text for shell
         safe_text = text.replace('"', '\\"').replace("'", "\\'")
@@ -74,10 +60,12 @@ class PiperTTS:
             if alt_model:
                 model = alt_model
 
-        # Non-blocking: use Popen instead of run so agent doesn't wait for speech
+        # Blocking: wait for speech to complete before returning
+        # This prevents overlap - next TTS waits its turn
         cmd = f'echo "{safe_text}" | {self.piper_path} --model {model} --output-raw | aplay -r 22050 -f S16_LE -q'
         try:
-            self._current_process = subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            process = subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            process.wait()  # Wait for speech to finish
             return True
         except Exception:
             return False

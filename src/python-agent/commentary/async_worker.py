@@ -37,17 +37,14 @@ class AsyncCommentaryWorker:
     def __init__(
         self,
         ui_callback: Optional[Callable] = None,
-        tts_cooldown: float = 10.0,  # Increased from 4.0 - buffer for TTS completion
     ):
         self.generator = CommentaryGenerator()
         self.tts = PiperTTS()
         self.ui_callback = ui_callback
-        self.tts_cooldown = tts_cooldown
         
         self._queue: queue.Queue[Optional[CommentaryEvent]] = queue.Queue(maxsize=10)
         self._thread: Optional[threading.Thread] = None
         self._running = False
-        self._last_tts_time = 0.0
         
         # Settings from UI (updated via set_settings)
         self._tts_enabled = True
@@ -166,7 +163,7 @@ class AsyncCommentaryWorker:
             except Exception:
                 pass  # UI errors shouldn't crash worker
                 
-        # TTS (with cooldown)
+        # TTS (blocks until complete to prevent overlap)
         if self._should_speak(tts_text):
             self._speak(tts_text)
             
@@ -178,16 +175,10 @@ class AsyncCommentaryWorker:
             return False
         if not self.tts.available:
             return False
-            
-        # Cooldown check
-        current_time = time.time()
-        if (current_time - self._last_tts_time) < self.tts_cooldown:
-            return False
-            
         return True
         
     def _speak(self, text: str) -> None:
-        """Speak text via TTS."""
+        """Speak text via TTS (blocks until complete to prevent overlap)."""
         # Clean text for TTS
         clean_text = re.sub(r'["\'\*\_\#\`\[\]\(\)\{\}]', '', text)
         clean_text = re.sub(r'\s+', ' ', clean_text).strip()
@@ -200,7 +191,6 @@ class AsyncCommentaryWorker:
         if not voice:
             voice = self.generator.get_voice()
             
-        # Speak (already non-blocking in PiperTTS)
+        # Speak (blocks until complete - runs on worker thread so doesn't affect agent)
         if self.tts.speak(clean_text, voice=voice):
-            self._last_tts_time = time.time()
             logging.info(f"🔊 TTS: {clean_text[:50]}...")
