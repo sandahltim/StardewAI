@@ -1,69 +1,69 @@
-# Session 74: Continue Testing Full Agent Cycle
+# Session 75: Continue Full Agent Cycle Testing
 
-**Last Updated:** 2026-01-11 Session 73 by Claude
-**Status:** Multiple fixes applied. Agent running for testing.
+**Last Updated:** 2026-01-11 Session 74 by Claude
+**Status:** TTS overlap + navigation bug fixed. Agent running well.
 
 ---
 
-## Session 73 Summary
+## Session 74 Summary
 
 ### Completed This Session
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| **TTS Overlapping** | ✅ Fixed | Cooldown increased 4s → 10s in `async_worker.py:40` |
-| **UI Pulsing** | ✅ Fixed | Removed `tts_enabled`/`volume` from UI callback |
-| **Obstacle Stuck/Loop** | ✅ Fixed | Added Log/Stump as clearable, Bush as non-clearable |
-| **Sleep Confirmation** | ✅ Fixed | New `confirm_dialog` SMAPI action, auto-clicks "Yes" |
-| **Warp Loop** | ✅ Fixed | Added `_pending_warp_location` tracker |
+| **TTS Overlap (root cause)** | ✅ Fixed | Now kills previous audio before starting new in `tts.py` |
+| **Navigation (0,0) Bug** | ✅ Fixed | Fixed `surroundings.position.x/y` access (was `player.tileX`) |
 
-### Code Changes (Session 73)
+### Code Changes (Session 74)
 
 | File | Change |
 |------|--------|
-| `async_worker.py:40` | `tts_cooldown: 4.0 → 10.0` |
-| `async_worker.py:162-165` | Removed `tts_enabled`/`volume` from UI callback |
-| `farm_surveyor.py:87-98` | Added `DEBRIS_TOOL_SLOTS` for Log/Stump, `NON_CLEARABLE` set |
-| `unified_agent.py:4594-4600` | Early skip for known impassable obstacles |
-| `unified_agent.py:4680-4683` | Track ALL non-clearable as impassable |
-| `unified_agent.py:2059-2060` | Added `_pending_warp_location` tracker |
-| `unified_agent.py:2978-3004` | Warp loop prevention in cell farming |
-| `unified_agent.py:3609-3622` | Warp loop prevention in shipping override |
-| `unified_agent.py:3502-3511` | Detect sleep dialog, use `confirm_dialog` |
-| `ActionExecutor.cs:71` | Added `confirm_dialog` action case |
-| `ActionExecutor.cs:972-1013` | `ConfirmDialog()` implementation |
+| `tts.py:15` | Added `_current_process` to track active TTS subprocess |
+| `tts.py:45-55` | Added `_kill_current()` method to terminate playing audio |
+| `tts.py:57-58` | `speak()` now calls `_kill_current()` before starting new TTS |
+| `unified_agent.py:4633-4634` | Fixed: `position.x/y` instead of `player.tileX/tileY` |
+| `unified_agent.py:4667-4668` | Fixed: same position access pattern |
+| `unified_agent.py:4735-4736` | Fixed: same position access pattern |
+
+### Bug Analysis
+
+**TTS Overlap Root Cause:**
+- Previous fix (10s cooldown) was insufficient for long commentary
+- Real issue: `Popen` starts new audio without killing previous
+- Fix: Track subprocess, call `terminate()` before new TTS
+
+**Navigation (0,0) Bug:**
+- `get_surroundings()` returns `{position: {x, y}, directions: {...}}`
+- Code was accessing `surroundings.get("player", {}).get("tileX", 0)` → always 0
+- Fix: Use `surroundings.get("position", {}).get("x", 0)`
 
 ---
 
-## Features Verified Present
+## Session 73 Summary (Previous)
 
-| Feature | Location |
-|---------|----------|
-| Sleep/Bed | `go_to_bed`, `go_to_sleep`, `emergency_sleep` skills |
-| Nightly Update | `DailyPlanner.end_day()` persists summary |
-| Seed Purchase | `buy_seeds` + PrereqResolver auto-inserts |
-| Harvest & Ship | `harvest_crop`, `ship_item` skills |
-| Clear Debris | `clear_debris` in task system |
-| Full Cycle | `morning_chores` skill chains all |
+| Feature | Status |
+|---------|--------|
+| TTS Cooldown | ✅ 4s → 10s |
+| UI Pulsing | ✅ Removed settings echo |
+| Obstacle Loop | ✅ Log/Stump clearable, Bush non-clearable |
+| Sleep Confirmation | ✅ `confirm_dialog` SMAPI action |
+| Warp Loop | ✅ `_pending_warp_location` tracker |
 
 ---
 
-## Priority for Session 74
+## Priority for Session 75
 
-### 1. Verify All Fixes Work in Practice
-- [ ] TTS not overlapping (10s cooldown)
-- [ ] UI settings not pulsing
-- [ ] Agent clears logs/stumps, skips bushes
-- [ ] Sleep dialog confirmed automatically
-- [ ] No warp loops
-
-### 2. Full Day Cycle Test
+### 1. Full Day Cycle Test
 - [ ] Morning: water crops, harvest ready
 - [ ] Midday: plant seeds, clear debris
 - [ ] Evening: ship items
 - [ ] Night: go to bed with confirmation
 
-### 3. Agent Autonomy (if time)
+### 2. Phantom Watering Issue
+- Agent sometimes reports "water_crop success" but crop not watered
+- Likely game timing - may need delay after water action
+
+### 3. Agent Autonomy
 - Agent should plan its own day when run without `--goal`
 
 ---
@@ -76,27 +76,21 @@ cd /home/tim/StardewAI
 source venv/bin/activate
 python src/python-agent/unified_agent.py --ui
 
-# Check agent log
-tail -f /tmp/agent_test3.log
+# Check for TTS behavior
+grep "🔊 TTS" /tmp/agent_run.log | tail -10
 
-# Check for warp issues
-grep -E "warp|FarmHouse" /tmp/agent_test3.log | tail -20
-
-# Check TTS calls
-grep "🔊 TTS" /tmp/agent_test3.log | tail -10
-
-# Check obstacle handling
-grep -E "impassable|SKIP|NON_CLEARABLE" /tmp/agent_test3.log | tail -10
+# Check navigation/blocking
+grep -E "Marking|impassable|position" /tmp/agent_run.log | tail -10
 ```
 
 ---
 
-## Known Issues (Not Addressed)
+## Known Issues
 
 | Issue | Severity | Notes |
 |-------|----------|-------|
-| Navigation Twig Bug | LOW | Blocker coords show (0,0) incorrectly |
+| Phantom Watering | MEDIUM | water_crop reports success but crop not watered |
 
 ---
 
-*Session 73: TTS/UI/Obstacle/Sleep/Warp fixes. Agent running for testing. — Claude (PM)*
+*Session 74: TTS kill-previous fix + navigation position bug fix. Agent watering crops successfully. — Claude (PM)*
