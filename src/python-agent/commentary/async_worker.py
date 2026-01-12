@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Optional
 
 from .generator import CommentaryGenerator
 from .tts import PiperTTS
+from .coqui_tts import CoquiTTS
 
 
 @dataclass
@@ -37,10 +38,21 @@ class AsyncCommentaryWorker:
     def __init__(
         self,
         ui_callback: Optional[Callable] = None,
+        tts_backend: str = "coqui",  # "coqui" or "piper"
     ):
         self.generator = CommentaryGenerator()
-        self.tts = PiperTTS()
         self.ui_callback = ui_callback
+        
+        # Try Coqui first (better quality), fall back to Piper
+        if tts_backend == "coqui":
+            self.tts = CoquiTTS()
+            if not self.tts.available:
+                logging.warning("Coqui TTS not available, falling back to Piper")
+                self.tts = PiperTTS()
+        else:
+            self.tts = PiperTTS()
+            
+        logging.info(f"TTS backend: {type(self.tts).__name__}")
         
         self._queue: queue.Queue[Optional[CommentaryEvent]] = queue.Queue(maxsize=10)
         self._thread: Optional[threading.Thread] = None
@@ -180,7 +192,7 @@ class AsyncCommentaryWorker:
     def _speak(self, text: str) -> None:
         """Speak text via TTS (blocks until complete to prevent overlap)."""
         # Clean text for TTS
-        clean_text = re.sub(r'["\'\*\_\#\`\[\]\(\)\{\}]', '', text)
+        clean_text = re.sub(r'["\*\_\#\`\[\]\(\)\{\}\\\\]', '', text)  # Keep apostrophes for contractions
         clean_text = re.sub(r'\s+', ' ', clean_text).strip()
         
         if not clean_text:
