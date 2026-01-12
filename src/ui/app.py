@@ -40,11 +40,15 @@ except Exception:  # pragma: no cover - optional for UI
     SpatialMap = None
 
 try:
-    from commentary.personalities import PERSONALITIES as COMMENTARY_PERSONALITIES
-    from commentary.personalities import PERSONALITY_VOICES as COMMENTARY_VOICES
+    from commentary.rusty_character import TTS_VOICES, get_voice_list
+    # Legacy compat - map to new structure
+    COMMENTARY_PERSONALITIES = {k: v["name"] for k, v in TTS_VOICES.items()}
+    COMMENTARY_VOICES = {k: v["id"] for k, v in TTS_VOICES.items()}
 except Exception:  # pragma: no cover - optional for UI
     COMMENTARY_PERSONALITIES = None
     COMMENTARY_VOICES = None
+    TTS_VOICES = None
+    get_voice_list = None
 
 try:
     from memory.rusty_memory import get_rusty_memory
@@ -718,14 +722,24 @@ def get_commentary() -> Dict[str, Any]:
 
 @app.get("/api/commentary/voices")
 def get_commentary_voices() -> Dict[str, Any]:
-    """Return available personalities, TTS voices, and their mappings."""
-    # Get personalities
-    if COMMENTARY_PERSONALITIES:
-        personalities = sorted(COMMENTARY_PERSONALITIES.keys())
-    else:
-        personalities = ["sarcastic", "enthusiastic", "grumpy", "zen"]
+    """Return available TTS voices and their descriptions.
     
-    # Get available TTS voices
+    Note: "personalities" is now just voice selection (cosmetic).
+    Rusty's actual personality comes from VLM, not templates.
+    """
+    # Get voice options from rusty_character.py
+    if get_voice_list:
+        voice_list = get_voice_list()
+        personalities = [v["key"] for v in voice_list]
+        voice_descriptions = {v["key"]: v["description"] for v in voice_list}
+    elif COMMENTARY_PERSONALITIES:
+        personalities = sorted(COMMENTARY_PERSONALITIES.keys())
+        voice_descriptions = {}
+    else:
+        personalities = ["default", "warm", "dry", "gravelly"]
+        voice_descriptions = {}
+    
+    # Get available TTS voices from model files
     available_voices = []
     for model_dir in TTS_MODEL_DIRS:
         if model_dir.exists():
@@ -735,13 +749,14 @@ def get_commentary_voices() -> Dict[str, Any]:
                     available_voices.append(voice_name)
     available_voices.sort()
     
-    # Get personality-to-voice mappings
+    # Get voice ID mappings
     voice_mappings = COMMENTARY_VOICES if COMMENTARY_VOICES else {}
     
     return {
-        "personalities": personalities,
+        "personalities": personalities,  # Now voice options, not personality templates
         "voices": available_voices,
         "voice_mappings": voice_mappings,
+        "voice_descriptions": voice_descriptions,  # New: descriptions for UI
     }
 
 

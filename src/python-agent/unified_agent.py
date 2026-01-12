@@ -83,11 +83,12 @@ except ImportError:
     HAS_CONSTANTS = False
 
 try:
-    from commentary import CommentaryGenerator, PiperTTS
+    from commentary import CommentaryGenerator, PiperTTS, INNER_MONOLOGUE_PROMPT
     HAS_COMMENTARY = True
 except ImportError:
     CommentaryGenerator = None
     PiperTTS = None
+    INNER_MONOLOGUE_PROMPT = ""
     HAS_COMMENTARY = False
 
 try:
@@ -3834,6 +3835,30 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
 
         self._send_commentary(action, success)
 
+    def _load_cell_stats(self) -> Dict[str, Any]:
+        """
+        Load persisted cell farming stats from file.
+        
+        Used when cell_coordinator is None (e.g., separate agent instance
+        running go_to_bed after farming session ended).
+        
+        Returns:
+            Dict with cells_completed, cells_skipped, skip_reasons, etc.
+            Empty dict if file not found.
+        """
+        try:
+            with open("logs/cell_farming_stats.json") as f:
+                stats = json.load(f)
+                logging.info(f"📊 Loaded persisted stats: {stats.get('cells_completed', 0)} completed, "
+                           f"{stats.get('cells_skipped', 0)} skipped")
+                return stats
+        except FileNotFoundError:
+            logging.debug("No persisted cell stats found")
+            return {}
+        except json.JSONDecodeError as e:
+            logging.warning(f"Failed to parse cell stats: {e}")
+            return {}
+
     def _save_daily_summary(self) -> None:
         """
         Save end-of-day summary for morning planning.
@@ -3865,7 +3890,7 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             summary["max_energy"] = player.get("maxStamina", 270)
             summary["gold"] = player.get("money", 0)
 
-        # Get cell farming stats from coordinator
+        # Get cell farming stats from coordinator or persisted file
         if self.cell_coordinator:
             cell_summary = self.cell_coordinator.get_daily_summary()
             summary["cells_completed"] = cell_summary.get("cells_completed", 0)
@@ -3874,10 +3899,11 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             summary["total_cells"] = cell_summary.get("total_cells", 0)
             summary["completion_rate"] = cell_summary.get("completion_rate", 0)
         else:
-            # No coordinator - use action counts as fallback
-            summary["cells_completed"] = 0
-            summary["cells_skipped"] = 0
-            summary["skip_reasons"] = {}
+            # No coordinator - load from persisted stats file
+            persisted = self._load_cell_stats()
+            summary["cells_completed"] = persisted.get("cells_completed", 0)
+            summary["cells_skipped"] = persisted.get("cells_skipped", 0)
+            summary["skip_reasons"] = persisted.get("skip_reasons", {})
 
         # Add session stats
         summary["actions_executed"] = self.action_count
@@ -3959,16 +3985,18 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             settings = {}
 
         if personality:
-            self.commentary_generator.set_personality(personality)
+            self.commentary_generator.set_voice(personality)
 
-        # Use VLM's creative mood for UI (full text)
-        # TTS will only read first sentence (handled separately below)
+        # Generate commentary - VLM inner_monologue preferred, fallback to simple description
+        ui_text = self.commentary_generator.generate(
+            action.action_type, 
+            state_data, 
+            vlm_monologue=self.last_mood or ""
+        )
         if self.last_mood and len(self.last_mood) > 10:
-            ui_text = self.last_mood  # Full commentary for display
-            logging.info(f"💭 VLM: {ui_text[:80]}...")
+            logging.info(f"💭 Rusty: {ui_text[:80]}...")
         else:
-            ui_text = self.commentary_generator.generate(action.action_type, state_data, "")
-            logging.info(f"📝 Template: {ui_text[:80]}...")
+            logging.info(f"📝 Fallback: {ui_text[:80]}...")
 
         self._ui_safe(
             self.ui.update_commentary,
