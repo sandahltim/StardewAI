@@ -40,7 +40,7 @@
           </div>
           <div class="snapshot__row">
             <span class="snapshot__label">Mood</span>
-            <span id="rustyMood" class="snapshot__value">-</span>
+            <span id="stateMood" class="snapshot__value">-</span>
           </div>
           <div class="snapshot__row">
             <span class="snapshot__label">Nearby</span>
@@ -260,13 +260,39 @@
         <div class="commentary-card">
           <div class="vlm-subhead">Rusty Commentary</div>
           <p id="commentaryText" class="commentary-text">Waiting for commentary...</p>
-          <div class="commentary-controls">
-            <label class="commentary-label" for="coquiVoice">Voice</label>
-            <select id="coquiVoice" class="input"></select>
-            <label class="commentary-label" for="commentaryTts">TTS</label>
-            <input id="commentaryTts" type="checkbox" />
-            <label class="commentary-label" for="commentaryVolume">Volume</label>
-            <input id="commentaryVolume" type="range" min="0" max="100" value="70" />
+          <div class="commentary-controls commentary-controls--row">
+            <div class="commentary-field">
+              <label class="commentary-label" for="coquiVoice">Inner Voice</label>
+              <select id="coquiVoice" class="input"></select>
+            </div>
+            <div class="commentary-field">
+              <label class="commentary-label" for="commentaryVoice">Legacy Voice</label>
+              <select id="commentaryVoice" class="input"></select>
+            </div>
+          </div>
+          <div class="commentary-controls commentary-controls--row">
+            <div class="commentary-field">
+              <label class="commentary-label" for="commentaryTts">Commentary TTS</label>
+              <input id="commentaryTts" type="checkbox" />
+            </div>
+            <div class="commentary-field">
+              <label class="commentary-label" for="commentaryVolume">Volume</label>
+              <input id="commentaryVolume" type="range" min="0" max="100" value="70" />
+            </div>
+          </div>
+          <div class="commentary-controls commentary-controls--row">
+            <div class="commentary-field">
+              <label class="commentary-label" for="ttsToggle">Action TTS</label>
+              <input id="ttsToggle" type="checkbox" />
+            </div>
+            <div class="commentary-field">
+              <label class="commentary-label" for="ttsVoice">Action Voice</label>
+              <select id="ttsVoice" class="input"></select>
+            </div>
+            <div class="commentary-field commentary-field--button">
+              <label class="commentary-label" for="ttsTest">Test</label>
+              <button id="ttsTest" class="button small" type="button">Test</button>
+            </div>
           </div>
         </div>
         <div class="session-stats-card">

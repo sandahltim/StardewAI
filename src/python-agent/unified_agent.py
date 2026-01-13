@@ -3688,15 +3688,56 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
 
         # AGGRESSIVE: Override ANY action to move toward bin when we have sellables
         original_action = actions[0].action_type if actions else "unknown"
-        
-        # Calculate direction to shipping bin
+
+        # Calculate primary and secondary directions to shipping bin
         if abs(dy) > abs(dx):
-            direction = "north" if dy < 0 else "south"
-            tiles = min(abs(dy), 5)  # Move up to 5 tiles at a time
+            primary = "north" if dy < 0 else "south"
+            secondary = "east" if dx > 0 else "west" if dx != 0 else None
+            primary_tiles = min(abs(dy), 5)
+            secondary_tiles = min(abs(dx), 5) if dx != 0 else 0
         else:
-            direction = "west" if dx < 0 else "east"
-            tiles = min(abs(dx), 5)
-        
+            primary = "east" if dx > 0 else "west"
+            secondary = "north" if dy < 0 else "south" if dy != 0 else None
+            primary_tiles = min(abs(dx), 5)
+            secondary_tiles = min(abs(dy), 5) if dy != 0 else 0
+
+        direction = primary
+        tiles = primary_tiles
+
+        # Check surroundings to avoid blocked directions
+        surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
+        if surroundings:
+            data = surroundings.get("data") or surroundings
+            directions = data.get("directions", {})
+            primary_info = directions.get(primary, {})
+
+            # If primary blocked, try secondary
+            if not primary_info.get("clear", True):
+                if secondary:
+                    secondary_info = directions.get(secondary, {})
+                    if secondary_info.get("clear", True):
+                        direction = secondary
+                        tiles = secondary_tiles if secondary_tiles else 1
+                        logging.info(f"📦 Primary direction {primary} blocked, using {direction}")
+                    else:
+                        # Both blocked - try perpendicular directions
+                        perpendiculars = ["north", "south"] if primary in ["east", "west"] else ["east", "west"]
+                        for perp in perpendiculars:
+                            perp_info = directions.get(perp, {})
+                            if perp_info.get("clear", True):
+                                direction = perp
+                                tiles = min(perp_info.get("tilesUntilBlocked", 5), 3)
+                                logging.info(f"📦 Both directions blocked, using perpendicular {direction}")
+                                break
+                        else:
+                            # All directions blocked - return original actions
+                            logging.info(f"📦 All directions blocked, letting VLM handle navigation")
+                            return actions
+                else:
+                    # No secondary and primary blocked - return original
+                    logging.info(f"📦 Direction {primary} blocked with no alternative")
+                    return actions
+
         logging.info(f"📦 OVERRIDE: VLM wanted '{original_action}' but have {total_to_ship} sellables → move {direction} toward bin (dist={dist})")
         return [Action("move", {"direction": direction, "tiles": tiles}, f"Move to ship {total_to_ship} crops")]
 

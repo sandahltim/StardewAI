@@ -415,7 +415,7 @@ function updateStatus(status) {
   const lessonsList = document.getElementById("lessonsList");
   const lessonsCount = document.getElementById("lessonsCount");
   const lessonsReset = document.getElementById("lessonsReset");
-  const rustyMood = document.getElementById("rustyMood");
+  const rustyMood = document.getElementById("stateMood");
   const rustyConfidenceFill = document.getElementById("rustyConfidenceFill");
   const rustyConfidenceValue = document.getElementById("rustyConfidenceValue");
   const rustyDays = document.getElementById("rustyDays");
@@ -713,6 +713,16 @@ function init() {
     "energetic",
     "tars",
   ];
+  let suppressTtsSync = false;
+
+  function enforceTtsExclusion() {
+    if (suppressTtsSync || !ttsToggle || !commentaryTts) return;
+    if (!ttsToggle.checked || !commentaryTts.checked) return;
+    suppressTtsSync = true;
+    commentaryTts.checked = false;
+    postJSON("/api/commentary", { tts_enabled: false });
+    suppressTtsSync = false;
+  }
 
   const updateMovementHistory = (events, actionEvents) => {
     if (!movementList || !movementStuck || !movementTrail) return;
@@ -1202,6 +1212,9 @@ function init() {
     }
     if (commentaryVolume && payload.volume !== undefined) {
       commentaryVolume.value = payload.volume;
+    }
+    if (payload.tts_enabled !== undefined) {
+      enforceTtsExclusion();
     }
   };
 
@@ -1881,8 +1894,11 @@ function init() {
         upcoming.push(`🎂 ${name} (${dayLabel})`);
       });
     }
-    if (data.todayEvent?.name) {
-      upcoming.unshift(`🎯 Today: ${data.todayEvent.name}`);
+    if (data.todayEvent) {
+      const todayEventName = typeof data.todayEvent === "string" ? data.todayEvent : data.todayEvent.name;
+      if (todayEventName) {
+        upcoming.unshift(`🎯 Today: ${todayEventName}`);
+      }
     }
 
     calendarUpcoming.innerHTML = "";
@@ -2321,6 +2337,7 @@ function init() {
   if (ttsToggle) {
     ttsToggle.addEventListener("change", () => {
       postJSON("/api/status", { tts_enabled: ttsToggle.checked });
+      if (ttsToggle.checked) enforceTtsExclusion();
     });
   }
 
@@ -2363,6 +2380,7 @@ function init() {
   if (commentaryTts) {
     commentaryTts.addEventListener("change", () => {
       postJSON("/api/commentary", { tts_enabled: commentaryTts.checked });
+      if (commentaryTts.checked) enforceTtsExclusion();
     });
   }
 
@@ -2517,6 +2535,7 @@ function init() {
       }
       if (ttsToggle) {
         ttsToggle.checked = Boolean(currentStatus.tts_enabled);
+        if (ttsToggle.checked) enforceTtsExclusion();
       }
       if (ttsVoice && currentStatus.tts_voice) {
         ttsVoice.value = currentStatus.tts_voice;
