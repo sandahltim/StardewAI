@@ -715,6 +715,36 @@ Final Logic- day starts- Rusty plans his day and creates todo list from day befo
 
 ---
 
+## Session 87 Highlights
+
+**Multi-Day Test Results:**
+- 13/15 seeds planted (87%)
+- Day 1 crops NOT watered - saved by rain Day 3
+- Agent went to bed successfully
+- Survived Day 1 → Day 3
+
+**Critical Bugs Found:**
+
+| Bug | Impact | Priority |
+|-----|--------|----------|
+| Water task false completion | Crops unwatered (0 targets from FarmHouse) | HIGH |
+| Cell reachability | Action position (Y+1) not validated | HIGH |
+| Till phantom failures | 23+ failures on already-tilled cells | MEDIUM |
+| Cell farming interrupted | 2 seeds unplanted | MEDIUM |
+
+**Root Cause - Cell Reachability:**
+To till/plant cell (X, Y), player stands at (X, Y+1) facing north. Target generator checks if (X, Y) is reachable but NOT if (X, Y+1) is passable. When action position is blocked → stuck → phantom failure.
+
+**Files to Fix:**
+- `daily_planner.py` - Water task prereq: player on Farm
+- `target_generator.py` - Validate action position reachability
+- `farm_surveyor.py` - Check (X, Y+1) when selecting cells
+- `task_executor.py` - Don't auto-complete 0-target tasks
+
+*Updated Session 87 — Claude (PM)*
+
+---
+
 ## Session 82 Highlights
 
 **Cliff Navigation Bug Identified:**
