@@ -209,8 +209,34 @@ class FarmSurveyor:
                     can_till=False,
                 )
 
+        # Process ResourceClumps (large stumps, logs, boulders - need tool upgrades)
+        # These are 2x2 tiles and block farming until cleared with upgraded tools
+        resource_clumps = data.get("resourceClumps", [])
+        clump_tiles = 0
+        for clump in resource_clumps:
+            x, y = clump.get("x"), clump.get("y")
+            width = clump.get("width", 2)
+            height = clump.get("height", 2)
+            clump_type = clump.get("type", "Obstacle")
+
+            if x is None or y is None:
+                continue
+
+            # Mark all tiles covered by this clump as blocked
+            for dx in range(width):
+                for dy in range(height):
+                    tile_x, tile_y = x + dx, y + dy
+                    tiles[(tile_x, tile_y)] = TileState(
+                        x=tile_x, y=tile_y,
+                        state="blocked",
+                        debris_type=clump_type,
+                        can_till=False,  # Needs tool upgrade to clear
+                    )
+                    clump_tiles += 1
+
         logger.info(f"FarmSurveyor: Mapped {len(tiles)} tiles "
-                   f"(crops={len(crops)}, tilled={len(tilled)}, objects={len(objects)})")
+                   f"(crops={len(crops)}, tilled={len(tilled)}, objects={len(objects)}, "
+                   f"clumps={len(resource_clumps)} blocking {clump_tiles} tiles)")
 
         return tiles
 
