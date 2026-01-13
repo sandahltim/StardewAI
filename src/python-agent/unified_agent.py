@@ -2701,8 +2701,15 @@ class StardewAgent:
         # STATE-CHANGE DETECTION: Capture before state
         state_before = self._capture_state_snapshot(skill_name, params)
 
+        # Prepare state with surroundings for skill executor (needed for pathfind_to: nearest_water etc.)
+        skill_state = dict(self.last_state) if self.last_state else {}
+        if hasattr(self.controller, "get_surroundings"):
+            surroundings = self.controller.get_surroundings()
+            if surroundings:
+                skill_state["surroundings"] = surroundings.get("data", surroundings)
+
         try:
-            result = await self.skill_executor.execute(skill, params, self.last_state or {})
+            result = await self.skill_executor.execute(skill, params, skill_state)
             if result.success:
                 # STATE-CHANGE DETECTION: Verify actual state change
                 actual_success = self._verify_state_change(skill_name, state_before, params)
@@ -3318,6 +3325,7 @@ class StardewAgent:
 
         # Check if cell farming should take over for plant_seeds
         # This bypasses the separate clear_debris, till_soil, plant_seeds prereqs
+        # BUT only if we already have seeds - otherwise let prereq queue handle buy_seeds first
         if HAS_CELL_FARMING and not self.cell_coordinator:
             resolved_queue = self.daily_planner.resolved_queue
             for rt in resolved_queue:
@@ -3329,6 +3337,18 @@ class StardewAgent:
                     state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
                     if state:
                         data = state.get("data") or state
+
+                        # Check if we have seeds BEFORE starting cell farming
+                        # If no seeds, skip cell farming and let prereq queue run (buy_seeds)
+                        inventory = data.get("inventory", [])
+                        has_seeds = any(
+                            item and "seed" in item.get("name", "").lower()
+                            for item in inventory
+                        )
+                        if not has_seeds:
+                            logging.info("🌱 Skipping cell farming - no seeds, running buy_seeds prereqs first")
+                            break  # Exit loop, let normal prereq handling continue
+
                         player = data.get("player") or {}
                         tile_x = player.get("tileX")
                         tile_y = player.get("tileY")

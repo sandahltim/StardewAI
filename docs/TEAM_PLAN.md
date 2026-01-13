@@ -1,7 +1,7 @@
 # StardewAI Team Plan
 
 **Created:** 2026-01-08
-**Last Updated:** 2026-01-12 Session 83
+**Last Updated:** 2026-01-13 Session 90
 **Project Lead:** Claude (Opus) - Agent logic, architecture, coordination
 **UI/Memory:** Codex - User interface, memory systems, state persistence
 **Human Lead:** Tim - Direction, testing, hardware, final decisions
@@ -742,6 +742,37 @@ To till/plant cell (X, Y), player stands at (X, Y+1) facing north. Target genera
 - `task_executor.py` - Don't auto-complete 0-target tasks
 
 *Updated Session 87 — Claude (PM)*
+
+---
+
+## Session 88-90 Highlights
+
+**Session 88: Water Priority Fixes**
+- Fixed 5 bugs: BLOCKED state, Y+1 validation, target validation, water priority FIRST, warp_to_farm prereq
+- Partial test on rainy Day 3 - fixes working
+
+**Session 89: Day Change Task Reset**
+- Fixed: Task executor not resetting on day change (old tasks continued)
+- Fixed: `smapi_data` AttributeError
+- Multi-day test: Days 1-5 autonomous, stopped on water refill bug
+
+**Session 90: Stale Targets & Buy Seeds**
+
+| Bug | Fix |
+|-----|-----|
+| Stale water targets | Added `no_crop_at_target` validation |
+| Stale harvest targets | Added `not_ready_for_harvest` check |
+| Cell farming bypasses buy_seeds | Check for seeds before starting cell farming |
+| Water navigation fails | Pass surroundings to skill executor |
+| SeedShop warp race | TaskExecutor stays at SeedShop if no seeds |
+
+**Test Results:**
+- Stale targets correctly skipped ✅
+- Cell farming seed check working ✅
+- Agent went to Pierre's ✅
+- SeedShop warp fix pending test ⏳
+
+*Updated Session 90 — Claude (PM)*
 
 ---
 

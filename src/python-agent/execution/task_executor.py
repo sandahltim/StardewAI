@@ -287,6 +287,20 @@ class TaskExecutor:
             location = data.get("location", {})
             location_name = location.get("name", "") if isinstance(location, dict) else ""
             if location_name and location_name not in ("Farm", ""):
+                # Special case: At SeedShop with no seeds = stay to buy seeds first
+                if location_name == "SeedShop":
+                    inventory = data.get("inventory", [])
+                    has_seeds = any(
+                        item and "seed" in item.get("name", "").lower()
+                        for item in inventory if item
+                    )
+                    if not has_seeds:
+                        # Don't warp to Farm - need to buy seeds first
+                        logger.info(f"🛒 At SeedShop with no seeds - skipping Farm warp, need to buy")
+                        # Clear current task and let VLM override handle buy_seeds
+                        self.state = TaskState.INTERRUPTED
+                        return None
+
                 # Player is indoors, warp to Farm to navigate to outdoor target
                 logger.info(f"🚪 Player in {location_name}, warping to Farm first")
                 self.state = TaskState.MOVING_TO_TARGET
@@ -529,16 +543,35 @@ class TaskExecutor:
                             return "already_tilled"
                         break
         
-        # For water tasks: check if crop is already watered
+        # For water tasks: check if crop exists and is already watered
         if task_type == "water_crops":
             data = game_state.get("data", {}) if game_state else {}
             crops = data.get("location", {}).get("crops", [])
+            crop_found = False
             for crop in crops:
                 if crop.get("x") == target.x and crop.get("y") == target.y:
+                    crop_found = True
                     if crop.get("isWatered"):
                         return "already_watered"
                     break
-        
+            # If no crop at target position, target is stale
+            if not crop_found:
+                return "no_crop_at_target"
+
+        # For harvest tasks: check if crop exists and is ready
+        if task_type == "harvest_crops":
+            data = game_state.get("data", {}) if game_state else {}
+            crops = data.get("location", {}).get("crops", [])
+            crop_found = False
+            for crop in crops:
+                if crop.get("x") == target.x and crop.get("y") == target.y:
+                    crop_found = True
+                    if not crop.get("isReadyForHarvest"):
+                        return "not_ready_for_harvest"
+                    break
+            if not crop_found:
+                return "no_crop_at_target"
+
         # For plant tasks: check if tile already has a crop
         if task_type == "plant_seeds":
             if surroundings:
