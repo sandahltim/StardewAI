@@ -376,14 +376,32 @@ class FarmSurveyor:
         if center is None:
             center = self.FARMHOUSE_DOOR
 
+        radius = scan_radius if scan_radius is not None else self.SCAN_RADIUS
+
+        # PRIORITY 1: Existing tilled tiles (ready for planting, no work needed)
+        # These may be isolated and not in contiguous patches
+        tilled_cells: List[Tuple[int, int]] = []
+        for (x, y), state in tiles.items():
+            if state.state == "tilled":
+                # Check within scan radius
+                if abs(x - center[0]) <= radius and abs(y - center[1]) <= radius:
+                    tilled_cells.append((x, y))
+
+        # Sort tilled by distance to center
+        tilled_cells.sort(key=lambda c: abs(c[0] - center[0]) + abs(c[1] - center[1]))
+
+        if tilled_cells:
+            logger.info(f"FarmSurveyor: Found {len(tilled_cells)} existing tilled tiles (priority)")
+
+        # PRIORITY 2: Debris patches that can be cleared and tilled
         patches = self.find_contiguous_patches(tiles, center, scan_radius)
 
-        if not patches:
-            logger.warning("FarmSurveyor: No tillable patches found!")
+        if not patches and not tilled_cells:
+            logger.warning("FarmSurveyor: No tillable patches or tilled tiles found!")
             return []
 
-        # Collect candidate cells from all patches (more than we need)
-        candidate_cells: List[Tuple[int, int]] = []
+        # Collect candidate cells: tilled first, then patches
+        candidate_cells: List[Tuple[int, int]] = list(tilled_cells)
         patch_assignments: Dict[Tuple[int, int], int] = {}
 
         # Gather 3x the cells we need to account for unreachable filtering
@@ -402,7 +420,7 @@ class FarmSurveyor:
                 candidate_cells.append(cell)
                 patch_assignments[cell] = patch_id
 
-        logger.info(f"FarmSurveyor: {len(candidate_cells)} candidate cells from {len(patches)} patches")
+        logger.info(f"FarmSurveyor: {len(candidate_cells)} candidates ({len(tilled_cells)} tilled + {len(candidate_cells) - len(tilled_cells)} from patches)")
 
         # Filter unreachable cells using SMAPI pathfinding
         if check_reachability and candidate_cells:
@@ -499,12 +517,20 @@ class FarmSurveyor:
         # Survey the farm
         tiles = self.survey(farm_state)
 
-        # Find optimal cells - use player position as center if provided
-        # This enables proper pathfinding checks from player's actual position
+        # Find optimal cells - prefer existing tilled ground near farmhouse
+        # Only use player position if they're close to farmhouse
         if player_pos:
-            center = player_pos
-            scan_radius = self.PLAYER_SCAN_RADIUS
-            logger.info(f"FarmSurveyor: Using player position {player_pos} with radius {scan_radius}")
+            dist_to_house = abs(player_pos[0] - self.FARMHOUSE_DOOR[0]) + abs(player_pos[1] - self.FARMHOUSE_DOOR[1])
+            if dist_to_house <= self.PLAYER_SCAN_RADIUS:
+                # Player is near farmhouse - use player position
+                center = player_pos
+                scan_radius = self.PLAYER_SCAN_RADIUS
+                logger.info(f"FarmSurveyor: Player near house, using position {player_pos} with radius {scan_radius}")
+            else:
+                # Player is far from farmhouse - use farmhouse to find existing tilled ground
+                center = self.FARMHOUSE_DOOR
+                scan_radius = self.SCAN_RADIUS
+                logger.info(f"FarmSurveyor: Player far from house ({dist_to_house} tiles), using farmhouse center")
         else:
             center = self.FARMHOUSE_DOOR
             scan_radius = self.SCAN_RADIUS

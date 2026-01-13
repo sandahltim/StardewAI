@@ -98,6 +98,18 @@ public class TilePathfinder
         if (location.objects.TryGetValue(tileLocation, out var obj) && !obj.isPassable())
             return false;
 
+        // Check for ResourceClumps (large stumps, logs, boulders - 2x2 obstacles)
+        // These are solid and need upgraded tools to clear
+        foreach (var clump in location.resourceClumps)
+        {
+            // ResourceClumps occupy multiple tiles (usually 2x2)
+            if (tile.X >= clump.Tile.X && tile.X < clump.Tile.X + clump.width.Value &&
+                tile.Y >= clump.Tile.Y && tile.Y < clump.Tile.Y + clump.height.Value)
+            {
+                return false;
+            }
+        }
+
         // Check for NPCs (we can path through them but might want to avoid)
         // Leaving NPCs passable for now - player can push through
 

@@ -395,6 +395,23 @@ public class GameStateReader
             }
         }
 
+        // Check for ResourceClumps (large stumps, logs, boulders)
+        foreach (var clump in location.resourceClumps)
+        {
+            if (x >= clump.Tile.X && x < clump.Tile.X + clump.width.Value &&
+                y >= clump.Tile.Y && y < clump.Tile.Y + clump.height.Value)
+            {
+                return clump.parentSheetIndex.Value switch
+                {
+                    600 => "Stump",
+                    602 => "Log",
+                    622 => "Meteorite",
+                    672 => "Boulder",
+                    _ => "ResourceClump"
+                };
+            }
+        }
+
         if (location.isWaterTile(x, y))
         {
             return "water";
