@@ -20,6 +20,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import requests
+
 # Import constants for tool slots
 try:
     from constants import TOOL_SLOTS, DEBRIS_TOOLS
@@ -77,11 +79,16 @@ class FarmSurveyor:
     2. Find contiguous tillable regions via BFS
     3. Select best cells based on seed count
     4. Create ordered execution plan
+    5. Filter unreachable cells via /check-path API
     """
+
+    # SMAPI API endpoint
+    SMAPI_URL = "http://localhost:8790"
 
     # Known farm coordinates (from SMAPI data)
     FARMHOUSE_DOOR = (64, 15)  # Player exits farmhouse here
-    SCAN_RADIUS = 25  # Tiles around farmhouse to consider
+    SCAN_RADIUS = 50  # Tiles around farmhouse to consider (farm is 80x80)
+    PLAYER_SCAN_RADIUS = 15  # Radius when centered on player position
 
     # Tool slots for debris clearing
     DEBRIS_TOOL_SLOTS = {
@@ -96,6 +103,43 @@ class FarmSurveyor:
 
     # Non-clearable obstacles (skip immediately)
     NON_CLEARABLE = {"Tree", "Boulder", "Bush", "Building", "Fence", "Water"}
+
+    def is_cell_reachable(
+        self,
+        player_pos: Tuple[int, int],
+        cell_pos: Tuple[int, int],
+        timeout: float = 0.5,
+    ) -> bool:
+        """
+        Check if a cell is reachable from player position using SMAPI pathfinding.
+
+        Args:
+            player_pos: Current player (x, y) tile position
+            cell_pos: Target cell (x, y) tile position
+            timeout: Request timeout in seconds
+
+        Returns:
+            True if a path exists, False otherwise
+        """
+        try:
+            response = requests.get(
+                f"{self.SMAPI_URL}/check-path",
+                params={
+                    "startX": player_pos[0],
+                    "startY": player_pos[1],
+                    "endX": cell_pos[0],
+                    "endY": cell_pos[1],
+                },
+                timeout=timeout,
+            )
+            if response.status_code == 200:
+                data = response.json().get("data", {})
+                return data.get("reachable", False)
+            return False
+        except requests.RequestException as e:
+            logger.warning(f"Pathfinding check failed: {e}")
+            # Fall back to True to avoid blocking all cells if API is down
+            return True
 
     def survey(self, farm_state: Dict[str, Any]) -> Dict[Tuple[int, int], TileState]:
         """
@@ -174,6 +218,7 @@ class FarmSurveyor:
         self,
         tiles: Dict[Tuple[int, int], TileState],
         center: Tuple[int, int] = None,
+        scan_radius: Optional[int] = None,
     ) -> List[List[Tuple[int, int]]]:
         """
         Find contiguous patches of tillable tiles using BFS.
@@ -186,6 +231,7 @@ class FarmSurveyor:
         Args:
             tiles: Tile state map from survey()
             center: Center point for search (default: farmhouse door)
+            scan_radius: Custom scan radius (default: SCAN_RADIUS)
 
         Returns:
             List of patches, each patch is list of (x, y) coords.
@@ -194,14 +240,16 @@ class FarmSurveyor:
         if center is None:
             center = self.FARMHOUSE_DOOR
 
+        radius = scan_radius if scan_radius is not None else self.SCAN_RADIUS
+
         visited: Set[Tuple[int, int]] = set()
         patches: List[List[Tuple[int, int]]] = []
 
         # Scan area around center
-        min_x = center[0] - self.SCAN_RADIUS
-        max_x = center[0] + self.SCAN_RADIUS
-        min_y = center[1] - self.SCAN_RADIUS
-        max_y = center[1] + self.SCAN_RADIUS
+        min_x = center[0] - radius
+        max_x = center[0] + radius
+        min_y = center[1] - radius
+        max_y = center[1] + radius
 
         def is_tillable(x: int, y: int) -> bool:
             """Check if tile can be used for farming."""
@@ -277,55 +325,85 @@ class FarmSurveyor:
         tiles: Dict[Tuple[int, int], TileState],
         seed_count: int,
         center: Tuple[int, int] = None,
+        scan_radius: Optional[int] = None,
+        check_reachability: bool = True,
     ) -> List[CellPlan]:
         """
         Find optimal cells for farming based on contiguous patches.
 
         Strategy:
         1. Find contiguous patches via BFS
-        2. Select from largest patch first
-        3. If not enough, add from next patches
-        4. Order cells row-by-row within patch for minimal travel
+        2. Select from patches (nearest first)
+        3. Filter unreachable cells via /check-path API
+        4. Order cells row-by-row for minimal travel
 
         Args:
             tiles: Tile state map from survey()
             seed_count: Number of seeds to plant
-            center: Center point for search
+            center: Center point for search (also used as pathfinding start)
+            scan_radius: Custom scan radius (smaller = avoid cliff issues)
+            check_reachability: If True, use SMAPI pathfinding to filter unreachable cells
 
         Returns:
-            Ordered list of CellPlan objects
+            Ordered list of CellPlan objects (only reachable cells)
         """
         if center is None:
             center = self.FARMHOUSE_DOOR
 
-        patches = self.find_contiguous_patches(tiles, center)
+        patches = self.find_contiguous_patches(tiles, center, scan_radius)
 
         if not patches:
             logger.warning("FarmSurveyor: No tillable patches found!")
             return []
 
-        selected_cells: List[Tuple[int, int]] = []
+        # Collect candidate cells from all patches (more than we need)
+        candidate_cells: List[Tuple[int, int]] = []
         patch_assignments: Dict[Tuple[int, int], int] = {}
 
-        # Select from patches until we have enough cells
+        # Gather 3x the cells we need to account for unreachable filtering
+        target_candidates = seed_count * 3
+
         for patch_id, patch in enumerate(patches):
-            if len(selected_cells) >= seed_count:
+            if len(candidate_cells) >= target_candidates:
                 break
 
-            # Sort patch cells row-by-row (y asc, x asc)
-            sorted_patch = sorted(patch, key=lambda c: (c[1], c[0]))
+            # Sort patch cells by distance to center
+            sorted_patch = sorted(patch, key=lambda c: abs(c[0] - center[0]) + abs(c[1] - center[1]))
 
             for cell in sorted_patch:
-                if len(selected_cells) >= seed_count:
+                if len(candidate_cells) >= target_candidates:
                     break
-                selected_cells.append(cell)
+                candidate_cells.append(cell)
                 patch_assignments[cell] = patch_id
 
-        # Global sort: row-by-row walking order regardless of patch origin
-        # This creates a compact grid pattern even when cells come from multiple patches
+        logger.info(f"FarmSurveyor: {len(candidate_cells)} candidate cells from {len(patches)} patches")
+
+        # Filter unreachable cells using SMAPI pathfinding
+        if check_reachability and candidate_cells:
+            reachable_cells: List[Tuple[int, int]] = []
+            unreachable_count = 0
+
+            for cell in candidate_cells:
+                if len(reachable_cells) >= seed_count:
+                    break  # We have enough
+
+                if self.is_cell_reachable(center, cell):
+                    reachable_cells.append(cell)
+                else:
+                    unreachable_count += 1
+
+            if unreachable_count > 0:
+                logger.info(f"FarmSurveyor: Filtered {unreachable_count} unreachable cells")
+
+            selected_cells = reachable_cells
+        else:
+            # No reachability check - just take first N cells
+            selected_cells = candidate_cells[:seed_count]
+
+        # Global sort: row-by-row walking order
         selected_cells.sort(key=lambda c: (c[1], c[0]))
 
-        logger.info(f"FarmSurveyor: Selected cells in walking order: "
+        logger.info(f"FarmSurveyor: Selected {len(selected_cells)} reachable cells: "
                    f"{[(c[0], c[1]) for c in selected_cells[:8]]}...")
 
         # Build CellPlan objects
@@ -373,6 +451,7 @@ class FarmSurveyor:
         seed_count: int,
         seed_type: str = "Parsnip Seeds",
         seed_slot: int = 5,
+        player_pos: Optional[Tuple[int, int]] = None,
     ) -> CellFarmingPlan:
         """
         Create complete cell farming plan.
@@ -385,6 +464,8 @@ class FarmSurveyor:
             seed_count: Number of seeds to plant
             seed_type: Type of seeds to assign to cells
             seed_slot: Inventory slot containing seeds
+            player_pos: Player position - used as center for cell selection
+                       (selects cells near player to avoid cliff navigation issues)
 
         Returns:
             CellFarmingPlan with ordered cells
@@ -392,8 +473,20 @@ class FarmSurveyor:
         # Survey the farm
         tiles = self.survey(farm_state)
 
-        # Find optimal cells
-        cells = self.find_optimal_cells(tiles, seed_count)
+        # Find optimal cells - use player position as center if provided
+        # This enables proper pathfinding checks from player's actual position
+        if player_pos:
+            center = player_pos
+            scan_radius = self.PLAYER_SCAN_RADIUS
+            logger.info(f"FarmSurveyor: Using player position {player_pos} with radius {scan_radius}")
+        else:
+            center = self.FARMHOUSE_DOOR
+            scan_radius = self.SCAN_RADIUS
+
+        # Use SMAPI pathfinding to filter unreachable cells (fixes cliff navigation)
+        cells = self.find_optimal_cells(
+            tiles, seed_count, center, scan_radius, check_reachability=True
+        )
 
         # Assign seed type/slot and calculate estimates
         total_energy = 0

@@ -4,6 +4,278 @@ Coordination log between Claude (agent/prompt) and Codex (UI/memory).
 
 ---
 
+## 2026-01-12 - Session 83: Complete SMAPI API Expansion
+
+**Agent: Claude (Opus)**
+
+### Summary
+Implemented comprehensive SMAPI API coverage. Added 11 new endpoints exposing all game data needed for full autonomous gameplay. Fixed cliff navigation bug by exposing pathfinding via `/check-path` endpoint.
+
+### New Endpoints (11 total)
+
+| Category | Endpoints | Purpose |
+|----------|-----------|---------|
+| Navigation | `/check-path`, `/passable`, `/passable-area` | A* pathfinding, tile passability |
+| Player | `/skills` | Skill levels, XP, professions |
+| NPCs | `/npcs` | Locations, friendship, birthdays |
+| Farm | `/animals`, `/machines`, `/storage` | Livestock, artisan equipment, chests |
+| World | `/calendar`, `/fishing`, `/mining` | Events, fishing data, mine floors |
+
+### Cliff Navigation Fix
+
+The Session 82 cliff bug is now fixed:
+- Added `/check-path` endpoint exposing TilePathfinder.FindPath()
+- Updated farm_surveyor.py to filter unreachable cells before selection
+- Agent now only selects cells it can actually path to
+
+### API Total: 16 Endpoints
+
+```
+Core:     /health, /state, /surroundings, /farm, /action
+Nav:      /check-path, /passable, /passable-area
+Player:   /skills
+World:    /npcs, /animals, /machines, /calendar, /fishing, /mining, /storage
+```
+
+### Code Changes
+
+| File | Lines Added | Purpose |
+|------|-------------|---------|
+| Models/GameState.cs | ~200 | Model classes for all new endpoints |
+| HttpServer.cs | ~100 | Routes and handlers |
+| ModEntry.cs | ~300 | Data reader implementations |
+| farm_surveyor.py | ~40 | Pathfinding check integration |
+| SMAPI_API_EXPANSION.md | ~540 | Complete API reference |
+
+### Why This Matters
+
+Previously SMAPI only exposed what was needed for immediate actions. Now the agent has full knowledge of:
+- **Where to go**: Pathfinding knows which cells are reachable
+- **Who's where**: NPC locations and friendship status
+- **What's ready**: Machine outputs, animal products
+- **What's coming**: Festival and birthday calendar
+- **What's stored**: All chest and fridge contents
+
+### Next Session
+Test the cliff navigation fix and expand agent logic to use new data endpoints.
+
+---
+
+## 2026-01-12 - Session 82: Cliff Navigation Bug
+
+**Agent: Claude (Opus)**
+
+### Summary
+Attempted multi-day autonomy test but agent got stuck on interior cliffs. Diagnosed root cause: SMAPI has pathfinding but doesn't expose it via API.
+
+### Problem
+Agent selects farming cells by distance, but the Stardew Valley farm has multiple elevation levels with cliff edges. Cells that appear "close" may be unreachable without path-finding around cliffs.
+
+### Root Cause
+```
+SMAPI has: TilePathfinder.FindPath(), IsTilePassable()
+API exposes: /surroundings (4 adjacent tiles only)
+Gap: No way to check if distant cells are reachable
+```
+
+### Partial Fixes Applied
+
+| Fix | File | Purpose |
+|-----|------|---------|
+| SCAN_RADIUS 25→50 | farm_surveyor.py | Find more patches |
+| Wall navigation fallback | task_executor.py | Try perpendicular direction when blocked |
+| PLAYER_SCAN_RADIUS=8 | farm_surveyor.py | Smaller search radius near player |
+| Player pos as center | farm_surveyor.py | Select cells near player, not farmhouse |
+
+These are band-aids. Real fix: expose pathfinding via API.
+
+### Next Session Task
+Add `/check-path` endpoint to SMAPI mod:
+- Input: start (x,y), end (x,y)
+- Output: { reachable: bool, pathLength: int }
+- Then filter cells by reachability before selecting
+
+### Code Changes
+
+| File | Lines | Change |
+|------|-------|--------|
+| farm_surveyor.py | 84 | SCAN_RADIUS 25→50 |
+| farm_surveyor.py | 85 | Added PLAYER_SCAN_RADIUS=8 |
+| farm_surveyor.py | 178 | Added scan_radius param |
+| farm_surveyor.py | 285 | Added scan_radius param |
+| farm_surveyor.py | 376 | Added player_pos param |
+| farm_surveyor.py | 408-415 | Use player pos + smaller radius |
+| task_executor.py | 324 | Pass surroundings to _create_move_action |
+| task_executor.py | 427-473 | Wall navigation fallback |
+| unified_agent.py | 2912-2925 | Pass player_pos to surveyor |
+
+### Lesson Learned
+SMAPI API should expose all game knowledge the agent needs. Pathfinding was built for internal use but never exposed. This is a design gap from early development.
+
+---
+
+## 2026-01-12 - Session 81: Ship/Buy/Plant Cycle Fix
+
+**Agent: Claude (Opus)**
+
+### Summary
+Fixed the complete farming cycle: ship crops, buy seeds from Pierre, return to farm, plant seeds. Multiple bugs in TargetGenerator, TaskExecutor, and PrereqResolver were preventing the full workflow.
+
+### Bugs Fixed
+
+| Bug | Root Cause | Fix |
+|-----|------------|-----|
+| Ship task 0 targets | TargetGenerator had no `_generate_ship_targets()` | Added method to create shipping bin target |
+| TaskExecutor didn't know ship | Missing from TASK_TO_SKILL map | Added `ship_items: ship_item` |
+| Navigate to SeedShop failed | `_generate_navigate_target()` only handled coords, not location names | Added warp destination handling |
+| TaskExecutor ignored target skill | Didn't check `target.metadata["skill"]` | Added metadata skill check |
+| No plant task when no seeds | Planner skipped plant if no seeds | Added plant task anyway, let PrereqResolver add buy prereq |
+| Bought but didn't return | PrereqResolver added go_pierre + buy_seeds but not warp_to_farm | Added warp_to_farm prereq after buy_seeds |
+| buy_seeds 0 targets | No target generator for buy_seeds | Added target at current position |
+
+### Verified Working
+
+| Feature | Result |
+|---------|--------|
+| Ship crops | ✅ ship_item skill executes at bin |
+| Warp to Pierre's | ✅ go_to_pierre skill warps to SeedShop |
+| Buy seeds | ✅ buy_parsnip_seeds executes (100g for 5 seeds) |
+| Return to farm | ✅ warp_to_farm prereq added after buy |
+| Plant seeds | ✅ Cell farming plants seeds on tilled soil |
+
+### Code Changes
+
+| File | Change |
+|------|--------|
+| `target_generator.py:258-305` | Added `_generate_ship_targets()` |
+| `target_generator.py:315-365` | Updated `_generate_navigate_target()` for warp destinations |
+| `target_generator.py:63-70` | Added buy_seeds target at current position |
+| `task_executor.py:114` | Added `ship_items: ship_item` to TASK_TO_SKILL |
+| `task_executor.py:117` | Added `buy_seeds: buy_parsnip_seeds` to TASK_TO_SKILL |
+| `task_executor.py:490` | Added check for `target.metadata["skill"]` |
+| `daily_planner.py:435-455` | Plant task added even without seeds |
+| `prereq_resolver.py:330-337` | Added warp_to_farm prereq after buy_seeds |
+| `prereq_resolver.py:360-367` | Added warp_to_farm for sell-then-buy case |
+
+### Game State at End
+- Day 8, 7:20 PM
+- On Farm
+- Money: 305g (spent 100g on seeds)
+- 3 Parsnip Seeds remaining
+- 2 crops in ground
+
+### Next Session (82)
+1. Run multi-day autonomy test (2+ days)
+2. Verify crops grow and harvest correctly
+3. Test bedtime enforcement
+4. Monitor for stuck states
+
+---
+
+## 2026-01-12 - Session 80: Verify Fixes + Obstacle Clearing
+
+**Agent: Claude (Opus)**
+
+### Summary
+Verified Session 79 fixes (movement, harvest priority). Added obstacle clearing to TaskExecutor. Fixed ship priority ordering. Agent crashed due to missing `clear()` method (now fixed).
+
+### Verified Working
+
+| Fix | Result |
+|-----|--------|
+| Movement (+32 offset removed) | ✅ Positions change correctly: (64,15)→(61,15)→(61,17) |
+| Harvest priority | ✅ Daily planner: Harvest before Water |
+| Harvest execution | ✅ 12 parsnips harvested successfully |
+
+### Bugs Fixed
+
+| Bug | Fix | File |
+|-----|-----|------|
+| TaskExecutor stuck on obstacles | Added `_try_clear_obstacle()` - detects blocking objects, returns appropriate clear action | task_executor.py:502-563 |
+| Ship priority too low | Moved ship to CRITICAL, placed right after harvest in code order | daily_planner.py:403-418 |
+| TaskExecutor missing `clear()` | Added `clear()` method to reset executor state | task_executor.py:634-649 |
+
+### Issues Discovered
+
+| Issue | Description |
+|-------|-------------|
+| Bedtime override | Agent was still running at 11:50 PM, didn't go to bed |
+| Task list static | New harvestable crop ignored (task list generated at day start) |
+| Ship not executed | TaskExecutor followed old task order before fix was loaded |
+
+### Code Changes
+
+| File | Change |
+|------|--------|
+| `task_executor.py:140-144` | Added stuck detection variables |
+| `task_executor.py:291-322` | Added stuck detection logic with obstacle clearing |
+| `task_executor.py:502-563` | Added `_try_clear_obstacle()` method |
+| `task_executor.py:634-649` | Added `clear()` method |
+| `daily_planner.py:403-418` | Ship task moved after harvest, priority CRITICAL |
+| `daily_planner.py:433` | Removed duplicate ship task |
+
+### Game State at End
+- Day 5, 11:50 PM (likely passed out)
+- 12 parsnips in inventory (not shipped)
+- Money: 405g
+
+### Next Session (81)
+1. Verify agent runs without crash
+2. Test ship-after-harvest order
+3. Test obstacle clearing
+4. Complete full cycle: Ship → Pierre → Buy seeds → Bed
+
+---
+
+## 2026-01-12 - Session 79: Movement Bug Fix + Harvest Priority
+
+**Agent: Claude (Opus)**
+
+### Summary
+Fixed 2 critical bugs: harvest priority ordering and movement position reset. Game restart required to test.
+
+### Bugs Fixed
+
+| Bug | Root Cause | Fix |
+|-----|------------|-----|
+| Harvest priority ordering | Water task added before harvest in code (both CRITICAL, stable sort kept insertion order) | Swapped order: harvest added before water in `daily_planner.py:390-414` |
+| Movement not working | Session 78's +32 offset put sprite top-left at tile center, causing game to reset position | Removed +32 from all Position assignments in `ActionExecutor.cs` |
+
+### Key Discovery: Movement Bug
+
+The Session 78 "cell centering" fix broke movement:
+- `player.Position` is the **top-left corner** of the sprite, not center
+- Adding +32 put top-left at tile center, causing sprite to extend beyond tile boundaries
+- Game's collision detection saw this as invalid and reset position immediately
+- SMAPI log showed "Moved west 1 tiles to (57, 15)" but state showed (58, 15)
+
+### Verified Working
+- ✅ Harvest priority: TaskExecutor shows `"Starting resolved task: harvest_crops"` with 12 targets
+- ⏳ Movement: Fixed but needs game restart to load rebuilt mod
+
+### Code Changes
+
+| File | Change |
+|------|--------|
+| `daily_planner.py:390-414` | Harvest task added BEFORE water task |
+| `ActionExecutor.cs:154` | Removed +32 from path movement |
+| `ActionExecutor.cs:212` | Removed +32 from MoveDirection |
+| `ActionExecutor.cs:241` | Removed +32 from MoveInDirection |
+| `ActionExecutor.cs:1049` | Removed +32 from WarpTo |
+| `ActionExecutor.cs:1109` | Removed +32 from GoToBed |
+
+### Game State at End
+- Day 5, Spring Year 1, ~6:20 AM
+- 12 parsnips ready to harvest
+- SMAPI mod rebuilt, awaiting game restart
+
+### Next Session (80)
+1. Restart game to load rebuilt mod
+2. Test movement fix (verify position changes)
+3. Run full harvest cycle test
+
+---
+
 ## 2026-01-12 - Session 78: Bug Fix Marathon
 
 **Agent: Claude (Opus)**

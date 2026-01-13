@@ -173,3 +173,261 @@ public class FarmState
     public List<TileObject> Objects { get; set; } = new();
     public List<TilePosition> TilledTiles { get; set; } = new();
 }
+
+/// <summary>Result of pathfinding check</summary>
+public class PathCheckResult
+{
+    public bool Reachable { get; set; }
+    public int PathLength { get; set; }
+    public List<TilePosition> Path { get; set; }
+}
+
+/// <summary>Result of tile passability check</summary>
+public class PassableResult
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public bool Passable { get; set; }
+    public string Blocker { get; set; }
+}
+
+/// <summary>Result of area passability scan</summary>
+public class PassableAreaResult
+{
+    public int CenterX { get; set; }
+    public int CenterY { get; set; }
+    public int Radius { get; set; }
+    public List<PassableResult> Tiles { get; set; } = new();
+}
+
+/// <summary>Player skill levels and professions</summary>
+public class SkillsState
+{
+    public SkillInfo Farming { get; set; }
+    public SkillInfo Fishing { get; set; }
+    public SkillInfo Mining { get; set; }
+    public SkillInfo Combat { get; set; }
+    public SkillInfo Foraging { get; set; }
+    public SkillInfo Luck { get; set; }
+}
+
+/// <summary>Individual skill information</summary>
+public class SkillInfo
+{
+    public int Level { get; set; }
+    public int Xp { get; set; }
+    public int XpToNextLevel { get; set; }
+    public string Profession5 { get; set; }   // Profession chosen at level 5
+    public string Profession10 { get; set; }  // Profession chosen at level 10
+}
+
+// ============================================
+// NPC & RELATIONSHIP ENDPOINTS
+// ============================================
+
+/// <summary>All NPCs in the game world</summary>
+public class NpcsState
+{
+    public List<NpcDetails> Npcs { get; set; } = new();
+}
+
+/// <summary>Detailed NPC information</summary>
+public class NpcDetails
+{
+    public string Name { get; set; }
+    public string DisplayName { get; set; }
+    public string Location { get; set; }
+    public int TileX { get; set; }
+    public int TileY { get; set; }
+    public bool IsVillager { get; set; }
+    public bool CanSocialize { get; set; }
+    public int FriendshipPoints { get; set; }
+    public int FriendshipHearts { get; set; }
+    public bool CanDate { get; set; }
+    public bool IsDating { get; set; }
+    public bool IsMarried { get; set; }
+    public string BirthdaySeason { get; set; }
+    public int BirthdayDay { get; set; }
+    public bool IsBirthdayToday { get; set; }
+    public bool GiftedToday { get; set; }
+    public int GiftsThisWeek { get; set; }
+}
+
+// ============================================
+// ANIMAL ENDPOINTS
+// ============================================
+
+/// <summary>All animals on the farm</summary>
+public class AnimalsState
+{
+    public List<AnimalDetails> Animals { get; set; } = new();
+    public List<BuildingDetails> Buildings { get; set; } = new();
+}
+
+/// <summary>Individual animal information</summary>
+public class AnimalDetails
+{
+    public long Id { get; set; }
+    public string Name { get; set; }
+    public string Type { get; set; }           // Cow, Chicken, Pig, etc.
+    public string BuildingName { get; set; }   // Which barn/coop
+    public int TileX { get; set; }
+    public int TileY { get; set; }
+    public bool IsOutside { get; set; }
+    public int Happiness { get; set; }         // 0-255
+    public int Friendship { get; set; }        // 0-1000
+    public bool WasPetToday { get; set; }
+    public bool ProducedToday { get; set; }    // Has product ready
+    public string CurrentProduct { get; set; } // Egg, Milk, Wool, etc.
+    public int Age { get; set; }               // Days old
+}
+
+/// <summary>Barn/Coop building information</summary>
+public class BuildingDetails
+{
+    public string Type { get; set; }           // Barn, Coop, Big Barn, etc.
+    public string Name { get; set; }
+    public int TileX { get; set; }
+    public int TileY { get; set; }
+    public int AnimalCount { get; set; }
+    public int MaxAnimals { get; set; }
+    public bool DoorOpen { get; set; }
+}
+
+// ============================================
+// MACHINE/ARTISAN ENDPOINTS
+// ============================================
+
+/// <summary>All processing machines</summary>
+public class MachinesState
+{
+    public List<MachineDetails> Machines { get; set; } = new();
+}
+
+/// <summary>Individual machine information</summary>
+public class MachineDetails
+{
+    public string Name { get; set; }
+    public string Location { get; set; }
+    public int TileX { get; set; }
+    public int TileY { get; set; }
+    public bool IsProcessing { get; set; }
+    public string InputItem { get; set; }      // What's being processed
+    public string OutputItem { get; set; }     // What it will produce
+    public int MinutesUntilReady { get; set; }
+    public bool ReadyForHarvest { get; set; }
+    public bool NeedsInput { get; set; }       // Empty and ready for input
+}
+
+// ============================================
+// CALENDAR ENDPOINTS
+// ============================================
+
+/// <summary>Calendar and event information</summary>
+public class CalendarState
+{
+    public string Season { get; set; }
+    public int Day { get; set; }
+    public int Year { get; set; }
+    public string DayOfWeek { get; set; }
+    public int DaysUntilSeasonEnd { get; set; }
+    public string TodayEvent { get; set; }     // Festival or event today
+    public List<CalendarEvent> UpcomingEvents { get; set; } = new();
+    public List<CalendarEvent> UpcomingBirthdays { get; set; } = new();
+}
+
+/// <summary>Calendar event</summary>
+public class CalendarEvent
+{
+    public int Day { get; set; }
+    public string Season { get; set; }
+    public string Name { get; set; }
+    public string Location { get; set; }
+    public string Type { get; set; }           // festival, birthday, etc.
+}
+
+// ============================================
+// FISHING ENDPOINTS
+// ============================================
+
+/// <summary>Fishing information for current location</summary>
+public class FishingState
+{
+    public string Location { get; set; }
+    public string Weather { get; set; }
+    public string Season { get; set; }
+    public int TimeOfDay { get; set; }
+    public List<FishDetails> AvailableFish { get; set; } = new();
+}
+
+/// <summary>Fish that can be caught</summary>
+public class FishDetails
+{
+    public string Name { get; set; }
+    public int Difficulty { get; set; }        // 5-110
+    public string Behavior { get; set; }       // Mixed, Smooth, Sinker, Floater, Dart
+    public int MinSize { get; set; }
+    public int MaxSize { get; set; }
+    public int BasePrice { get; set; }
+    public string TimeRange { get; set; }      // "6am-7pm" or "Any"
+    public string WeatherRequired { get; set; } // "Any", "Sunny", "Rainy"
+}
+
+// ============================================
+// MINING ENDPOINTS
+// ============================================
+
+/// <summary>Mine floor information</summary>
+public class MiningState
+{
+    public string Location { get; set; }       // Mine, Skull Cavern, etc.
+    public int Floor { get; set; }
+    public string FloorType { get; set; }      // normal, frozen, lava, etc.
+    public bool LadderFound { get; set; }
+    public bool ShaftFound { get; set; }
+    public List<MineObject> Rocks { get; set; } = new();
+    public List<MineMonster> Monsters { get; set; } = new();
+}
+
+/// <summary>Rock/ore in the mine</summary>
+public class MineObject
+{
+    public int TileX { get; set; }
+    public int TileY { get; set; }
+    public string Type { get; set; }           // Stone, Copper, Iron, Gold, Iridium, Gem
+    public int Health { get; set; }            // Hits to break
+}
+
+/// <summary>Monster in the mine</summary>
+public class MineMonster
+{
+    public string Name { get; set; }
+    public int TileX { get; set; }
+    public int TileY { get; set; }
+    public int Health { get; set; }
+    public int MaxHealth { get; set; }
+    public int Damage { get; set; }
+}
+
+// ============================================
+// STORAGE ENDPOINTS
+// ============================================
+
+/// <summary>All storage containers</summary>
+public class StorageState
+{
+    public List<ChestDetails> Chests { get; set; } = new();
+    public List<InventoryItem> Fridge { get; set; } = new();
+    public int SiloHay { get; set; }
+    public int SiloCapacity { get; set; }
+}
+
+/// <summary>Chest contents</summary>
+public class ChestDetails
+{
+    public string Location { get; set; }
+    public int TileX { get; set; }
+    public int TileY { get; set; }
+    public string Color { get; set; }
+    public List<InventoryItem> Items { get; set; } = new();
+}

@@ -24,6 +24,21 @@ public class HttpServer : IDisposable
     public Func<SurroundingsState> GetSurroundings { get; set; }
     public Func<FarmState> GetFarmState { get; set; }
 
+    // Pathfinding callbacks
+    public Func<int, int, int, int, PathCheckResult> CheckPath { get; set; }
+    public Func<int, int, PassableResult> CheckPassable { get; set; }
+    public Func<int, int, int, PassableAreaResult> CheckPassableArea { get; set; }
+    public Func<SkillsState> GetSkills { get; set; }
+
+    // Game data callbacks
+    public Func<NpcsState> GetNpcs { get; set; }
+    public Func<AnimalsState> GetAnimals { get; set; }
+    public Func<MachinesState> GetMachines { get; set; }
+    public Func<CalendarState> GetCalendar { get; set; }
+    public Func<FishingState> GetFishing { get; set; }
+    public Func<MiningState> GetMining { get; set; }
+    public Func<StorageState> GetStorage { get; set; }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -103,6 +118,20 @@ public class HttpServer : IDisposable
                 ("GET", "/surroundings") => HandleGetSurroundings(),
                 ("GET", "/farm") => HandleGetFarm(),
                 ("POST", "/action") => HandleAction(request),
+                // Pathfinding & navigation
+                ("GET", "/check-path") => HandleCheckPath(request),
+                ("GET", "/passable") => HandlePassable(request),
+                ("GET", "/passable-area") => HandlePassableArea(request),
+                // Player data
+                ("GET", "/skills") => HandleGetSkills(),
+                // Game world data
+                ("GET", "/npcs") => HandleGetNpcs(),
+                ("GET", "/animals") => HandleGetAnimals(),
+                ("GET", "/machines") => HandleGetMachines(),
+                ("GET", "/calendar") => HandleGetCalendar(),
+                ("GET", "/fishing") => HandleGetFishing(),
+                ("GET", "/mining") => HandleGetMining(),
+                ("GET", "/storage") => HandleGetStorage(),
                 _ => JsonSerializer.Serialize(ApiResponse<object>.Fail($"Unknown endpoint: {method} {path}"), JsonOptions)
             };
 
@@ -204,6 +233,198 @@ public class HttpServer : IDisposable
         catch (Exception ex)
         {
             return JsonSerializer.Serialize(ApiResponse<FarmState>.Fail($"Error reading farm state: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandleCheckPath(HttpListenerRequest request)
+    {
+        if (CheckPath == null)
+            return JsonSerializer.Serialize(ApiResponse<PathCheckResult>.Fail("Pathfinder not initialized"), JsonOptions);
+
+        try
+        {
+            int startX = int.Parse(request.QueryString["startX"] ?? "0");
+            int startY = int.Parse(request.QueryString["startY"] ?? "0");
+            int endX = int.Parse(request.QueryString["endX"] ?? "0");
+            int endY = int.Parse(request.QueryString["endY"] ?? "0");
+
+            var result = CheckPath(startX, startY, endX, endY);
+            return JsonSerializer.Serialize(ApiResponse<PathCheckResult>.Ok(result), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<PathCheckResult>.Fail($"Error checking path: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandlePassable(HttpListenerRequest request)
+    {
+        if (CheckPassable == null)
+            return JsonSerializer.Serialize(ApiResponse<PassableResult>.Fail("Passability checker not initialized"), JsonOptions);
+
+        try
+        {
+            int x = int.Parse(request.QueryString["x"] ?? "0");
+            int y = int.Parse(request.QueryString["y"] ?? "0");
+
+            var result = CheckPassable(x, y);
+            return JsonSerializer.Serialize(ApiResponse<PassableResult>.Ok(result), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<PassableResult>.Fail($"Error checking passability: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandlePassableArea(HttpListenerRequest request)
+    {
+        if (CheckPassableArea == null)
+            return JsonSerializer.Serialize(ApiResponse<PassableAreaResult>.Fail("Area checker not initialized"), JsonOptions);
+
+        try
+        {
+            int centerX = int.Parse(request.QueryString["centerX"] ?? "0");
+            int centerY = int.Parse(request.QueryString["centerY"] ?? "0");
+            int radius = int.Parse(request.QueryString["radius"] ?? "10");
+            radius = Math.Min(radius, 25); // Limit to prevent performance issues
+
+            var result = CheckPassableArea(centerX, centerY, radius);
+            return JsonSerializer.Serialize(ApiResponse<PassableAreaResult>.Ok(result), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<PassableAreaResult>.Fail($"Error checking area: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandleGetSkills()
+    {
+        if (GetSkills == null)
+            return JsonSerializer.Serialize(ApiResponse<SkillsState>.Fail("Skills reader not initialized"), JsonOptions);
+
+        try
+        {
+            var skills = GetSkills();
+            if (skills == null)
+                return JsonSerializer.Serialize(ApiResponse<SkillsState>.Fail("No skills available (not in game?)"), JsonOptions);
+
+            return JsonSerializer.Serialize(ApiResponse<SkillsState>.Ok(skills), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<SkillsState>.Fail($"Error reading skills: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandleGetNpcs()
+    {
+        if (GetNpcs == null)
+            return JsonSerializer.Serialize(ApiResponse<NpcsState>.Fail("NPC reader not initialized"), JsonOptions);
+
+        try
+        {
+            var npcs = GetNpcs();
+            return JsonSerializer.Serialize(ApiResponse<NpcsState>.Ok(npcs), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<NpcsState>.Fail($"Error reading NPCs: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandleGetAnimals()
+    {
+        if (GetAnimals == null)
+            return JsonSerializer.Serialize(ApiResponse<AnimalsState>.Fail("Animal reader not initialized"), JsonOptions);
+
+        try
+        {
+            var animals = GetAnimals();
+            return JsonSerializer.Serialize(ApiResponse<AnimalsState>.Ok(animals), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<AnimalsState>.Fail($"Error reading animals: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandleGetMachines()
+    {
+        if (GetMachines == null)
+            return JsonSerializer.Serialize(ApiResponse<MachinesState>.Fail("Machine reader not initialized"), JsonOptions);
+
+        try
+        {
+            var machines = GetMachines();
+            return JsonSerializer.Serialize(ApiResponse<MachinesState>.Ok(machines), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<MachinesState>.Fail($"Error reading machines: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandleGetCalendar()
+    {
+        if (GetCalendar == null)
+            return JsonSerializer.Serialize(ApiResponse<CalendarState>.Fail("Calendar reader not initialized"), JsonOptions);
+
+        try
+        {
+            var calendar = GetCalendar();
+            return JsonSerializer.Serialize(ApiResponse<CalendarState>.Ok(calendar), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<CalendarState>.Fail($"Error reading calendar: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandleGetFishing()
+    {
+        if (GetFishing == null)
+            return JsonSerializer.Serialize(ApiResponse<FishingState>.Fail("Fishing reader not initialized"), JsonOptions);
+
+        try
+        {
+            var fishing = GetFishing();
+            return JsonSerializer.Serialize(ApiResponse<FishingState>.Ok(fishing), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<FishingState>.Fail($"Error reading fishing data: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandleGetMining()
+    {
+        if (GetMining == null)
+            return JsonSerializer.Serialize(ApiResponse<MiningState>.Fail("Mining reader not initialized"), JsonOptions);
+
+        try
+        {
+            var mining = GetMining();
+            return JsonSerializer.Serialize(ApiResponse<MiningState>.Ok(mining), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<MiningState>.Fail($"Error reading mining data: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandleGetStorage()
+    {
+        if (GetStorage == null)
+            return JsonSerializer.Serialize(ApiResponse<StorageState>.Fail("Storage reader not initialized"), JsonOptions);
+
+        try
+        {
+            var storage = GetStorage();
+            return JsonSerializer.Serialize(ApiResponse<StorageState>.Ok(storage), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<StorageState>.Fail($"Error reading storage: {ex.Message}"), JsonOptions);
         }
     }
 

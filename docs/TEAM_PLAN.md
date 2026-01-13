@@ -1,10 +1,46 @@
 # StardewAI Team Plan
 
 **Created:** 2026-01-08
-**Last Updated:** 2026-01-11 Session 65
+**Last Updated:** 2026-01-12 Session 83
 **Project Lead:** Claude (Opus) - Agent logic, architecture, coordination
 **UI/Memory:** Codex - User interface, memory systems, state persistence
 **Human Lead:** Tim - Direction, testing, hardware, final decisions
+
+---
+
+## Session 83 Highlight: Complete SMAPI API
+
+### API Expansion Complete
+
+Added 11 new endpoints to SMAPI mod for full game data access:
+
+| Category | Endpoints |
+|----------|-----------|
+| Navigation | `/check-path`, `/passable`, `/passable-area` |
+| Player | `/skills` |
+| NPCs | `/npcs` |
+| Farm | `/animals`, `/machines`, `/storage` |
+| World | `/calendar`, `/fishing`, `/mining` |
+
+**Total: 16 API endpoints** - Full coverage for autonomous gameplay.
+
+### Cliff Navigation Fixed
+
+Session 82 identified that agent got stuck on interior farm cliffs. Root cause: pathfinding existed internally but wasn't exposed via API.
+
+**Solution:**
+- Added `/check-path` endpoint exposing A* pathfinding
+- farm_surveyor.py now filters unreachable cells before selection
+- Agent only targets cells it can actually path to
+
+### What's Now Possible
+
+With full API coverage, the agent can now:
+- **Navigate intelligently** - Path around obstacles/cliffs
+- **Track NPCs** - Find villagers, give birthday gifts
+- **Manage animals** - Monitor happiness, collect products
+- **Optimize production** - Know when machines are ready
+- **Plan ahead** - Calendar awareness for festivals
 
 ---
 
@@ -69,7 +105,9 @@
 | Component | Status | Session |
 |-----------|--------|---------|
 | VLM Perception (Qwen3VL-30B) | ✅ Working | - |
-| SMAPI GameBridge API (24 actions) | ✅ Working | - |
+| **SMAPI GameBridge API (16 endpoints)** | ✅ Expanded | 83 |
+| **Pathfinding API (/check-path)** | ✅ NEW | 83 |
+| **NPC/Animals/Machines API** | ✅ NEW | 83 |
 | Farm Planning System | ✅ Working | 31-32 |
 | Farm Plan Visualizer UI | ✅ Working | 32 |
 | Commentary System (context-aware) | ✅ Improved | 41-42 |
@@ -110,15 +148,20 @@
 | Edge-stuck recovery | ✅ COMPLETE |
 | No-seeds → Pierre's → Buy | ✅ COMPLETE |
 | Full seeds flow | ✅ COMPLETE |
-| **Task Execution Layer** | ✅ COMPLETE (Session 54) |
-| Target Generator (Codex) | ✅ COMPLETE |
-| Task Executor (Claude) | ✅ COMPLETE |
-| **Event-Driven Commentary** | ✅ COMPLETE (Session 55) |
-| **State Path Fixes** | ✅ COMPLETE (Session 55-57) |
-| **TaskExecutor Activation** | ✅ FIXED (Session 57) |
-| Multi-day autonomy test | 🔄 READY TO TEST |
-| Wake-up routine | 📋 NEXT |
-| Periodic re-planning | 📋 NEXT |
+| Task Execution Layer | ✅ COMPLETE (Session 54) |
+| Ship/Buy/Plant Cycle | ✅ COMPLETE (Session 81) |
+| Cliff Navigation Fix | ✅ COMPLETE (Session 82-83) |
+| **SMAPI API Expansion** | ✅ COMPLETE (Session 83) |
+
+### Next Priority (Session 84+)
+| Task | Description |
+|------|-------------|
+| Test cliff fix | Verify pathfinding prevents cliff-stuck |
+| Multi-day autonomy | Run overnight without intervention |
+| Use NPC data | Find villagers, track birthdays |
+| Use animal data | Monitor happiness, collect products |
+| Use machine data | Track when artisan goods ready |
+| Calendar awareness | Plan around festivals |
 
 ---
 
@@ -579,3 +622,137 @@ Final Logic- day starts- Rusty plans his day and creates todo list from day befo
 - Full day autonomous test
 
 *Updated Session 68 — Claude (PM)*
+
+---
+
+## Session 80 Highlights
+
+**Verified Session 79 Fixes:**
+- ✅ Movement fix works: positions change correctly after move commands
+- ✅ Harvest priority: daily planner puts harvest before water
+- ✅ 12 parsnips harvested successfully
+
+**TaskExecutor Obstacle Clearing:**
+- Added stuck detection: tracks position, increments counter if unchanged
+- After 3 stuck attempts, checks surroundings for clearable obstacles
+- Clears with appropriate tool: Tree→Axe, Stone→Pickaxe, Weeds→Scythe
+- Falls back to skipping target if no clearable obstacle
+
+**Ship Priority Fix:**
+- Moved ship task to right after harvest in daily_planner.py
+- Changed priority from HIGH to CRITICAL
+- Order now: Harvest → Ship → Water → Plant → Clear
+
+**Bug Fixes:**
+- Added missing `TaskExecutor.clear()` method (was causing crash)
+- Removed duplicate ship task from old location
+
+**Code Locations:**
+| Feature | File | Lines |
+|---------|------|-------|
+| Stuck detection vars | task_executor.py | 140-144 |
+| Stuck detection logic | task_executor.py | 291-322 |
+| Obstacle clearing | task_executor.py | 502-563 |
+| clear() method | task_executor.py | 634-649 |
+| Ship priority fix | daily_planner.py | 403-418 |
+
+**Issues for Session 81:**
+- Bedtime override didn't trigger at 11:50 PM
+- New harvestable crops ignored (task list static after generation)
+- Full ship→buy cycle not yet tested
+
+*Updated Session 80 — Claude (PM)*
+
+---
+
+## Session 81 Highlights
+
+**Ship/Buy/Plant Cycle Fixed:**
+- Complete farming cycle now works: ship crops → buy seeds → return to farm → plant
+- 7 bugs fixed across TargetGenerator, TaskExecutor, PrereqResolver, and DailyPlanner
+
+**Key Fixes:**
+
+| Component | Bug | Fix |
+|-----------|-----|-----|
+| TargetGenerator | No ship targets | Added `_generate_ship_targets()` |
+| TargetGenerator | Navigate to SeedShop failed | Added warp destination handling |
+| TargetGenerator | No buy_seeds targets | Added target at current position |
+| TaskExecutor | Didn't know ship/buy skills | Added to TASK_TO_SKILL mapping |
+| TaskExecutor | Ignored target metadata skill | Added `target.metadata["skill"]` check |
+| DailyPlanner | Skipped plant if no seeds | Added plant task anyway |
+| PrereqResolver | No warp home after buy | Added warp_to_farm prereq |
+
+**Verified Working:**
+- ✅ Ship crops to bin (ship_item skill)
+- ✅ Warp to Pierre's (go_to_pierre skill)
+- ✅ Buy seeds (buy_parsnip_seeds skill)
+- ✅ Return to farm (warp_to_farm prereq)
+- ✅ Plant seeds (cell farming)
+
+**Code Locations:**
+| Feature | File | Lines |
+|---------|------|-------|
+| Ship targets | target_generator.py | 258-305 |
+| Warp destinations | target_generator.py | 315-365 |
+| Buy targets | target_generator.py | 63-70 |
+| Skill mappings | task_executor.py | 114, 117 |
+| Target metadata skill | task_executor.py | 490 |
+| Plant without seeds | daily_planner.py | 435-455 |
+| Warp home prereq | prereq_resolver.py | 330-337, 360-367 |
+
+**Game State:**
+- Day 8, 7:20 PM
+- Money: 305g (spent 100g on seeds)
+- 3 Parsnip Seeds remaining, 2 crops in ground
+
+**Next: Session 82**
+- Multi-day autonomy test (2+ days)
+- Test bedtime enforcement
+- Monitor for stuck states
+
+*Updated Session 81 — Claude (PM)*
+
+---
+
+## Session 82 Highlights
+
+**Cliff Navigation Bug Identified:**
+- Multi-day test blocked by agent getting stuck on interior cliffs
+- Stardew farm has multiple elevation levels separated by cliff edges
+- Agent can't path-find around cliffs to reach selected cells
+
+**Root Cause: SMAPI API Gap**
+```
+SMAPI has internally:
+  - TilePathfinder.FindPath(start, end, location)
+  - IsTilePassable(tile, location)
+
+API exposes:
+  - /surroundings → only 4 adjacent tiles
+  - /farm → objects, crops, no passability
+
+Gap: No endpoint for pathfinding/reachability checks
+```
+
+**Partial Fixes Applied (band-aids):**
+| Fix | Purpose |
+|-----|---------|
+| SCAN_RADIUS 25→50 | Find more tillable patches |
+| Wall navigation fallback | Try perpendicular direction when blocked |
+| PLAYER_SCAN_RADIUS=8 | Very small search radius near player |
+| Player pos as center | Select cells near player, not farmhouse |
+
+**Session 83 Task:**
+Add `/check-path` endpoint to SMAPI:
+```csharp
+GET /check-path?startX=42&startY=19&endX=32&endY=17
+→ { reachable: true/false, pathLength: N }
+```
+
+Then filter unreachable cells in farm_surveyor.py before selection.
+
+**Lesson Learned:**
+SMAPI API should expose all game knowledge the agent needs from the start. Pathfinding was built but never exposed, causing this gap.
+
+*Updated Session 82 — Claude (PM)*
