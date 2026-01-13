@@ -55,6 +55,7 @@ public class ActionExecutor
                 "use_tool" => UseTool(command.Direction),
                 "equip_tool" => EquipTool(command.Tool),
                 "select_slot" => SelectSlot(command.Slot),
+                "select_item_type" => SelectItemType(command.ItemType),
                 "interact" => Interact(command.Target),
                 "interact_facing" => InteractFacing(),
                 "harvest" => Harvest(command.Direction),
@@ -408,6 +409,52 @@ public class ActionExecutor
             Success = true,
             Message = $"Selected slot {slot}",
             State = ActionState.Complete
+        };
+    }
+
+    private ActionResult SelectItemType(string itemType)
+    {
+        if (string.IsNullOrEmpty(itemType))
+            return new ActionResult { Success = false, Error = "No item type specified", State = ActionState.Failed };
+
+        var player = Game1.player;
+        var searchType = itemType.ToLower().Trim();
+
+        for (int i = 0; i < player.Items.Count; i++)
+        {
+            var item = player.Items[i];
+            if (item == null) continue;
+
+            bool match = searchType switch
+            {
+                "seed" or "seeds" => item is StardewValley.Object obj && obj.Category == StardewValley.Object.SeedsCategory,
+                "vegetable" or "vegetables" or "crop" or "crops" => item is StardewValley.Object obj && obj.Category == StardewValley.Object.VegetableCategory,
+                "fruit" or "fruits" => item is StardewValley.Object obj && obj.Category == StardewValley.Object.FruitsCategory,
+                "fish" => item is StardewValley.Object obj && obj.Category == StardewValley.Object.FishCategory,
+                "food" or "edible" => item is StardewValley.Object obj && obj.Edibility > 0,
+                "tool" or "tools" => item is Tool,
+                "sellable" => item is StardewValley.Object obj && obj.canBeShipped(),
+                _ => false
+            };
+
+            if (match)
+            {
+                player.CurrentToolIndex = i;
+                _monitor.Log($"SelectItemType: Found {item.DisplayName} at slot {i}", LogLevel.Debug);
+                return new ActionResult
+                {
+                    Success = true,
+                    Message = $"Selected {item.DisplayName} (slot {i})",
+                    State = ActionState.Complete
+                };
+            }
+        }
+
+        return new ActionResult
+        {
+            Success = false,
+            Error = $"No {itemType} found in inventory",
+            State = ActionState.Failed
         };
     }
 

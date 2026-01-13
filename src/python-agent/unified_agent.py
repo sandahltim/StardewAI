@@ -1679,6 +1679,13 @@ class ModBridgeController:
                     "slot": slot
                 })
 
+            elif action_type == "select_item_type":
+                item_type = action.params.get("type", action.params.get("item_type", ""))
+                return self._send_action({
+                    "action": "select_item_type",
+                    "itemType": item_type
+                })
+
             elif action_type == "menu":
                 return self._send_action({"action": "toggle_menu"})
 

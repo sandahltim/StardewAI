@@ -64,13 +64,11 @@ class SkillExecutor:
                 result = False
             await asyncio.sleep(0.15)  # Wait for turn animation
             return result
-        # Handle select_item_type: find slot by item type (e.g., "seed", "tool")
+        # Handle select_item_type: normalize params and pass to mod (mod handles inventory scanning)
         if action_type == "select_item_type":
             item_type = params.get("type", params.get("value", ""))
-            slot = self._find_slot_by_type(state, item_type)
-            if slot is None:
-                return False
-            return await self._dispatch("select_slot", {"slot": slot}, state)
+            params = {"type": item_type}  # Normalize params for mod API
+            # Fall through to executor below
         # Handle pathfind_to: translate to move action with target
         if action_type == "pathfind_to":
             target = params.get("target", "")
