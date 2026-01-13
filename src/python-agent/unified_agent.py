@@ -83,11 +83,12 @@ except ImportError:
     HAS_CONSTANTS = False
 
 try:
-    from commentary import AsyncCommentaryWorker, INNER_MONOLOGUE_PROMPT
+    from commentary import AsyncCommentaryWorker, INNER_MONOLOGUE_PROMPT, ELIAS_CHARACTER
     HAS_COMMENTARY = True
 except ImportError:
     AsyncCommentaryWorker = None
     INNER_MONOLOGUE_PROMPT = ""
+    ELIAS_CHARACTER = ""
     HAS_COMMENTARY = False
 
 try:
@@ -279,14 +280,37 @@ class Config:
             if 'model' in data:
                 config.temperature = data['model'].get('temperature', config.temperature)
                 config.max_tokens = data['model'].get('max_tokens', config.max_tokens)
-                config.system_prompt = data['model'].get('system_prompt', config.system_prompt)
+
+                # Build system prompt: Character (from Python) + Game Mechanics (from YAML)
+                # This separates WHO Elias is from HOW the game works
+                game_mechanics = data['model'].get('game_mechanics', '')
+                if ELIAS_CHARACTER and game_mechanics:
+                    config.system_prompt = f"{ELIAS_CHARACTER}\n\n{game_mechanics}"
+                elif ELIAS_CHARACTER:
+                    config.system_prompt = ELIAS_CHARACTER
+                elif game_mechanics:
+                    config.system_prompt = game_mechanics
+                else:
+                    # Fallback to old system_prompt if neither available
+                    config.system_prompt = data['model'].get('system_prompt', config.system_prompt)
 
             # Vision-First Mode
             if 'vision_first' in data:
                 vf = data['vision_first']
                 config.vision_first_enabled = vf.get('enabled', False)
-                config.vision_first_system_prompt = vf.get('system_prompt', '')
                 config.vision_first_context_template = vf.get('light_context_template', '')
+
+                # Vision-first also combines character + mechanics
+                vf_mechanics = vf.get('game_mechanics', '')
+                if ELIAS_CHARACTER and vf_mechanics:
+                    config.vision_first_system_prompt = f"{ELIAS_CHARACTER}\n\n{vf_mechanics}"
+                elif ELIAS_CHARACTER:
+                    config.vision_first_system_prompt = ELIAS_CHARACTER
+                elif vf_mechanics:
+                    config.vision_first_system_prompt = vf_mechanics
+                else:
+                    # Fallback to old system_prompt if neither available
+                    config.vision_first_system_prompt = vf.get('system_prompt', '')
 
         except FileNotFoundError:
             logging.warning(f"Config file not found: {path}, using defaults")
@@ -3843,6 +3867,16 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             season = time_data.get("season", "spring")
             if day > 0 and day != self._last_planned_day:
                 logging.info(f"🌅 New day detected: Day {day} - generating plan...")
+
+                # CRITICAL: Reset task executor to prevent old tasks from continuing
+                if self.task_executor:
+                    logging.info("🔄 Resetting task executor for new day")
+                    self.task_executor.clear()
+                if hasattr(self, 'resolved_task_queue'):
+                    self.resolved_task_queue = []
+                if self.cell_coordinator:
+                    self.cell_coordinator = None
+
                 # Save previous day's summary BEFORE starting new day
                 # This handles the case where agent passed out (didn't call go_to_bed)
                 if self._last_planned_day > 0:
@@ -4880,7 +4914,7 @@ Recent: {recent}"""
             task_type = self.task_executor.progress.task_type
             
             # Check if we're now on Farm (can retry)
-            current_loc = self.smapi_data.get("data", {}).get("location", {}).get("name", "") if self.smapi_data else ""
+            current_loc = self.last_state.get("location", {}).get("name", "") if self.last_state else ""
             
             if current_loc == "Farm":
                 # We're on Farm now - retry the blocked task
