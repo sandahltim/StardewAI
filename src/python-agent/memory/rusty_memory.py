@@ -375,7 +375,7 @@ class RustyMemory:
         confidence = self.get_confidence_level()
         days = self.character_state["days_farming"]
 
-        lines.append(f"Rusty's state: {mood}, {confidence} (Day {days} of farming)")
+        lines.append(f"Elias's state: {mood}, {confidence} (Day {days} of farming)")
 
         # Recent memorable moments
         moments = self.character_state["memorable_moments"]
