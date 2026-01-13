@@ -1650,6 +1650,19 @@ class ModBridgeController:
                     "tiles": tiles
                 })
 
+            elif action_type == "move_to":
+                # Direct pathfinding to coordinates - SMAPI handles A* navigation
+                x = action.params.get("x")
+                y = action.params.get("y")
+                if x is not None and y is not None:
+                    return self._send_action({
+                        "action": "move",
+                        "target": {"x": x, "y": y}
+                    })
+                else:
+                    logging.error("move_to requires x and y coordinates")
+                    return False
+
             elif action_type == "interact":
                 return self._send_action({"action": "interact_facing"})
 
@@ -3069,63 +3082,30 @@ class StardewAgent:
 
         # Check if we need to navigate to this cell
         nav_target = self.cell_coordinator.get_navigation_target(cell, player_pos)
-        logging.info(f"🌱 Cell ({cell.x},{cell.y}): player={player_pos}, nav_target={nav_target}")
-        if player_pos != nav_target:
-            # Calculate direction to target
-            dx = nav_target[0] - player_pos[0]
-            dy = nav_target[1] - player_pos[1]
-            if abs(dx) > abs(dy):
-                direction = "east" if dx > 0 else "west"
-            else:
-                direction = "south" if dy > 0 else "north"
 
-            # Stuck detection: if position hasn't changed since last tick, increment counter
+        if player_pos != nav_target:
+            # Stuck detection: if position hasn't changed, we may be blocked
             if self._cell_nav_last_pos == player_pos:
                 self._cell_nav_stuck_count += 1
-                
-                # After 2 stuck attempts, check if we can clear the obstacle
-                if self._cell_nav_stuck_count >= 2 and not self._cell_clearing_obstacle:
-                    surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
-                    if surroundings:
-                        surr_data = surroundings.get("data") or surroundings
-                        dir_info = surr_data.get("directions", {}).get(direction)
-                        if dir_info and not dir_info.get("clear") and dir_info.get("tilesUntilBlocked", 99) <= 1:
-                            blocker = dir_info.get("blocker")
-                            # Use centralized debris/obstacle definitions
-                            from planning.farm_surveyor import FarmSurveyor
-                            if blocker and blocker in FarmSurveyor.DEBRIS_TOOL_SLOTS:
-                                # Start clearing sequence
-                                logging.info(f"🌱 Cell ({cell.x},{cell.y}): {blocker} blocking {direction}, clearing it")
-                                self._cell_clearing_obstacle = True
-                                self._cell_clear_action_index = 0
-                                self._cell_clear_direction = direction
-                                self._cell_clear_blocker = blocker
-                                return self._execute_obstacle_clear()
-                            elif blocker and blocker in FarmSurveyor.NON_CLEARABLE:
-                                # Non-clearable obstacle - skip cell immediately
-                                logging.warning(f"🌱 Cell ({cell.x},{cell.y}): {blocker} blocking {direction}, skipping (not clearable)")
-                                self.cell_coordinator.skip_cell(cell, f"{blocker} blocking")
-                                self._cell_nav_stuck_count = 0
-                                self._cell_nav_last_pos = None
-                                return None
-                
-                # Skip cell after threshold if clearing didn't help
+
+                # Skip cell after threshold - SMAPI pathfinding failed
                 if self._cell_nav_stuck_count >= self._CELL_NAV_STUCK_THRESHOLD:
-                    logging.warning(f"🌱 Cell ({cell.x},{cell.y}): STUCK after {self._cell_nav_stuck_count} attempts, skipping cell")
-                    self.cell_coordinator.skip_cell(cell, f"Stuck at {player_pos}")
+                    logging.warning(f"🌱 Cell ({cell.x},{cell.y}): STUCK, pathfinding failed. Skipping.")
+                    self.cell_coordinator.skip_cell(cell, f"Pathfinding failed from {player_pos}")
                     self._cell_nav_stuck_count = 0
                     self._cell_nav_last_pos = None
-                    return None  # Will process next cell on next tick
+                    return None
             else:
                 # Position changed, reset counter
                 self._cell_nav_stuck_count = 0
             self._cell_nav_last_pos = player_pos
 
-            logging.info(f"🌱 Cell ({cell.x},{cell.y}): Moving {direction} to {nav_target}")
+            # Use move_to for direct pathfinding - SMAPI handles A* navigation
+            logging.info(f"🌱 Cell ({cell.x},{cell.y}): Pathfinding to {nav_target}")
             return Action(
-                action_type="move",
-                params={"direction": direction},
-                description=f"Moving to cell ({cell.x},{cell.y})"
+                action_type="move_to",
+                params={"x": nav_target[0], "y": nav_target[1]},
+                description=f"Pathfinding to cell ({cell.x},{cell.y})"
             )
 
         # We're at the right position - reset stuck tracking
@@ -3224,7 +3204,7 @@ class StardewAgent:
             True if crop exists at cell, False otherwise
         """
         try:
-            state = self.smapi_client.get_state()
+            state = self.controller.get_state()
             if not state:
                 return False
 
@@ -5050,7 +5030,8 @@ Recent: {recent}"""
                 self.action_queue.append(cell_action)
                 self.vlm_status = f"Cell farming: {self.cell_coordinator.get_status_summary()}"
                 self._send_ui_status()
-                return  # Cell farming takes priority, skip VLM
+                return  # Action queued - skip VLM this tick
+            # No action = waiting for pathfinding - allow VLM commentary to run
 
         # STEP 2b: Try to start a task from daily planner if executor is idle
         if self.task_executor and not self.task_executor.is_active():

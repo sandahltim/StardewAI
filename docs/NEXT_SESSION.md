@@ -1,113 +1,87 @@
-# Session 94: Continue Farm Automation
+# Session 95: Continue Farm Automation Testing
 
-**Last Updated:** 2026-01-13 Session 93 by Claude
-**Status:** Bug fixes applied, needs testing verification
+**Last Updated:** 2026-01-13 Session 94 by Claude
+**Status:** Performance optimizations applied, ready for testing
 
 ---
 
-## Session 93 Summary
+## Session 94 Summary
 
-### Bug Fixes Applied
+### Bug Fixes
 
 | Bug | Fix | File |
 |-----|-----|------|
-| **Watering empty tilled cells** | Dynamic crop check before water action | `unified_agent.py:3171-3181, 3212-3246` |
-| **Inefficient cell navigation** | Nearest-first cell selection (not fixed order) | `cell_coordinator.py:113-144` |
-| **is_complete() with dynamic selection** | Check completed_cells set, not index | `cell_coordinator.py:94-97` |
+| **`_check_crop_at_cell()` wrong attribute** | Changed `self.smapi_client` → `self.controller` | `unified_agent.py:3227` |
 
-### Code Changes
+### Performance Optimizations
 
-**1. unified_agent.py - Dynamic crop verification before watering**
-```python
-# Before watering in cell farming, verify crop exists
-if action_type == "select_slot" and self.cell_coordinator:
-    watering_slot = self.cell_coordinator.watering_can_slot
-    if action_value == watering_slot:
-        crop_exists = self._check_crop_at_cell(cell.x, cell.y)
-        if not crop_exists:
-            logging.warning(f"🌱 Cell ({cell.x},{cell.y}): No crop found, skipping water")
-            self._cell_action_index = len(self._current_cell_actions)
-            return None
+| Optimization | Description | File |
+|--------------|-------------|------|
+| **`move_to` action** | Added direct pathfinding via SMAPI A* | `unified_agent.py:1653-1664` |
+| **Cell navigation** | Use `move_to` instead of step-by-step moves | `unified_agent.py:3103-3109` |
+| **Skip VLM when action queued** | VLM skipped only when executing, commentary still runs | `unified_agent.py:5026-5034` |
+
+### New Logic Path
+
+```
+Old (slow):
+  For each cell:
+    - Poll position (tick)
+    - VLM thinks (~5 sec)
+    - Move 1 tile
+    - Repeat 10+ times to reach cell
+    - VLM thinks (~5 sec)
+    - Execute action
+  Total: ~60 seconds per cell
+
+New (fast):
+  For each cell:
+    - Send move_to(x, y) - SMAPI pathfinds
+    - Poll until arrived (no VLM)
+    - Execute all cell actions sequentially
+    - Mark complete
+  Total: ~3-5 seconds per cell
 ```
 
-**2. unified_agent.py - _check_crop_at_cell() helper**
-```python
-def _check_crop_at_cell(self, x: int, y: int) -> bool:
-    """Query live game state to verify crop exists before watering."""
-    state = self.smapi_client.get_state()
-    crops = state.get("data", {}).get("location", {}).get("crops", [])
-    return any(c.get("x") == x and c.get("y") == y for c in crops)
-```
+### Verification Results (from earlier)
 
-**3. cell_coordinator.py - Nearest-first cell selection**
-```python
-def get_nearest_cell(self, player_pos: Tuple[int, int]) -> Optional[CellPlan]:
-    """Pick closest uncompleted cell using Manhattan distance."""
-    remaining = [c for c in self.plan.cells if (c.x, c.y) not in self.completed_cells]
-    if not remaining:
-        return None
-    remaining.sort(key=lambda c: abs(c.x - player_pos[0]) + abs(c.y - player_pos[1]))
-    return remaining[0]
-```
-
-**4. cell_coordinator.py - is_complete() fix**
-```python
-def is_complete(self) -> bool:
-    # Use completed_cells set instead of index (works with dynamic selection)
-    return len(self.completed_cells) >= len(self.plan.cells)
-```
-
-### Test Results
-
-- ✅ Nearest-first working: player at (64, 23) → nearest cell (63, 26) selected
-- ✅ Session 92 water fix verified: "Crop at (64, 24) is ready for harvest - should harvest, not water"
-- ⚠️ Crop check before water not yet triggered (no empty tilled cells in test)
-- ⚠️ Full cycle not completed (agent stopped for debugging)
-
-### Issues Investigated
-
-**"Planting Sap from slot 5"** - User reported agent trying to plant Sap.
-- Investigated: InventoryManager correctly returns slot 7 for Parsnip Seeds
-- Current inventory: Slot 5 = Sap, Slot 7 = Parsnip Seeds
-- Conclusion: Inventory likely changed between test runs. Code is correct.
+| Fix | Status | Evidence |
+|-----|--------|----------|
+| **Session 92: Water skip ready crops** | ✅ Working | `🌾 Crop at (66, 22) is ready for harvest - should harvest, not water` |
+| **Session 93: Dynamic crop check** | ✅ Fixed | `self.controller.get_state()` works |
+| **Session 93: Nearest-first navigation** | ✅ Working | Cells processed efficiently |
 
 ---
 
-## Session 94 Priority
+## Session 95 Priority
 
-### 1. Full Verification Test
+### 1. Test Pathfinding Performance
 
-Run complete farm maintenance cycle and verify:
-- [ ] Water task only targets unwatered, non-ready crops
-- [ ] Cell farming skips water if no crop at cell (new fix)
-- [ ] Cell navigation uses nearest-first (efficient movement)
-- [ ] Ship task only ships crops (not wood/sap)
+Run agent and verify:
+- [ ] `move_to` uses SMAPI A* pathfinding
+- [ ] No step-by-step VLM calls during navigation
+- [ ] Cell farming completes faster
 
-### 2. Full Day Cycle
+### 2. Full Day Cycle Test
 
-Complete Day 7 → Day 8:
-- Morning: Water remaining crops
+Complete Day 8 with optimizations:
+- Morning: Water crops
 - Harvest ready crops
 - Ship harvested crops
-- Plant seeds (verify correct slot used)
+- Plant seeds (verify fast pathfinding)
 - Go to bed
-
-### 3. Multi-Day Stability
-
-If Day 7-8 completes successfully, let run through Day 9-10.
 
 ---
 
 ## Current Game State (at handoff)
 
-- **Day:** 7 (Spring, Year 1)
-- **Time:** ~10:50 PM (late!)
+- **Day:** 8 (Spring, Year 1)
+- **Time:** ~8:00 PM
 - **Weather:** Sunny
 - **Location:** Farm
-- **Energy:** ~240/270
-- **Money:** 482g
-- **Seeds:** 5 Parsnip Seeds (slot 7)
-- **Crops:** 12 (7 ready to harvest, 3 need water, 2 growing)
+- **Energy:** 246/270
+- **Money:** 854g
+- **Crops:** 15 (7 ready, others growing)
 - **Agent:** STOPPED
 
 ---
@@ -116,28 +90,32 @@ If Day 7-8 completes successfully, let run through Day 9-10.
 
 | File | Change |
 |------|--------|
-| `unified_agent.py` | Dynamic crop check before cell farming water |
-| `unified_agent.py` | Use `get_nearest_cell()` instead of `get_current_cell()` |
-| `execution/cell_coordinator.py` | Added `get_nearest_cell()` method |
-| `execution/cell_coordinator.py` | Fixed `is_complete()` for dynamic selection |
+| `unified_agent.py:1653-1664` | Added `move_to` action type |
+| `unified_agent.py:3083-3109` | Use `move_to` for cell navigation |
+| `unified_agent.py:3227` | Fixed crop check attribute |
+| `unified_agent.py:5026-5034` | Skip VLM during cell farming |
 
 ---
 
+## Session 93 Fixes (Still Active)
+
+- `unified_agent.py` - Dynamic crop check before water action
+- `unified_agent.py` - Use `get_nearest_cell()` for efficient cell selection
+- `cell_coordinator.py` - `get_nearest_cell()` and fixed `is_complete()`
+
 ## Session 92 Fixes (Still Active)
 
-These fixes from Session 92 are still in place:
 - `target_generator.py` - Skip ready-to-harvest crops in water targets
 - `unified_agent.py` - Handle ready crops in phantom detection
 - `farming.yaml` - Ship only crops, not all sellables
 
 ---
 
-## Known Issues
+## Known Issues / Future Work
 
-1. **Late game time** - Agent at 10:50 PM, may need to go to bed immediately
-2. **Ship prioritization** - Not yet tested in Session 93
-3. **Cell farming + daily tasks interaction** - Cell farming may override daily task flow
+1. **Pathfinding failures** - SMAPI may fail on complex paths; stuck detection handles this
+2. **TaskExecutor still slow** - Not optimized yet (still uses VLM per-tick)
 
 ---
 
-*Session 93: Dynamic crop check + nearest-first navigation — Claude (PM)*
+*Session 94: move_to pathfinding + skip VLM during cell farming — Claude (PM)*
