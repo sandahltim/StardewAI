@@ -1,83 +1,70 @@
-# Session 85: Test ResourceClump Fix + Agent Run
+# Session 86: Continue Multi-Day Test
 
-**Last Updated:** 2026-01-12 Session 84 by Claude
-**Status:** ✅ ResourceClump detection complete
+**Last Updated:** 2026-01-12 Session 85 by Claude
+**Status:** ✅ ResourceClump pathfinding + cell selection fixed
 
 ---
 
-## Session 84 Summary
+## Session 85 Summary
 
-### API Testing
-All 16 SMAPI endpoints verified working:
-- `/skills`, `/npcs`, `/calendar`, `/storage` - all return correct data
-- `/check-path`, `/passable`, `/passable-area` - pathfinding works
-- `/machines` - found many Casks in Cellar
-- `/animals`, `/fishing`, `/mining` - ready for use
+### Bugs Fixed
 
-### Bug Found & Fixed: ResourceClump Clipping
-**Problem:** Agent walked through large stumps/logs that need tool upgrades.
+| Issue | Root Cause | Fix |
+|-------|-----------|-----|
+| Agent walking through stumps/logs | `IsTilePassable()` didn't check ResourceClumps | Added ResourceClump blocking to pathfinder |
+| Agent going wrong direction (west) | `PLAYER_SCAN_RADIUS` too small, missed existing tilled tiles | Use farmhouse center when player is far |
+| Tilled tiles not selected | Isolated tiles not in contiguous patches | Priority 1: existing tilled tiles before patches |
+| `plant_seed` skill failing | `select_item_type: seed` not supported by ModBridge | Changed to just `use_tool`, require seeds pre-selected |
+| `ship_item` skill failing | Same `select_item_type` issue | Changed to just `ship`, require item pre-selected |
 
-**Root Cause:** ResourceClumps (2x2 obstacles) weren't tracked in `/farm` endpoint.
+### Why `select_item_type` Not Supported
 
-**Fixes Applied:**
-1. Added `ResourceClumpInfo` model to SMAPI mod
-2. `/farm` now returns `resourceClumps` array with type, size, requiredTool
-3. Farm surveyor marks all clump tiles as "blocked" (can't farm there)
-
-**Farm has 22 ResourceClumps blocking 88 tiles:**
-- 17 Stumps (need Copper Axe)
-- 3 Logs (need Steel Axe)
-- 3 Boulders (need Steel Pickaxe)
-
-### UI Updates (Codex)
-- Added NPC panel with birthdays and nearby villagers
-- Added Calendar panel with upcoming events
-- Added SMAPI proxy endpoints for new data
-
-### Character Rename
-- Rusty → Elias (AI farmer persona)
-- All references updated
+The SMAPI ModBridge only implements simple actions (`select_slot`, `use_tool`, `ship`).
+`select_item_type` would require inventory scanning logic in C# that wasn't built.
+The cell farming system handles this by finding the slot in Python first.
 
 ### Commits
-- `46a67c9` - Session 84: Elias character refactor + cliff navigation fix
-- `8df6e66` - Session 84: ResourceClump detection + Codex UI panels
-- `b56b9cb` - Fix: Farm surveyor now excludes ResourceClump tiles
+- `a0655fb` - Session 85: ResourceClump pathfinding + cell selection fixes
+- `29bb270` - Fix: Remove unsupported select_item_type from skills
 
 ---
 
-## Session 85 Priority
+## Session 86 Priority
 
-### 1. Test Agent with ResourceClump Fix
+### 1. Test Fixed Skills
 
 ```bash
-# Run agent - should avoid stumps/logs/boulders now
-python src/python-agent/unified_agent.py --goal "Plant seeds"
+# Run agent - should now buy seeds, plant repeatedly
+python src/python-agent/unified_agent.py --goal "Plant parsnip seeds"
 
-# Watch for log message:
-# "FarmSurveyor: Mapped X tiles (crops=Y, tilled=Z, objects=W, clumps=22 blocking 88 tiles)"
+# Watch for:
+# - Successful seed purchase loop
+# - Planting on existing tilled tiles
+# - No "select_item_type" errors
 ```
 
-### 2. Multi-Day Test
-Run autonomous farming loop overnight:
-- Day 1: Plant seeds
-- Days 2-3: Water crops
-- Day 4: Harvest
+### 2. Multi-Day Autonomous Test
 
-### 3. Expand Agent Intelligence
-Use new endpoints for smarter behavior:
-- Check `/calendar` - skip festival days
-- Check `/npcs` - find birthday gifts
-- Check `/machines` - harvest ready products
+Run overnight:
+- Day 8-9: Plant/water cycle
+- Day 10+: Harvest when ready
+- Monitor for stuck states
+
+### 3. Known Remaining Issues
+
+- **Buy loop incomplete**: Agent bought seeds once but may not re-trigger buy
+- **Skill system limitation**: Skills can't auto-find items, need pre-selection
 
 ---
 
 ## Current Game State
 
-- **Day:** 8 (Spring, Year 1)
+- **Day:** 8 (Spring, Year 1) - ~5:30 PM
 - **Location:** Farm
 - **Character:** Elias
-- **Energy:** 270/270
-- **ResourceClumps:** 22 (blocking 88 tiles)
+- **Money:** ~305g
+- **Tilled tiles:** 12 (priority for planting)
+- **ResourceClumps:** 22 (now properly blocked)
 
 ---
 
@@ -85,13 +72,12 @@ Use new endpoints for smarter behavior:
 
 | File | Change |
 |------|--------|
-| `Models/GameState.cs` | +ResourceClumpInfo model |
-| `GameStateReader.cs` | +ResourceClump reading |
-| `farm_surveyor.py` | +ResourceClump blocking |
-| `unified_agent.py` | Rusty→Elias rename |
-| `docs/SMAPI_API_EXPANSION.md` | +ResourceClump docs |
-| `src/ui/*` | NPC/Calendar panels (Codex) |
+| `TilePathfinder.cs` | +ResourceClump blocking in `IsTilePassable()` |
+| `ModEntry.cs` | +ResourceClump detection in `GetBlockerName()` |
+| `GameStateReader.cs` | +ResourceClump detection in `GetBlockerName()` |
+| `farm_surveyor.py` | +Priority for tilled tiles, farmhouse center fallback |
+| `farming.yaml` | Fixed `plant_seed` and `ship_item` skills |
 
 ---
 
-*Session 84: ResourceClump detection + farm surveyor blocking — Claude*
+*Session 85: ResourceClump pathfinding + skill fixes — Claude*
