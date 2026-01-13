@@ -1,126 +1,127 @@
-# Session 89: Test Fixes on Sunny Day
+# Session 90: Continue Full Harvest Test
 
-**Last Updated:** 2026-01-13 Session 88 by Claude
-**Status:** Bug fixes implemented, need sunny day test
+**Last Updated:** 2026-01-13 Session 89 by Claude
+**Status:** Agent running autonomously, Day 3 in progress
 
 ---
 
-## Session 88 Summary
+## Session 89 Summary
 
-### Bug Fixes Implemented
+### Bugs Fixed
 
-| Bug | Fix | Status |
-|-----|-----|--------|
-| **Water task false completion** | Added `BLOCKED` state instead of `COMPLETE` when 0 targets | ✅ Done |
-| **Cell reachability Y+1** | New `is_action_position_valid()` checks action position passable AND reachable | ✅ Done |
-| **Phantom tilling** | `_should_skip_target()` validates tile state before executing | ✅ Done |
-| **Water priority** | Water now PRIORITY 2 CRITICAL, before harvest/ship/plant | ✅ Done |
-| **Water from FarmHouse** | Added `warp_to_farm` prereq for water task when not on Farm | ✅ Done |
+| Bug | Fix | File |
+|-----|-----|------|
+| **AttributeError smapi_data** | Changed `self.smapi_data` → `self.last_state` | unified_agent.py:4883 |
+| **Task executor not resetting on day change** | Added `task_executor.clear()` when new day detected | unified_agent.py:3847-3854 |
+
+### Key Finding
+
+Day change race condition: Old task (clear_debris from Day 1) kept running after Day 2 plan was generated because task executor wasn't reset. Water task was skipped entirely on Day 2.
+
+**Fix:** Reset task executor, resolved queue, and cell coordinator when new day is detected.
 
 ### Test Results
 
-**Partial success - rainy day limited testing:**
+| Day | Status | Notes |
+|-----|--------|-------|
+| Day 1 | ✅ Complete | 16+ crops planted |
+| Day 2 | ✅ Complete | All crops watered (took multiple attempts to fix bugs) |
+| Day 3 | 🔄 In Progress | Rainy (auto-watered), agent clearing debris |
+| Day 4 | ⏳ Pending | Harvest day - parsnips should be ready |
 
-| Metric | Result |
-|--------|--------|
-| Cell reachability fix | ✅ "Filtered 3 cells with unreachable action positions" |
-| Action position (Y+1) | ✅ Player correctly positioned at (66, 23) for cell (66, 22) |
-| Seeds planted | ✅ 15 crops (up from 13) |
-| Water priority | ⚠️ Not tested - raining (crops auto-watered) |
-| BLOCKED state | ⚠️ Not tested - need non-rainy day in FarmHouse |
+### Session 88 Fixes Verified
 
-**Issue Found:** Wednesday - Pierre's closed! buy_seeds task completed 0/1 targets.
+| Fix | Status |
+|-----|--------|
+| Water priority FIRST | ✅ Working |
+| warp_to_farm prereq | ✅ Working |
+| Agent exits farmhouse then waters | ✅ Working |
+| BLOCKED state handling | ✅ Working |
 
 ---
 
-## Session 89 Priority
+## Session 90 Priority
 
-### 1. Test on Sunny Day (CRITICAL)
+### 1. Check Day 4 Harvest (CRITICAL)
 
-The main fixes (water priority, BLOCKED state, warp_to_farm prereq) weren't fully tested because Day 3 was rainy. Need sunny day to verify:
+Agent should be on Day 4 or later. Verify:
+- Parsnips harvested
+- Crops shipped to bin
+- Seeds bought from Pierre (Day 4 = Thursday, Pierre open)
+- New seeds planted
 
 ```bash
-# Start fresh Day 1 OR wait for sunny day
-# Player should wake up in FarmHouse
-# Verify: Water task adds warp_to_farm prereq
-# Verify: Water task is FIRST in queue
-# Verify: Agent exits farmhouse THEN waters
-python src/python-agent/unified_agent.py --goal "Water crops and plant seeds"
+# Check current state
+curl -s localhost:8790/state | jq '{day: .data.time.day, time: .data.time.timeString}'
+curl -s localhost:8790/farm | jq '{crops: .data.crops | length}'
+
+# If agent stopped, restart
+python src/python-agent/unified_agent.py --goal "Harvest crops, sell, buy seeds, replant"
 ```
 
-### 2. Add Pierre Schedule Awareness (MEDIUM)
+### 2. Evaluate Success Rate
 
-Agent tried to buy seeds on Wednesday when Pierre's is closed. Options:
-1. Check day-of-week before adding buy_seeds prereq
-2. Skip buy_seeds on Wed, add to next day's plan
-3. VLM should recognize closed shop and adapt
+Count:
+- Seeds planted Day 1: ~16
+- Crops harvested Day 4: ?
+- Crops replanted: ?
 
-**Pierre's Schedule:** Closed Wednesday and Sunday
+Target: 80%+ success rate
 
-### 3. Monitor for New Issues
+### 3. Address Remaining Issues
 
-The fixes may have unintended effects. Watch for:
-- Tasks getting stuck in BLOCKED state forever
-- Unnecessary warp_to_farm prereqs on sunny days when already on Farm
-- Skip target cascade (too many targets skipped)
+| Issue | Priority |
+|-------|----------|
+| Navigation stuck on debris targets | MEDIUM |
+| Phantom failure false positives | LOW |
+| VLM priority suggestions ignored | LOW (fixed by day reset) |
 
 ---
 
-## Code Changes Made (Session 88)
-
-### task_executor.py
-- Added `TaskState.BLOCKED` state
-- Added `is_blocked()` method
-- Added `_should_skip_target()` - validates targets aren't stale
-- Added `skipped_targets` to TaskProgress
-- `set_task()` now uses BLOCKED instead of COMPLETE for 0 targets
-
-### farm_surveyor.py
-- Added `is_action_position_valid()` - checks BOTH (X, Y+1) reachability AND passability
-- `find_optimal_cells()` now uses action position validation
-
-### daily_planner.py
-- Reordered priorities: Water (CRITICAL) → Harvest (HIGH) → Ship (HIGH) → Plant (MEDIUM)
-- Water task is now FIRST in queue
-
-### prereq_resolver.py
-- Added warp_to_farm prereq for water_crops when player not on Farm
+## Code Changes (Session 89)
 
 ### unified_agent.py
-- Added handler for BLOCKED tasks - retries when player reaches Farm
 
----
+**Line 4883** - Fixed AttributeError:
+```python
+# Before (bug)
+current_loc = self.smapi_data.get("data", {}).get("location", {}).get("name", "")
 
-## Current Game State
+# After (fix)
+current_loc = self.last_state.get("location", {}).get("name", "")
+```
 
-- **Day:** 3 (Spring, Year 1) - ~10:00 AM
-- **Weather:** Raining
-- **Location:** Farm
-- **Crops:** 15 parsnips (all watered by rain)
-- **Seeds:** Need to buy (Pierre closed on Wed)
-- **Character:** Elias (hippie version)
-
----
-
-## Files Modified
-
-| File | Lines Changed |
-|------|--------------|
-| `src/python-agent/execution/task_executor.py` | ~80 lines added |
-| `src/python-agent/planning/farm_surveyor.py` | ~45 lines added |
-| `src/python-agent/memory/daily_planner.py` | ~30 lines changed |
-| `src/python-agent/planning/prereq_resolver.py` | ~15 lines added |
-| `src/python-agent/unified_agent.py` | ~20 lines added |
-
----
-
-## Session 88 Commits (Pending)
-
-Changes not yet committed. Run:
-```bash
-git add -A && git commit -m "Session 88: Bug fixes for watering, reachability, phantom tilling"
+**Lines 3847-3854** - Reset task executor on day change:
+```python
+# CRITICAL: Reset task executor to prevent old tasks from continuing
+if self.task_executor:
+    logging.info("🔄 Resetting task executor for new day")
+    self.task_executor.clear()
+if hasattr(self, 'resolved_task_queue'):
+    self.resolved_task_queue = []
+if self.cell_coordinator:
+    self.cell_coordinator = None
 ```
 
 ---
 
-*Session 88: 5 bug fixes implemented, partial test on rainy day — Claude (PM)*
+## Current Game State (at handoff)
+
+- **Day:** 3 (Spring, Year 1)
+- **Time:** ~2:30 PM
+- **Weather:** Rainy
+- **Crops:** 19 planted, all watered
+- **Agent:** Running autonomously, clearing debris
+- **Agent PID:** Check with `ps aux | grep unified_agent`
+
+---
+
+## Commits Pending
+
+```bash
+git add -A && git commit -m "Session 89: Fix day change task reset, smapi_data AttributeError"
+```
+
+---
+
+*Session 89: 2 bugs fixed, multi-day test in progress — Claude (PM)*
