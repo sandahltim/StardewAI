@@ -349,10 +349,11 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
 
         STANDARD DAILY ROUTINE (in priority order):
         1. Incomplete from yesterday → complete first
-        2. Crops dry → water (CRITICAL - crops die if not watered)
-        3. Crops ready → harvest (HIGH - money and clear space)
-        4. Seeds in inventory → plant (HIGH - grow more crops)
-        5. Nothing else → clear debris (MEDIUM - expand farm)
+        2. Water crops → CRITICAL - crops die if not watered! DO THIS FIRST!
+        3. Harvest ready crops → money and clear space
+        4. Ship harvested crops → get money
+        5. Plant seeds → grow more crops
+        6. Clear debris → expand farm
 
         Args:
             state: Current game state (player location, inventory)
@@ -387,38 +388,9 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 notes=self.yesterday_notes,
             ))
 
-        # PRIORITY 2: Harvest ready crops FIRST (CRITICAL - get money, clear space for replanting)
-        # Must come before watering so sort order puts harvest before water
-        harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
-        if harvestable:
-            self.tasks.append(DailyTask(
-                id=f"harvest_{self.current_day}_1",
-                description=f"Harvest {len(harvestable)} mature crops",
-                category="farming",
-                priority=TaskPriority.CRITICAL.value,
-                target_location="Farm",
-                estimated_time=len(harvestable) * 3,
-            ))
-
-        # PRIORITY 2a: Ship harvested crops IMMEDIATELY after harvest (CRITICAL - get money!)
-        # Check inventory for sellable crops - add right after harvest for proper order
-        sellable_crops = ["Parsnip", "Potato", "Cauliflower", "Green Bean", "Kale", "Melon",
-                         "Blueberry", "Corn", "Tomato", "Pumpkin", "Cranberry", "Eggplant", "Grape", "Radish"]
-        sellables = [item for item in inventory if item and item.get("name") in sellable_crops and item.get("stack", 0) > 0]
-        if sellables or harvestable:
-            total_to_ship = sum(item.get("stack", 0) for item in sellables)
-            self.tasks.append(DailyTask(
-                id=f"ship_{self.current_day}_1",
-                description=f"Ship {total_to_ship if sellables else 'harvested'} crops at shipping bin",
-                category="farming",
-                priority=TaskPriority.CRITICAL.value,  # CRITICAL so it stays right after harvest
-                target_location="Farm",
-                target_coords=(71, 14),  # Shipping bin location
-                estimated_time=10,
-            ))
-
-        # PRIORITY 2b: Water crops (CRITICAL - they die without water!)
-        # Exclude harvestable crops - they don't need water, they need harvesting!
+        # PRIORITY 2: Water crops FIRST (CRITICAL - they die without water!)
+        # This must happen BEFORE harvest/ship/plant/clear!
+        # Exclude harvestable crops - they don't need water, they need harvesting
         unwatered = [c for c in crops if not c.get("isWatered", False) and not c.get("isReadyForHarvest", False)]
         if unwatered:
             self.tasks.append(DailyTask(
@@ -430,9 +402,36 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 estimated_time=len(unwatered) * 2,
             ))
 
-        # (Ship task moved to PRIORITY 2a - right after harvest)
+        # PRIORITY 3: Harvest ready crops (HIGH - get money, clear space for replanting)
+        harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
+        if harvestable:
+            self.tasks.append(DailyTask(
+                id=f"harvest_{self.current_day}_1",
+                description=f"Harvest {len(harvestable)} mature crops",
+                category="farming",
+                priority=TaskPriority.HIGH.value,
+                target_location="Farm",
+                estimated_time=len(harvestable) * 3,
+            ))
 
-        # PRIORITY 4: Plant seeds (HIGH - grow more)
+        # PRIORITY 4: Ship harvested crops IMMEDIATELY after harvest (HIGH - get money!)
+        # Check inventory for sellable crops - add right after harvest for proper order
+        sellable_crops = ["Parsnip", "Potato", "Cauliflower", "Green Bean", "Kale", "Melon",
+                         "Blueberry", "Corn", "Tomato", "Pumpkin", "Cranberry", "Eggplant", "Grape", "Radish"]
+        sellables = [item for item in inventory if item and item.get("name") in sellable_crops and item.get("stack", 0) > 0]
+        if sellables or harvestable:
+            total_to_ship = sum(item.get("stack", 0) for item in sellables)
+            self.tasks.append(DailyTask(
+                id=f"ship_{self.current_day}_1",
+                description=f"Ship {total_to_ship if sellables else 'harvested'} crops at shipping bin",
+                category="farming",
+                priority=TaskPriority.HIGH.value,
+                target_location="Farm",
+                target_coords=(71, 14),  # Shipping bin location
+                estimated_time=10,
+            ))
+
+        # PRIORITY 5: Plant seeds (MEDIUM - grow more)
         # Add plant task even if we don't have seeds - PrereqResolver will add buy_seeds prereq
         seed_items = [item for item in inventory if item and "seed" in item.get("name", "").lower()]
         total_seeds = sum(item.get("stack", 1) for item in seed_items) if seed_items else 0
@@ -444,7 +443,7 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 id=f"plant_{self.current_day}_1",
                 description=f"Plant {total_seeds} seeds",
                 category="farming",
-                priority=TaskPriority.HIGH.value,
+                priority=TaskPriority.MEDIUM.value,
                 target_location="Farm",
                 estimated_time=total_seeds * 3,
             ))
@@ -454,7 +453,7 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 id=f"plant_{self.current_day}_1",
                 description="Plant seeds (need to buy first)",
                 category="farming",
-                priority=TaskPriority.HIGH.value,
+                priority=TaskPriority.MEDIUM.value,
                 target_location="Farm",
                 estimated_time=30,  # Estimate for buy + plant
             ))

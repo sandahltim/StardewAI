@@ -4873,6 +4873,28 @@ Recent: {recent}"""
             self.task_executor.progress = None
             logging.info(f"📋 TaskExecutor reset to IDLE, ready for next task")
 
+        # STEP 1b: Handle BLOCKED tasks (0 targets, need to retry from different position)
+        # This happens when water task is started from FarmHouse - pathfinding fails
+        if self.task_executor and self.task_executor.is_blocked() and self.task_executor.progress:
+            task_id = self.task_executor.progress.task_id
+            task_type = self.task_executor.progress.task_type
+            
+            # Check if we're now on Farm (can retry)
+            current_loc = self.smapi_data.get("data", {}).get("location", {}).get("name", "") if self.smapi_data else ""
+            
+            if current_loc == "Farm":
+                # We're on Farm now - retry the blocked task
+                logging.info(f"🔄 Retrying blocked task {task_type} - now on Farm")
+                self.task_executor.state = TaskState.IDLE
+                self.task_executor.progress = None
+                # Let _try_start_daily_task() pick it up again
+            else:
+                # Still not on Farm - skip to next task
+                logging.info(f"⏭️ Task {task_type} blocked (not on Farm yet), trying next task")
+                # Don't mark as failed - it might work later
+                self.task_executor.state = TaskState.IDLE
+                self.task_executor.progress = None
+
         # STEP 2a: Cell-by-cell farming execution (if active)
         if self.cell_coordinator and not self.cell_coordinator.is_complete():
             cell_action = self._process_cell_farming()

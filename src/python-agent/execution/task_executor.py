@@ -27,6 +27,7 @@ class TaskState(Enum):
     NEEDS_REFILL = "needs_refill"    # Watering can empty, need to refill first
     TASK_COMPLETE = "complete"       # All targets done
     INTERRUPTED = "interrupted"      # Higher priority task available
+    BLOCKED = "blocked"              # 0 targets generated (pathfinding failed, need to retry)      # Higher priority task available
 
 
 class CommentaryEvent(Enum):
@@ -49,11 +50,12 @@ class TaskProgress:
     total_targets: int
     completed_targets: int = 0
     failed_targets: int = 0
+    skipped_targets: int = 0  # Targets skipped due to stale state (already tilled/watered)
     current_target_index: int = 0
     
     @property
     def remaining(self) -> int:
-        return self.total_targets - self.completed_targets - self.failed_targets
+        return self.total_targets - self.completed_targets - self.failed_targets - self.skipped_targets
     
     @property
     def progress_pct(self) -> float:
@@ -191,7 +193,7 @@ class TaskExecutor:
         Args:
             task_params: Optional params from PrereqResolver (e.g., destination coords)
 
-        Returns True if task has targets, False if nothing to do.
+        Returns True if task has targets, False if nothing to do (blocked or no targets).
         """
         self._task_params = task_params
         self.targets = self.target_gen.generate(
@@ -199,8 +201,15 @@ class TaskExecutor:
         )
         
         if not self.targets:
-            logger.info(f"TaskExecutor: No targets for {task_type}")
-            self.state = TaskState.TASK_COMPLETE
+            logger.info(f"TaskExecutor: No targets for {task_type} - marking BLOCKED (not complete)")
+            # Don't mark as complete! Mark as blocked so it can be retried later
+            # This fixes the bug where water task completes with 0 targets from FarmHouse
+            self.state = TaskState.BLOCKED
+            self.progress = TaskProgress(
+                task_id=task_id,
+                task_type=task_type,
+                total_targets=0,
+            )
             return False
         
         self.current_index = 0
@@ -345,7 +354,25 @@ class TaskExecutor:
             # Return None to advance to next target on next tick
             return None
 
-        # Adjacent or on target - execute skill
+        # Adjacent or on target - validate target is still valid before executing
+        skip_reason = self._should_skip_target(target, game_state, surroundings)
+        if skip_reason:
+            logger.info(f"⏭️ TaskExecutor: Skipping target ({target.x}, {target.y}) - {skip_reason}")
+            self.current_index += 1
+            if self.progress:
+                self.progress.skipped_targets = getattr(self.progress, 'skipped_targets', 0) + 1
+            self._check_milestone()
+            if self.current_index >= len(self.targets):
+                self.state = TaskState.TASK_COMPLETE
+                self._queue_event(
+                    CommentaryEvent.TASK_COMPLETE,
+                    f"Task complete ({skip_reason} on last target)"
+                )
+                return None
+            # Return None to advance to next target on next tick
+            return None
+
+        # Execute skill
         self.state = TaskState.EXECUTING_AT_TARGET
         return self._create_skill_action(player_pos, target, dx, dy)
     
@@ -472,6 +499,60 @@ class TaskExecutor:
             reason=f"Moving {direction} toward target at ({target.x}, {target.y})"
         )
     
+    def _should_skip_target(
+        self,
+        target: Target,
+        game_state: Optional[Dict[str, Any]],
+        surroundings: Optional[Dict[str, Any]],
+    ) -> Optional[str]:
+        """
+        Check if target should be skipped based on current state.
+        
+        Returns reason string if should skip, None if target is valid.
+        This prevents phantom failures from stale targets.
+        """
+        if not game_state and not surroundings:
+            return None  # Can't validate without state
+        
+        task_type = self.progress.task_type if self.progress else ""
+        
+        # For till tasks: check if tile is already tilled
+        if task_type == "till_soil":
+            # Check surroundings for tile state
+            if surroundings:
+                tiles = surroundings.get("data", {}).get("tiles", [])
+                if not tiles:
+                    tiles = surroundings.get("tiles", [])
+                for tile in tiles:
+                    if tile.get("x") == target.x and tile.get("y") == target.y:
+                        if tile.get("isTilled"):
+                            return "already_tilled"
+                        break
+        
+        # For water tasks: check if crop is already watered
+        if task_type == "water_crops":
+            data = game_state.get("data", {}) if game_state else {}
+            crops = data.get("location", {}).get("crops", [])
+            for crop in crops:
+                if crop.get("x") == target.x and crop.get("y") == target.y:
+                    if crop.get("isWatered"):
+                        return "already_watered"
+                    break
+        
+        # For plant tasks: check if tile already has a crop
+        if task_type == "plant_seeds":
+            if surroundings:
+                tiles = surroundings.get("data", {}).get("tiles", [])
+                if not tiles:
+                    tiles = surroundings.get("tiles", [])
+                for tile in tiles:
+                    if tile.get("x") == target.x and tile.get("y") == target.y:
+                        if tile.get("isOccupied") or tile.get("hasCrop"):
+                            return "already_planted"
+                        break
+        
+        return None  # Target is valid
+
     def _create_skill_action(
         self,
         player_pos: Tuple[int, int],
@@ -678,6 +759,10 @@ class TaskExecutor:
     def is_complete(self) -> bool:
         """Check if current task is done."""
         return self.state in (TaskState.TASK_COMPLETE, TaskState.IDLE)
+
+    def is_blocked(self) -> bool:
+        """Check if current task is blocked (0 targets, needs retry from different position)."""
+        return self.state == TaskState.BLOCKED
     
     def is_active(self) -> bool:
         """Check if actively executing a task."""

@@ -141,6 +141,49 @@ class FarmSurveyor:
             # Fall back to True to avoid blocking all cells if API is down
             return True
 
+    def is_action_position_valid(
+        self,
+        player_pos: Tuple[int, int],
+        cell_pos: Tuple[int, int],
+        tiles: Dict[Tuple[int, int], "TileState"],
+        timeout: float = 0.5,
+    ) -> bool:
+        """
+        Check if we can reach AND stand at the action position for a cell.
+        
+        For tilling/planting, the player stands at (X, Y+1) facing north to act on (X, Y).
+        This method checks:
+        1. The action position (X, Y+1) is reachable via pathfinding
+        2. The action position is not blocked (debris, water, cliff, etc.)
+        
+        Args:
+            player_pos: Current player (x, y) tile position
+            cell_pos: Target cell (x, y) to act on
+            tiles: Tile state map from survey()
+            timeout: Request timeout in seconds
+            
+        Returns:
+            True if action position is valid, False otherwise
+        """
+        x, y = cell_pos
+        action_pos = (x, y + 1)  # Stand south of target, face north
+        
+        # Check 1: Is the action position reachable via pathfinding?
+        if not self.is_cell_reachable(player_pos, action_pos, timeout):
+            return False
+        
+        # Check 2: Is the action position passable (not blocked)?
+        action_tile = tiles.get(action_pos)
+        if action_tile:
+            # If tile has debris, it's blocked
+            if action_tile.state == "debris":
+                return False
+            # If tile is water or cliff (non-passable), it's blocked
+            if action_tile.state in ("water", "cliff", "blocked"):
+                return False
+        
+        return True
+
     def survey(self, farm_state: Dict[str, Any]) -> Dict[Tuple[int, int], TileState]:
         """
         Build tile state map from /farm endpoint data.
@@ -423,6 +466,8 @@ class FarmSurveyor:
         logger.info(f"FarmSurveyor: {len(candidate_cells)} candidates ({len(tilled_cells)} tilled + {len(candidate_cells) - len(tilled_cells)} from patches)")
 
         # Filter unreachable cells using SMAPI pathfinding
+        # CRITICAL: Check action position (X, Y+1) not just the cell (X, Y)!
+        # Player stands at Y+1 to till/plant the cell at Y
         if check_reachability and candidate_cells:
             reachable_cells: List[Tuple[int, int]] = []
             unreachable_count = 0
@@ -431,13 +476,14 @@ class FarmSurveyor:
                 if len(reachable_cells) >= seed_count:
                     break  # We have enough
 
-                if self.is_cell_reachable(center, cell):
+                # Check if action position (X, Y+1) is reachable AND passable
+                if self.is_action_position_valid(center, cell, tiles):
                     reachable_cells.append(cell)
                 else:
                     unreachable_count += 1
 
             if unreachable_count > 0:
-                logger.info(f"FarmSurveyor: Filtered {unreachable_count} unreachable cells")
+                logger.info(f"FarmSurveyor: Filtered {unreachable_count} cells with unreachable action positions")
 
             selected_cells = reachable_cells
         else:

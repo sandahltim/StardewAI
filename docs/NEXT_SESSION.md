@@ -1,167 +1,126 @@
-# Session 88: Fix Watering Priority & Cell Reachability
+# Session 89: Test Fixes on Sunny Day
 
-**Last Updated:** 2026-01-13 Session 87 by Claude
-**Status:** Multi-day test revealed critical bugs - watering and cell reachability
+**Last Updated:** 2026-01-13 Session 88 by Claude
+**Status:** Bug fixes implemented, need sunny day test
 
 ---
 
-## Session 87 Summary
+## Session 88 Summary
+
+### Bug Fixes Implemented
+
+| Bug | Fix | Status |
+|-----|-----|--------|
+| **Water task false completion** | Added `BLOCKED` state instead of `COMPLETE` when 0 targets | ✅ Done |
+| **Cell reachability Y+1** | New `is_action_position_valid()` checks action position passable AND reachable | ✅ Done |
+| **Phantom tilling** | `_should_skip_target()` validates tile state before executing | ✅ Done |
+| **Water priority** | Water now PRIORITY 2 CRITICAL, before harvest/ship/plant | ✅ Done |
+| **Water from FarmHouse** | Added `warp_to_farm` prereq for water task when not on Farm | ✅ Done |
 
 ### Test Results
 
+**Partial success - rainy day limited testing:**
+
 | Metric | Result |
 |--------|--------|
-| Seeds planted | 13/15 (87%) |
-| Day 1 crops watered | NO - saved by rain on Day 3 |
-| Bedtime | Agent went to bed (worked) |
-| Multi-day survival | Yes - Day 1 → Day 3 |
+| Cell reachability fix | ✅ "Filtered 3 cells with unreachable action positions" |
+| Action position (Y+1) | ✅ Player correctly positioned at (66, 23) for cell (66, 22) |
+| Seeds planted | ✅ 15 crops (up from 13) |
+| Water priority | ⚠️ Not tested - raining (crops auto-watered) |
+| BLOCKED state | ⚠️ Not tested - need non-rainy day in FarmHouse |
 
-### Critical Bugs Found
-
-#### BUG #1: Water Task False Completion (HIGH PRIORITY)
-
-**Problem:** At day start, agent is in FarmHouse. Water task generates targets by pathfinding from current position (inside house) to farm cells. All paths fail → 0 targets → task auto-completes as "done".
-
-**Evidence:**
-```
-12:19:40,459 [INFO] FarmSurveyor: Filtered 33 unreachable cells
-12:19:40,459 [INFO] FarmSurveyor: Selected 0 reachable cells: []...
-12:19:44,644 [INFO] ✅ Task completed: Water 4 crops  # FALSE! 0 watering done
-```
-
-**Impact:** Crops don't get watered. Only survived because Day 3 had rain.
-
-**Fix Options:**
-1. Don't auto-complete tasks with 0 targets (mark as "blocked" instead)
-2. Run water task AFTER player exits farmhouse
-3. Use farmhouse door position for pathfinding reference
+**Issue Found:** Wednesday - Pierre's closed! buy_seeds task completed 0/1 targets.
 
 ---
 
-#### BUG #2: Cell Reachability for Till/Plant (HIGH PRIORITY)
+## Session 89 Priority
 
-**Problem:** To till or plant a cell at (X, Y), the player must stand at (X, Y+1) and face north. But the target generator only checks if (X, Y) is reachable, not if the action position (X, Y+1) is reachable.
+### 1. Test on Sunny Day (CRITICAL)
 
-**Evidence:**
-```
-🌱 Cell (48,17): player=(48, 18), nav_target=(48, 18)
-# Player at Y+1 position, but if (48, 18) was blocked, cell would fail
-```
-
-When action position is blocked (debris, tree, water), the agent:
-1. Tries to reach blocked position
-2. Gets stuck
-3. Phantom failure accumulates
-4. Eventually skips after 3+ failures
-
-**Impact:** Many till/plant targets fail because action position isn't validated.
-
-**Fix:** In `target_generator.py` or `farm_surveyor.py`:
-- For each candidate cell (X, Y), also verify (X, Y+1) is:
-  - Passable (not blocked by debris/tree/water)
-  - Reachable via pathfinding
-
----
-
-#### BUG #3: Till Phantom Failures (MEDIUM)
-
-**Problem:** Till targets generated at survey time. As farming progresses, some cells get tilled by cell farming. Later, TaskExecutor tries to till already-tilled cells → phantom failure.
-
-**Evidence:**
-```
-12:24:54,944 [ERROR] 💀 HARD FAIL: till_soil phantom-failed 23x consecutively
-```
-
-**Fix Options:**
-1. Re-validate tile state before each till action
-2. Regenerate target list periodically
-3. Skip targets where tile is already tilled
-
----
-
-#### BUG #4: Cell Farming Interrupted (MEDIUM)
-
-**Problem:** Cell farming was planting seeds (13/15 done), then TaskExecutor started clear_debris with 131 targets, abandoning the remaining 2 seeds.
-
-**Cause:** Daily planner queue had clear_debris after planting. When cell farming coordinator finished its batch, control returned to TaskExecutor which started the next queued task.
-
-**Fix:** Either:
-1. Cell farming should complete ALL seeds before returning control
-2. Or, re-queue remaining seeds when cell farming is interrupted
-
----
-
-### Bedtime Status
-
-Bedtime override appears to work for single days. Agent went to bed. However, during multi-day runs with long-running tasks (like 131-target clear_debris), the bedtime check may not trigger frequently enough.
-
-**Status:** Monitor in future sessions, not critical now.
-
----
-
-## Session 88 Priority
-
-### 1. Fix Water Task Priority (CRITICAL)
-
-The water task MUST succeed at day start. Options:
-
-**Option A: Exit Farmhouse First**
-- Add `exit_farmhouse` prereq to water task
-- Water targets generated after player is on Farm
-
-**Option B: Don't Auto-Complete 0-Target Tasks**
-- In TaskExecutor, if targets == 0, mark task as "blocked" not "complete"
-- Re-try later when player position changes
-
-**Option C: Use Farm-Side Reference for Pathfinding**
-- When surveying from FarmHouse, use (64, 15) as reference (just outside door)
-- Check reachability from that point, not current position
-
-### 2. Fix Cell Reachability (HIGH)
-
-For till/plant targets, validate BOTH:
-- Target cell (X, Y) is tillable
-- Action position (X, Y+1) is passable AND reachable
-
-**Location:** `src/python-agent/farming/farm_surveyor.py` around line 354
-
-### 3. Test Fixes
+The main fixes (water priority, BLOCKED state, warp_to_farm prereq) weren't fully tested because Day 3 was rainy. Need sunny day to verify:
 
 ```bash
-# Fresh Day 1 start
+# Start fresh Day 1 OR wait for sunny day
+# Player should wake up in FarmHouse
+# Verify: Water task adds warp_to_farm prereq
+# Verify: Water task is FIRST in queue
 # Verify: Agent exits farmhouse THEN waters
-# Verify: Till/plant targets are actually reachable
 python src/python-agent/unified_agent.py --goal "Water crops and plant seeds"
 ```
+
+### 2. Add Pierre Schedule Awareness (MEDIUM)
+
+Agent tried to buy seeds on Wednesday when Pierre's is closed. Options:
+1. Check day-of-week before adding buy_seeds prereq
+2. Skip buy_seeds on Wed, add to next day's plan
+3. VLM should recognize closed shop and adapt
+
+**Pierre's Schedule:** Closed Wednesday and Sunday
+
+### 3. Monitor for New Issues
+
+The fixes may have unintended effects. Watch for:
+- Tasks getting stuck in BLOCKED state forever
+- Unnecessary warp_to_farm prereqs on sunny days when already on Farm
+- Skip target cascade (too many targets skipped)
+
+---
+
+## Code Changes Made (Session 88)
+
+### task_executor.py
+- Added `TaskState.BLOCKED` state
+- Added `is_blocked()` method
+- Added `_should_skip_target()` - validates targets aren't stale
+- Added `skipped_targets` to TaskProgress
+- `set_task()` now uses BLOCKED instead of COMPLETE for 0 targets
+
+### farm_surveyor.py
+- Added `is_action_position_valid()` - checks BOTH (X, Y+1) reachability AND passability
+- `find_optimal_cells()` now uses action position validation
+
+### daily_planner.py
+- Reordered priorities: Water (CRITICAL) → Harvest (HIGH) → Ship (HIGH) → Plant (MEDIUM)
+- Water task is now FIRST in queue
+
+### prereq_resolver.py
+- Added warp_to_farm prereq for water_crops when player not on Farm
+
+### unified_agent.py
+- Added handler for BLOCKED tasks - retries when player reaches Farm
 
 ---
 
 ## Current Game State
 
-- **Day:** 3 (Spring, Year 1) - 6:00 AM
-- **Weather:** Raining (auto-waters crops)
+- **Day:** 3 (Spring, Year 1) - ~10:00 AM
+- **Weather:** Raining
 - **Location:** Farm
-- **Crops:** 13 parsnips (all watered by rain)
-- **Seeds remaining:** 2 Parsnip Seeds
-- **Character:** Elias (hippie version - may revert)
+- **Crops:** 15 parsnips (all watered by rain)
+- **Seeds:** Need to buy (Pierre closed on Wed)
+- **Character:** Elias (hippie version)
 
 ---
 
-## Files to Modify
+## Files Modified
 
-| File | Change Needed |
-|------|---------------|
-| `daily_planner.py` | Water task should require player on Farm |
-| `target_generator.py` | Validate action position (Y+1) reachability |
-| `farm_surveyor.py` | Check action position when selecting cells |
-| `task_executor.py` | Don't auto-complete 0-target tasks |
-
----
-
-## Character Note
-
-Elias character was updated to "hippie/70s burnout" style. Tim wants to test both versions. May merge or revert based on commentary quality.
+| File | Lines Changed |
+|------|--------------|
+| `src/python-agent/execution/task_executor.py` | ~80 lines added |
+| `src/python-agent/planning/farm_surveyor.py` | ~45 lines added |
+| `src/python-agent/memory/daily_planner.py` | ~30 lines changed |
+| `src/python-agent/planning/prereq_resolver.py` | ~15 lines added |
+| `src/python-agent/unified_agent.py` | ~20 lines added |
 
 ---
 
-*Session 87: Multi-day test bugs identified — Claude (PM)*
+## Session 88 Commits (Pending)
+
+Changes not yet committed. Run:
+```bash
+git add -A && git commit -m "Session 88: Bug fixes for watering, reachability, phantom tilling"
+```
+
+---
+
+*Session 88: 5 bug fixes implemented, partial test on rainy day — Claude (PM)*

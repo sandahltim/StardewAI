@@ -250,7 +250,20 @@ class PrereqResolver:
         prereqs: List[PrereqAction] = []
 
         if task_type == "water_crops":
-            # Need water in watering can
+            # PREREQ 0: Must be on Farm (pathfinding from FarmHouse fails)
+            data = game_state.get("data") or game_state
+            current_location = data.get("location", {}).get("name", "")
+            if current_location and current_location != "Farm":
+                logger.info(f"   Adding warp_to_farm prereq (currently in {current_location})")
+                prereqs.append(PrereqAction(
+                    action_type="warp_to_farm",
+                    task_type="navigate",
+                    description="Exit to farm (needed for watering)",
+                    params={"destination": "Farm"},
+                    estimated_time=5,
+                ))
+            
+            # PREREQ 1: Need water in watering can
             if watering_can_water <= 0:
                 # Get actual water location from surroundings (if available)
                 # Fall back to common pond locations if not
