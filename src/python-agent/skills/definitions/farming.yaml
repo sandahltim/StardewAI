@@ -113,7 +113,7 @@ harvest_crop:
 # =============================================================================
 
 plant_seed:
-  description: "Plant seeds on tilled soil (auto-finds and equips seeds from inventory)"
+  description: "Plant seeds on tilled soil (seeds must already be selected)"
   category: farming
   energy_cost: 0
 
@@ -121,13 +121,13 @@ plant_seed:
     required:
       - type: standing_on
         target: tilled_soil
+      - type: holding_seeds
 
   actions:
-    - select_item_type: seed  # Auto-find first seed in inventory
-    - use_tool
+    - use_tool  # Plant the currently held seeds
 
   on_success:
-    message: "Planted {seed_name}"
+    message: "Planted seeds"
     updates:
       - tile.state: planted
 
@@ -365,7 +365,7 @@ chop_tree:
 # =============================================================================
 
 ship_item:
-  description: "Ship crop to sell overnight (works from anywhere on Farm - SMAPI handles bin access)"
+  description: "Ship currently selected item to sell overnight (must be holding sellable item)"
   category: farming
   energy_cost: 0
 
@@ -373,15 +373,13 @@ ship_item:
     required:
       - type: at_location
         location: Farm
-      - type: has_item_category
-        category: sellable
+      - type: holding_sellable
 
   actions:
-    - select_item_type: crop  # Auto-select first crop to ship
     - ship: -1  # Ship currently selected item (SMAPI accesses bin remotely)
 
   on_success:
-    message: "Shipped {item_name} - will sell overnight"
+    message: "Shipped item - will sell overnight"
 
   on_failure:
     not_on_farm:
