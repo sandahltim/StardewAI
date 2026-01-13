@@ -1,70 +1,81 @@
-# Session 86: Continue Multi-Day Test
+# Session 87: Cell Farming Working
 
-**Last Updated:** 2026-01-12 Session 85 by Claude
-**Status:** ✅ ResourceClump pathfinding + cell selection fixed
+**Last Updated:** 2026-01-12 Session 86 by Claude
+**Status:** Cell farming operational, 4 crops planted on Day 1
 
 ---
 
-## Session 85 Summary
+## Session 86 Summary
 
-### Bugs Fixed
+### Features Implemented
 
-| Issue | Root Cause | Fix |
-|-------|-----------|-----|
-| Agent walking through stumps/logs | `IsTilePassable()` didn't check ResourceClumps | Added ResourceClump blocking to pathfinder |
-| Agent going wrong direction (west) | `PLAYER_SCAN_RADIUS` too small, missed existing tilled tiles | Use farmhouse center when player is far |
-| Tilled tiles not selected | Isolated tiles not in contiguous patches | Priority 1: existing tilled tiles before patches |
-| `plant_seed` skill failing | `select_item_type: seed` not supported by ModBridge | Changed to just `use_tool`, require seeds pre-selected |
-| `ship_item` skill failing | Same `select_item_type` issue | Changed to just `ship`, require item pre-selected |
+| Feature | Description |
+|---------|-------------|
+| `select_item_type` action | New ModBridge action that scans inventory by category (seed, crop, food, tool, sellable) |
+| Python integration | Updated unified_agent.py and skills/executor.py to use mod-side item selection |
+| Skill updates | `plant_seed` and `ship_item` now auto-select correct items |
+| Phantom failure fix | Added 0.3s wait after tool use for game state propagation |
 
-### Why `select_item_type` Not Supported
+### How `select_item_type` Works
 
-The SMAPI ModBridge only implements simple actions (`select_slot`, `use_tool`, `ship`).
-`select_item_type` would require inventory scanning logic in C# that wasn't built.
-The cell farming system handles this by finding the slot in Python first.
+1. **C# ModBridge** (`ActionExecutor.cs`):
+   - `SelectItemType(string itemType)` scans inventory for matching category
+   - Uses Stardew's `Object.SeedsCategory (-74)`, `Object.VegetableCategory (-75)`, etc.
+   - Selects first matching slot
+
+2. **Supported Types:**
+   - `seed/seeds` - Any seed item
+   - `vegetable/vegetables/crop/crops` - Vegetables
+   - `fruit/fruits` - Fruits
+   - `fish` - Fish
+   - `food/edible` - Any edible item
+   - `tool/tools` - Any tool
+   - `sellable` - Any shippable item
+
+### Test Results
+
+- **Day 1 fresh start**: Agent cleared debris, tilled, planted 4 parsnip seeds
+- **Cell farming working**: Automated till→plant→water sequence
+- **4 crops confirmed**: `crops=4` in FarmSurveyor output
 
 ### Commits
-- `a0655fb` - Session 85: ResourceClump pathfinding + cell selection fixes
-- `29bb270` - Fix: Remove unsupported select_item_type from skills
+
+- `604b5f6` - Add select_item_type action to ModBridge
+- `8a23b2e` - Add wait delays after tool actions to fix phantom failures
 
 ---
 
-## Session 86 Priority
+## Session 87 Priority
 
-### 1. Test Fixed Skills
+### 1. Continue Multi-Day Test
 
 ```bash
-# Run agent - should now buy seeds, plant repeatedly
-python src/python-agent/unified_agent.py --goal "Plant parsnip seeds"
-
-# Watch for:
-# - Successful seed purchase loop
-# - Planting on existing tilled tiles
-# - No "select_item_type" errors
+# Run agent - should plant remaining seeds, water, sleep
+python src/python-agent/unified_agent.py --goal "Plant and water parsnip seeds"
 ```
 
-### 2. Multi-Day Autonomous Test
+### 2. Monitor For
 
-Run overnight:
-- Day 8-9: Plant/water cycle
-- Day 10+: Harvest when ready
-- Monitor for stuck states
+- Does agent plant all 15 seeds?
+- Does agent water crops each morning?
+- Does agent go to bed at end of day?
+- Multi-day cycle stability
 
-### 3. Known Remaining Issues
+### 3. Known Issues
 
-- **Buy loop incomplete**: Agent bought seeds once but may not re-trigger buy
-- **Skill system limitation**: Skills can't auto-find items, need pre-selection
+- **Phantom failure false positives**: Reduced with 0.3s wait but may still occur if game is slow
+- **Cell selection when far from farmhouse**: Uses farmhouse center, may not find optimal cells
 
 ---
 
 ## Current Game State
 
-- **Day:** 8 (Spring, Year 1) - ~5:30 PM
+- **Day:** 1 (Spring, Year 1) - Evening
 - **Location:** Farm
 - **Character:** Elias
-- **Money:** ~305g
-- **Tilled tiles:** 12 (priority for planting)
-- **ResourceClumps:** 22 (now properly blocked)
+- **Money:** 500g
+- **Crops planted:** 4 parsnips (watered)
+- **Seeds remaining:** 11 Parsnip Seeds in inventory
 
 ---
 
@@ -72,12 +83,12 @@ Run overnight:
 
 | File | Change |
 |------|--------|
-| `TilePathfinder.cs` | +ResourceClump blocking in `IsTilePassable()` |
-| `ModEntry.cs` | +ResourceClump detection in `GetBlockerName()` |
-| `GameStateReader.cs` | +ResourceClump detection in `GetBlockerName()` |
-| `farm_surveyor.py` | +Priority for tilled tiles, farmhouse center fallback |
-| `farming.yaml` | Fixed `plant_seed` and `ship_item` skills |
+| `ActionExecutor.cs` | +SelectItemType() method (~45 lines) |
+| `ActionCommand.cs` | +ItemType property |
+| `unified_agent.py` | +select_item_type action routing |
+| `skills/executor.py` | Simplified to pass through to mod |
+| `farming.yaml` | Updated plant_seed/ship_item + wait delays |
 
 ---
 
-*Session 85: ResourceClump pathfinding + skill fixes — Claude*
+*Session 86: select_item_type implementation — Claude*
