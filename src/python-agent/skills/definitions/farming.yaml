@@ -127,6 +127,7 @@ plant_seed:
   actions:
     - select_item_type: seed  # Auto-find and select seeds
     - use_tool  # Plant the selected seeds
+    - wait: 0.3  # Give game time to update crop state
 
   on_success:
     message: "Planted seeds"
@@ -179,6 +180,7 @@ till_soil:
     - select_slot: 1  # Hoe
     - face: "{target_direction}"  # VLM must specify: north/south/east/west
     - use_tool
+    - wait: 0.3  # Give game time to update tile state
 
   on_success:
     message: "Tilled the soil to the {target_direction}"
