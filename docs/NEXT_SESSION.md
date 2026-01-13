@@ -68,7 +68,21 @@ Count:
 
 Target: 80%+ success rate
 
-### 3. Address Remaining Issues
+### 3. Fix Water Refill Bug (CRITICAL)
+
+Agent got stuck on Day 5 with empty watering can:
+```
+💧 Watering can empty (0/40) - need to refill
+No nearest water found in surroundings
+❌ Skill navigate_to_water failed
+```
+
+The `navigate_to_water` skill can't find water. Need to:
+1. Check `/surroundings` for water tile detection
+2. Or hardcode farm pond location (around 50, 80)
+3. Or use pathfinding to known water source
+
+### 4. Other Issues
 
 | Issue | Priority |
 |-------|----------|
@@ -107,12 +121,13 @@ if self.cell_coordinator:
 
 ## Current Game State (at handoff)
 
-- **Day:** 3 (Spring, Year 1)
-- **Time:** ~2:30 PM
-- **Weather:** Rainy
-- **Crops:** 19 planted, all watered
-- **Agent:** Running autonomously, clearing debris
-- **Agent PID:** Check with `ps aux | grep unified_agent`
+- **Day:** 5 (Spring, Year 1)
+- **Time:** ~11:00 AM
+- **Weather:** Check in game
+- **Crops:** 18 total, 4 ready for harvest
+- **Money:** 500g (no sales yet)
+- **Agent:** STOPPED (water refill bug)
+- **Watering Can:** Empty (0/40)
 
 ---
 
