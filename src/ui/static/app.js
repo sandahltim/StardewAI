@@ -2,6 +2,8 @@
 let smapiOnline = false;
 let smapiLastOk = null;
 let lastRustyMemory = null;
+let latestCalendar = null;
+let latestSkills = null;
 
 function updateSmapiStatus(online, note) {
   const smapiStatus = document.getElementById("smapiStatus");
@@ -39,6 +41,13 @@ function applySmapiEmptyState() {
   const harvestStatus = document.getElementById("harvestStatus");
   const harvestNote = document.getElementById("harvestNote");
   const staminaStatus = document.getElementById("staminaStatus");
+  const npcMeta = document.getElementById("npcMeta");
+  const npcBirthdays = document.getElementById("npcBirthdays");
+  const npcNearby = document.getElementById("npcNearby");
+  const calendarMeta = document.getElementById("calendarMeta");
+  const calendarToday = document.getElementById("calendarToday");
+  const calendarSeason = document.getElementById("calendarSeason");
+  const calendarUpcoming = document.getElementById("calendarUpcoming");
   if (compassNote) compassNote.textContent = "SMAPI offline";
   if (tileStatus) tileStatus.textContent = "No tile data";
   if (tileNote) tileNote.textContent = "SMAPI offline";
@@ -51,6 +60,13 @@ function applySmapiEmptyState() {
   if (harvestStatus) harvestStatus.textContent = "No crop data";
   if (harvestNote) harvestNote.textContent = "SMAPI offline";
   if (staminaStatus) staminaStatus.textContent = "No state data";
+  if (npcMeta) npcMeta.textContent = "SMAPI offline";
+  if (npcBirthdays) npcBirthdays.innerHTML = "<li>SMAPI offline</li>";
+  if (npcNearby) npcNearby.innerHTML = "<li>SMAPI offline</li>";
+  if (calendarMeta) calendarMeta.textContent = "SMAPI offline";
+  if (calendarToday) calendarToday.textContent = "Today: -";
+  if (calendarSeason) calendarSeason.textContent = "Season ends in: -";
+  if (calendarUpcoming) calendarUpcoming.innerHTML = "<li>SMAPI offline</li>";
 }
 
 function postJSON(url, data) {
@@ -425,6 +441,13 @@ function updateStatus(status) {
   const dailySummaryYesterday = document.getElementById("dailySummaryYesterday");
   const dailySummaryLessons = document.getElementById("dailySummaryLessons");
   const dailySummaryGoals = document.getElementById("dailySummaryGoals");
+  const npcMeta = document.getElementById("npcMeta");
+  const npcBirthdays = document.getElementById("npcBirthdays");
+  const npcNearby = document.getElementById("npcNearby");
+  const calendarMeta = document.getElementById("calendarMeta");
+  const calendarToday = document.getElementById("calendarToday");
+  const calendarSeason = document.getElementById("calendarSeason");
+  const calendarUpcoming = document.getElementById("calendarUpcoming");
   const actionFailureList = document.getElementById("actionFailureList");
   const actionFailureStats = document.getElementById("actionFailureStats");
 
@@ -1701,6 +1724,181 @@ function init() {
     }
   };
 
+  const normalizeLocation = (value) => {
+    return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  };
+
+  const formatSeasonLabel = (value) => {
+    if (!value) return "-";
+    const str = value.toString();
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  };
+
+  const updateNpcPanel = (payload) => {
+    if (!npcMeta || !npcBirthdays || !npcNearby) return;
+    if (!payload || payload.success === false) {
+      npcMeta.textContent = "SMAPI unavailable";
+      npcBirthdays.innerHTML = "<li>None</li>";
+      npcNearby.innerHTML = "<li>None</li>";
+      return;
+    }
+
+    const data = payload?.data || {};
+    const npcs = Array.isArray(data.npcs) ? data.npcs : [];
+    if (!npcs.length) {
+      npcMeta.textContent = "No NPC data.";
+      npcBirthdays.innerHTML = "<li>None</li>";
+      npcNearby.innerHTML = "<li>None</li>";
+      return;
+    }
+
+    const seasonRaw =
+      latestCalendar?.season ||
+      latestState?.time?.season ||
+      latestState?.time?.Season ||
+      "";
+    const currentSeason = seasonRaw.toString().toLowerCase();
+    const currentDay = Number(
+      latestCalendar?.day ?? latestState?.time?.day ?? latestState?.time?.Day ?? NaN,
+    );
+
+    const birthdayCandidates = npcs.filter((npc) => {
+      return npc?.birthdaySeason && Number.isFinite(Number(npc?.birthdayDay));
+    });
+
+    let birthdays = birthdayCandidates;
+    if (currentSeason && Number.isFinite(currentDay)) {
+      birthdays = birthdayCandidates.filter((npc) => {
+        if (String(npc.birthdaySeason).toLowerCase() !== currentSeason) return false;
+        const day = Number(npc.birthdayDay);
+        return day >= currentDay && day <= currentDay + 7;
+      });
+    }
+    birthdays.sort((a, b) => Number(a.birthdayDay) - Number(b.birthdayDay));
+
+    npcBirthdays.innerHTML = "";
+    if (!birthdays.length) {
+      const item = document.createElement("li");
+      item.textContent = "None";
+      npcBirthdays.append(item);
+    } else {
+      birthdays.slice(0, 3).forEach((npc) => {
+        const item = document.createElement("li");
+        const name = npc.displayName || npc.name || "Unknown";
+        const day = Number(npc.birthdayDay);
+        const dayLabel = Number.isFinite(day) ? `Day ${day}` : "Day ?";
+        let awayLabel = "";
+        if (npc.isBirthdayToday) {
+          awayLabel = "today";
+        } else if (currentSeason && Number.isFinite(currentDay) && Number.isFinite(day)) {
+          const delta = day - currentDay;
+          if (delta === 0) awayLabel = "today";
+          else if (delta === 1) awayLabel = "1 day away";
+          else if (delta > 1) awayLabel = `${delta} days away`;
+        }
+        item.textContent = awayLabel ? `${name} (${dayLabel}) - ${awayLabel}` : `${name} (${dayLabel})`;
+        npcBirthdays.append(item);
+      });
+    }
+
+    const locationName = latestState?.location?.name || "";
+    const normalizedLocation = normalizeLocation(locationName);
+    let nearby = npcs.filter((npc) => {
+      const npcLocation = normalizeLocation(npc.location || npc.locationName);
+      return normalizedLocation && npcLocation === normalizedLocation;
+    });
+    nearby = nearby
+      .map((npc) => ({
+        npc,
+        hearts: Number(npc.friendshipHearts ?? 0),
+      }))
+      .sort((a, b) => b.hearts - a.hearts)
+      .map((entry) => entry.npc);
+
+    npcNearby.innerHTML = "";
+    if (!nearby.length) {
+      const item = document.createElement("li");
+      item.textContent = "None";
+      npcNearby.append(item);
+    } else {
+      nearby.slice(0, 4).forEach((npc) => {
+        const item = document.createElement("li");
+        const name = npc.displayName || npc.name || "Unknown";
+        const location = npc.location || npc.locationName || "Unknown";
+        const hearts = Number(npc.friendshipHearts ?? 0);
+        item.textContent = `${name} @ ${location} ❤️ ${Number.isFinite(hearts) ? hearts : 0}`;
+        npcNearby.append(item);
+      });
+    }
+
+    const nearbyCount = nearby.length;
+    npcMeta.textContent = `Villagers: ${npcs.length} · Nearby: ${nearbyCount}`;
+  };
+
+  const updateCalendarPanel = (payload) => {
+    if (!calendarMeta || !calendarToday || !calendarSeason || !calendarUpcoming) return;
+    if (!payload || payload.success === false) {
+      calendarMeta.textContent = "SMAPI unavailable";
+      calendarToday.textContent = "Today: -";
+      calendarSeason.textContent = "Season ends in: -";
+      calendarUpcoming.innerHTML = "<li>None</li>";
+      latestCalendar = null;
+      return;
+    }
+
+    const data = payload?.data || {};
+    latestCalendar = data;
+
+    const season = formatSeasonLabel(data.season);
+    const day = data.day ?? "-";
+    const year = data.year ?? "-";
+    calendarMeta.textContent = `Calendar - ${season} ${day}, Year ${year}`;
+
+    const dayOfWeek = data.dayOfWeek || "-";
+    const weatherRaw = latestState?.time?.weather || latestState?.weather || "";
+    const weather = weatherRaw ? formatSeasonLabel(weatherRaw) : "-";
+    calendarToday.textContent = weather !== "-" ? `Today: ${dayOfWeek} (${weather})` : `Today: ${dayOfWeek}`;
+
+    const daysLeft = Number(data.daysUntilSeasonEnd);
+    calendarSeason.textContent = Number.isFinite(daysLeft)
+      ? `Season ends in: ${daysLeft} days`
+      : "Season ends in: -";
+
+    const upcoming = [];
+    if (Array.isArray(data.upcomingEvents)) {
+      data.upcomingEvents.forEach((event) => {
+        if (!event) return;
+        const name = event.name || "Event";
+        const dayLabel = Number.isFinite(Number(event.day)) ? `Day ${event.day}` : "Day ?";
+        upcoming.push(`🎉 ${name} (${dayLabel})`);
+      });
+    }
+    if (Array.isArray(data.upcomingBirthdays)) {
+      data.upcomingBirthdays.forEach((event) => {
+        if (!event) return;
+        const name = event.name || "Birthday";
+        const dayLabel = Number.isFinite(Number(event.day)) ? `Day ${event.day}` : "Day ?";
+        upcoming.push(`🎂 ${name} (${dayLabel})`);
+      });
+    }
+    if (data.todayEvent?.name) {
+      upcoming.unshift(`🎯 Today: ${data.todayEvent.name}`);
+    }
+
+    calendarUpcoming.innerHTML = "";
+    if (!upcoming.length) {
+      const item = document.createElement("li");
+      item.textContent = "None";
+      calendarUpcoming.append(item);
+    } else {
+      upcoming.slice(0, 6).forEach((entry) => {
+        const item = document.createElement("li");
+        item.textContent = entry;
+        calendarUpcoming.append(item);
+      });
+    }
+  };
+
   const updateActionFailures = (payload) => {
     if (!actionFailureList || !actionFailureStats) return;
     const recent = Array.isArray(payload?.recent_failures) ? payload.recent_failures : [];
@@ -2457,6 +2655,33 @@ function init() {
       })
       .catch(() => {
         updateDailySummary(null);
+      });
+
+    fetch("/api/proxy/calendar")
+      .then((res) => res.json())
+      .then((payload) => {
+        updateCalendarPanel(payload);
+      })
+      .catch(() => {
+        updateCalendarPanel(null);
+      });
+
+    fetch("/api/proxy/npcs")
+      .then((res) => res.json())
+      .then((payload) => {
+        updateNpcPanel(payload);
+      })
+      .catch(() => {
+        updateNpcPanel(null);
+      });
+
+    fetch("/api/proxy/skills")
+      .then((res) => res.json())
+      .then((payload) => {
+        latestSkills = payload?.data || null;
+      })
+      .catch(() => {
+        latestSkills = null;
       });
 
     fetch("/api/action-failures?limit=50&lesson_limit=10")

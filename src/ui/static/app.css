@@ -178,6 +178,48 @@ h2 {
   font-size: 12px;
 }
 
+.npc-card,
+.calendar-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.npc-card {
+  background: #fff6f2;
+}
+
+.calendar-card {
+  background: #f6fff7;
+}
+
+.world-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.world-section {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.world-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.calendar-line {
+  color: #1f2937;
+  font-weight: 600;
+}
+
 .daily-summary__meta {
   color: var(--muted);
   font-size: 11px;

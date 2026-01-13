@@ -15,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from starlette.requests import Request
 import sqlite3
+import requests
 
 try:
     import chromadb
@@ -72,6 +73,7 @@ GAME_KNOWLEDGE_DB = BASE_DIR.parents[1] / "data" / "game_knowledge.db"
 CHROMA_DIR = BASE_DIR.parents[1] / "data" / "chromadb"
 CHROMA_COLLECTION = "rusty_memories"
 _chroma_collection = None
+SMAPI_BASE_URL = os.environ.get("SMAPI_BASE_URL", "http://localhost:8790")
 TTS_OUTPUT_DIR = Path("/home/tim/StardewAI/logs/ui/tts")
 TTS_CACHE_DIR = TTS_OUTPUT_DIR / "cache"
 TTS_MODEL_DIRS = [
@@ -444,6 +446,18 @@ def _write_rusty_state(payload: Dict[str, Any]) -> Dict[str, Any]:
     RUSTY_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     RUSTY_STATE_PATH.write_text(json.dumps(payload, indent=2))
     return payload
+
+
+def _proxy_smapi(endpoint: str) -> Dict[str, Any]:
+    url = f"{SMAPI_BASE_URL}/{endpoint.lstrip('/')}"
+    try:
+        response = requests.get(url, timeout=2)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException:
+        return {"success": False, "error": "SMAPI unavailable"}
+    except json.JSONDecodeError:
+        return {"success": False, "error": "Invalid SMAPI response"}
 
 
 def _summarize_action_failures(limit: int = 50, lesson_limit: int = 10) -> Dict[str, Any]:
@@ -1127,6 +1141,21 @@ def get_daily_summary() -> Dict[str, Any]:
         return {"status": "no_summary", "message": "No summary yet. Complete a day first."}
     except json.JSONDecodeError:
         return {"status": "error", "message": "Summary file is invalid."}
+
+
+@app.get("/api/proxy/npcs")
+def proxy_npcs() -> Dict[str, Any]:
+    return _proxy_smapi("npcs")
+
+
+@app.get("/api/proxy/calendar")
+def proxy_calendar() -> Dict[str, Any]:
+    return _proxy_smapi("calendar")
+
+
+@app.get("/api/proxy/skills")
+def proxy_skills() -> Dict[str, Any]:
+    return _proxy_smapi("skills")
 
 
 @app.get("/api/action-failures")

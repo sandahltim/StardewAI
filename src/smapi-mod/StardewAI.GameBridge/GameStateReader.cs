@@ -137,6 +137,44 @@ public class GameStateReader
             }
         }
 
+        // Read ResourceClumps (large stumps, logs, boulders that need tool upgrades)
+        foreach (var clump in farm.resourceClumps)
+        {
+            // ResourceClump types: 600=Stump, 602=Log, 622=Meteorite, 672=Boulder, 752=Copper, 754=Iron, 756=Gold, 758=Iridium
+            string type = clump.parentSheetIndex.Value switch
+            {
+                600 => "Stump",
+                602 => "Log",
+                622 => "Meteorite",
+                672 => "Boulder",
+                752 => "Copper Node",
+                754 => "Iron Node",
+                756 => "Gold Node",
+                758 => "Iridium Node",
+                _ => $"Clump_{clump.parentSheetIndex.Value}"
+            };
+
+            string requiredTool = clump.parentSheetIndex.Value switch
+            {
+                600 => "Copper Axe",       // Stump needs copper axe
+                602 => "Steel Axe",        // Log needs steel axe
+                622 => "Gold Pickaxe",     // Meteorite needs gold pickaxe
+                672 => "Steel Pickaxe",    // Boulder needs steel pickaxe
+                _ => "Pickaxe"
+            };
+
+            state.ResourceClumps.Add(new ResourceClumpInfo
+            {
+                X = (int)clump.Tile.X,
+                Y = (int)clump.Tile.Y,
+                Width = clump.width.Value,
+                Height = clump.height.Value,
+                Type = type,
+                RequiredTool = requiredTool,
+                Health = (int)clump.health.Value
+            });
+        }
+
         return state;
     }
 

@@ -31,6 +31,29 @@
 
 ## Endpoint Details
 
+### `/farm` - Farm Data (Updated Session 84)
+
+Now includes `resourceClumps` - large obstacles requiring tool upgrades:
+
+```json
+{
+  "resourceClumps": [
+    {
+      "x": 26, "y": 21,
+      "width": 2, "height": 2,
+      "type": "Stump",
+      "requiredTool": "Copper Axe",
+      "health": 10
+    }
+  ]
+}
+```
+
+**Types:** Stump, Log, Boulder, Meteorite
+**Required Tools:** Copper Axe, Steel Axe, Steel Pickaxe, Gold Pickaxe
+
+---
+
 ### `/health` - Health Check
 
 ```bash

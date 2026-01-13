@@ -172,6 +172,19 @@ public class FarmState
     public List<CropInfo> Crops { get; set; } = new();
     public List<TileObject> Objects { get; set; } = new();
     public List<TilePosition> TilledTiles { get; set; } = new();
+    public List<ResourceClumpInfo> ResourceClumps { get; set; } = new();
+}
+
+/// <summary>Large obstacles that need tool upgrades (stumps, logs, boulders)</summary>
+public class ResourceClumpInfo
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public string Type { get; set; }           // "Stump", "Log", "Boulder", "Meteorite"
+    public string RequiredTool { get; set; }   // "Copper Axe", "Steel Axe", "Steel Pickaxe", etc.
+    public int Health { get; set; }
 }
 
 /// <summary>Result of pathfinding check</summary>

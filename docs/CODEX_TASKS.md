@@ -2,7 +2,96 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-11 Session 68
+**Last Updated:** 2026-01-12 Session 84
+
+---
+
+## 🆕 NEW: World Data UI Panels (Session 84)
+
+### TASK: Display New SMAPI API Data
+
+**Priority:** MEDIUM
+**Assigned:** 2026-01-12 Session 84
+**Status:** ✅ Complete
+
+#### Background
+
+Session 83 added 11 new SMAPI endpoints. The UI should display this rich game data:
+- `/npcs` - NPC locations and friendship
+- `/calendar` - Upcoming events and birthdays
+- `/machines` - Artisan equipment status
+- `/storage` - Chest contents
+- `/skills` - Player skill levels
+
+#### Requirements
+
+**1. NPC Panel**
+```
+┌──────────────────────────────────────┐
+│ 👥 VILLAGERS                         │
+├──────────────────────────────────────┤
+│ 🎂 BIRTHDAYS THIS WEEK:              │
+│   Vincent (Day 10) - 2 days away     │
+│   Haley (Day 14) - 6 days away       │
+├──────────────────────────────────────┤
+│ NEARBY:                              │
+│   Robin @ Carpenter Shop ❤️ 1        │
+│   Demetrius @ Carpenter Shop ❤️ 0    │
+└──────────────────────────────────────┘
+```
+
+**2. Calendar Panel**
+```
+┌──────────────────────────────────────┐
+│ 📅 CALENDAR - Spring 8, Year 1       │
+├──────────────────────────────────────┤
+│ TODAY: Monday (Sunny)                │
+│ Season ends in: 20 days              │
+├──────────────────────────────────────┤
+│ UPCOMING:                            │
+│ 🎉 Egg Festival (Day 13)             │
+│ 🎂 Vincent's Birthday (Day 10)       │
+│ 🎂 Haley's Birthday (Day 14)         │
+└──────────────────────────────────────┘
+```
+
+**3. API Endpoints to Call**
+```javascript
+// Add to app.js polling
+fetch('/api/proxy/npcs')      // → http://localhost:8790/npcs
+fetch('/api/proxy/calendar')  // → http://localhost:8790/calendar
+fetch('/api/proxy/skills')    // → http://localhost:8790/skills
+```
+
+**4. Proxy Endpoints (if not already in app.py)**
+```python
+@app.get("/api/proxy/npcs")
+def proxy_npcs():
+    r = requests.get("http://localhost:8790/npcs", timeout=2)
+    return r.json()
+```
+
+#### Files to Modify
+- `src/ui/app.py` - Add proxy endpoints for new SMAPI routes
+- `src/ui/static/app.js` - Add polling and render functions
+- `src/ui/templates/index.html` - Add panel sections
+- `src/ui/static/app.css` - Style for new panels
+
+#### Test Command
+```bash
+# Test API directly
+curl http://localhost:8790/npcs | jq '.data.npcs[:2]'
+curl http://localhost:8790/calendar | jq '.data'
+
+# Test UI
+open http://localhost:9001
+```
+
+#### Acceptance Criteria
+- [ ] NPC panel shows nearby villagers with hearts
+- [ ] Calendar panel shows upcoming events/birthdays
+- [ ] Panels update every 5 seconds
+- [ ] Graceful fallback when SMAPI unavailable
 
 ---
 
