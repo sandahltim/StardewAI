@@ -3052,9 +3052,9 @@ class StardewAgent:
                 logging.info(f"🌱 Warp complete: now in {location}")
                 self._pending_warp_location = None
 
-        # Get current cell
-        cell = self.cell_coordinator.get_current_cell()
-        logging.debug(f"🌱 _process_cell_farming: player={player_pos}, cell={cell}")
+        # Get nearest uncompleted cell (dynamic, based on current position)
+        cell = self.cell_coordinator.get_nearest_cell(player_pos)
+        logging.debug(f"🌱 _process_cell_farming: player={player_pos}, nearest_cell={cell}")
         if not cell:
             # All cells complete - finish cell farming
             self._finish_cell_farming()
@@ -3162,12 +3162,25 @@ class StardewAgent:
         # Get next action
         if self._cell_action_index < len(self._current_cell_actions):
             cell_action = self._current_cell_actions[self._cell_action_index]
-            self._cell_action_index += 1
 
             # Convert CellAction to Action
             action_dict = cell_action.to_dict()
             action_type = list(action_dict.keys())[0] if action_dict else "unknown"
             action_value = action_dict.get(action_type)
+
+            # Dynamic check: Before watering, verify crop exists at cell
+            if action_type == "select_slot" and self.cell_coordinator:
+                watering_slot = self.cell_coordinator.watering_can_slot
+                if action_value == watering_slot:
+                    # About to water - check if crop exists at this cell
+                    crop_exists = self._check_crop_at_cell(cell.x, cell.y)
+                    if not crop_exists:
+                        logging.warning(f"🌱 Cell ({cell.x},{cell.y}): No crop found, skipping water")
+                        # Skip remaining actions (water is always last)
+                        self._cell_action_index = len(self._current_cell_actions)
+                        return None
+
+            self._cell_action_index += 1
 
             # Build params based on action type
             params = {}
@@ -3195,6 +3208,42 @@ class StardewAgent:
 
         # No more actions (should be caught by completion check at start)
         return None
+
+    def _check_crop_at_cell(self, x: int, y: int) -> bool:
+        """
+        Check if there's a crop at the given cell coordinates.
+
+        Queries live game state to verify crop exists before watering.
+        This prevents watering empty tilled soil when planting failed.
+
+        Args:
+            x: Cell X coordinate
+            y: Cell Y coordinate
+
+        Returns:
+            True if crop exists at cell, False otherwise
+        """
+        try:
+            state = self.smapi_client.get_state()
+            if not state:
+                return False
+
+            data = state.get("data") or state
+            location = data.get("location") or {}
+            crops = location.get("crops") or []
+
+            # Check if any crop matches this cell
+            for crop in crops:
+                crop_x = crop.get("x")
+                crop_y = crop.get("y")
+                if crop_x == x and crop_y == y:
+                    logging.debug(f"🌱 Found crop at ({x},{y}): {crop.get('cropName')}")
+                    return True
+
+            return False
+        except Exception as e:
+            logging.warning(f"🌱 Error checking crop at ({x},{y}): {e}")
+            return False  # Fail safe - don't water if we can't verify
 
     def _finish_cell_farming(self) -> None:
         """

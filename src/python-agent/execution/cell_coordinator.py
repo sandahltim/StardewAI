@@ -93,7 +93,8 @@ class CellFarmingCoordinator:
 
     def is_complete(self) -> bool:
         """Check if all cells have been processed."""
-        return self.current_index >= len(self.plan.cells)
+        # Use completed_cells set instead of index (works with dynamic nearest selection)
+        return len(self.completed_cells) >= len(self.plan.cells)
 
     def get_current_cell(self) -> Optional[CellPlan]:
         """Get the current cell to process (or None if complete)."""
@@ -109,6 +110,39 @@ class CellFarmingCoordinator:
                 return cell
             self.current_index += 1
         return None
+
+    def get_nearest_cell(self, player_pos: Tuple[int, int]) -> Optional[CellPlan]:
+        """
+        Get nearest uncompleted cell to player's current position.
+
+        Uses Manhattan distance for efficiency. This creates natural
+        movement patterns - always go to closest cell instead of
+        following a fixed order.
+
+        Args:
+            player_pos: Current (x, y) player position
+
+        Returns:
+            Nearest uncompleted cell, or None if all complete
+        """
+        # Filter to uncompleted cells
+        remaining = [
+            cell for cell in self.plan.cells
+            if (cell.x, cell.y) not in self.completed_cells
+        ]
+
+        if not remaining:
+            return None
+
+        # Sort by Manhattan distance to player
+        def distance(cell: CellPlan) -> int:
+            return abs(cell.x - player_pos[0]) + abs(cell.y - player_pos[1])
+
+        remaining.sort(key=distance)
+        nearest = remaining[0]
+
+        logger.debug(f"🌱 Nearest cell to {player_pos}: ({nearest.x},{nearest.y}) dist={distance(nearest)}")
+        return nearest
 
     def get_navigation_target(
         self,
