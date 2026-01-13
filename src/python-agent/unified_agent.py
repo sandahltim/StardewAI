@@ -2561,6 +2561,10 @@ class StardewAgent:
         elif skill_name == "water_crop":
             target_crop = next((c for c in crops if c.get("x") == target_x and c.get("y") == target_y), None)
             if target_crop:
+                # If crop is ready to harvest, watering was wrong action - not a failure, just skip
+                if target_crop.get("isReadyForHarvest", False):
+                    logging.info(f"🌾 Crop at ({target_x}, {target_y}) is ready for harvest - should harvest, not water")
+                    return True  # Not a phantom failure, just wrong target
                 if not target_crop.get("isWatered", False) and before.get("target_crop_watered") == False:
                     logging.warning(f"👻 PHANTOM: water_crop reported success but crop at ({target_x}, {target_y}) still not watered")
                     return False

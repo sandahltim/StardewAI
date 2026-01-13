@@ -367,9 +367,52 @@ chop_tree:
 # =============================================================================
 # SHIPPING / SELLING
 # =============================================================================
+# FUTURE ENHANCEMENTS:
+# - ship_basic_crops: Only ship low-value (Parsnip, Potato, Bean)
+# - ship_excess: Keep one of each type, ship rest
+# - ship_non_artisan: Keep crops better as wine/jam (Ancient Fruit, Starfruit)
+# - ship_with_exclusions: Config list of crops to never ship
+# - check_bundle_needs: Don't ship crops needed for Community Center
+# =============================================================================
+
+# Ship crops - prioritizes vegetables, then fruits
+# Does NOT ship raw materials (Wood, Sap, Fiber, Stone)
+ship_crop:
+  description: "Ship a vegetable crop (Parsnip, Potato, Cauliflower, etc.)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: at_location
+        location: Farm
+
+  actions:
+    - select_item_type: crop  # Vegetables only
+    - ship: -1
+
+  on_success:
+    message: "Shipped vegetable crop"
+
+ship_fruit:
+  description: "Ship a fruit crop (Blueberry, Melon, Strawberry, etc.)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: at_location
+        location: Farm
+
+  actions:
+    - select_item_type: fruit  # Fruits only
+    - ship: -1
+
+  on_success:
+    message: "Shipped fruit"
 
 ship_item:
-  description: "Ship a sellable item to sell overnight (auto-selects from inventory)"
+  description: "Ship a harvested crop (vegetables first, then fruits - NOT wood/sap/fiber)"
   category: farming
   energy_cost: 0
 
@@ -380,18 +423,20 @@ ship_item:
       - type: has_sellable
 
   actions:
-    - select_item_type: sellable  # Auto-find and select a shippable item
-    - ship: -1  # Ship the selected item (SMAPI accesses bin remotely)
+    # Try vegetables first (basic crops like Parsnip, Potato)
+    # If no vegetables, will fail - future: fallback to fruits
+    - select_item_type: crop
+    - ship: -1
 
   on_success:
-    message: "Shipped item - will sell overnight"
+    message: "Shipped crop - will sell overnight"
 
   on_failure:
     not_on_farm:
       message: "Must be on Farm to ship items"
       recovery_skill: go_to_farm
-    no_items:
-      message: "No sellable items in inventory"
+    no_crops:
+      message: "No crops in inventory to ship (wood/sap don't count)"
 
 # =============================================================================
 # SHOPPING / BUYING

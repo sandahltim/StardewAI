@@ -107,6 +107,9 @@ class TargetGenerator:
         for crop in crops:
             if crop.get("isWatered"):
                 continue
+            # Skip ready-to-harvest crops - they don't need water, they need harvesting
+            if crop.get("isReadyForHarvest"):
+                continue
             x = crop.get("x")
             y = crop.get("y")
             if x is None or y is None:
