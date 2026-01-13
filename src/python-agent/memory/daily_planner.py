@@ -1,12 +1,12 @@
 """
-Daily Planner - Rusty's internal planning system.
+Daily Planner - Elias's internal planning system.
 
-Gives Rusty a sense of purpose each day:
+Gives Elias a sense of purpose each day:
 - Morning: Generate prioritized task list
 - Throughout day: Track progress, adapt to events
 - Evening: Summary, notes for tomorrow
 
-Tim's vision: "day starts- Rusty plans his day and creates todo list"
+Tim's vision: "day starts- Elias plans his day and creates todo list"
 """
 
 import json
@@ -57,7 +57,7 @@ class TaskStatus(Enum):
 
 @dataclass
 class DailyTask:
-    """A single task in Rusty's daily plan."""
+    """A single task in Elias's daily plan."""
     id: str
     description: str
     category: str  # farming, social, exploration, etc.
@@ -80,7 +80,7 @@ class DailyTask:
 
 
 class DailyPlanner:
-    """Rusty's daily planning and task management system."""
+    """Elias's daily planning and task management system."""
 
     def __init__(self, persist_path: Optional[str] = None):
         self.persist_path = Path(persist_path or DEFAULT_PERSIST_PATH)
@@ -133,7 +133,7 @@ class DailyPlanner:
             surroundings: Optional surroundings data with water/landmark locations
 
         Returns:
-            Rusty's morning plan as a string (for VLM context)
+            Elias's morning plan as a string (for VLM context)
         """
         # Archive previous day if exists
         if self.tasks and self.current_day != day:
@@ -272,7 +272,7 @@ class DailyPlanner:
             for t in self.tasks[:10]
         ])
 
-        prompt = f"""You are Rusty, planning your day on the farm.
+        prompt = f"""You are Elias, planning your day on the farm.
 
 Day {self.current_day}, {self.current_season}
 Weather: {weather}
@@ -387,7 +387,37 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 notes=self.yesterday_notes,
             ))
 
-        # PRIORITY 2: Water crops (CRITICAL - they die without water!)
+        # PRIORITY 2: Harvest ready crops FIRST (CRITICAL - get money, clear space for replanting)
+        # Must come before watering so sort order puts harvest before water
+        harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
+        if harvestable:
+            self.tasks.append(DailyTask(
+                id=f"harvest_{self.current_day}_1",
+                description=f"Harvest {len(harvestable)} mature crops",
+                category="farming",
+                priority=TaskPriority.CRITICAL.value,
+                target_location="Farm",
+                estimated_time=len(harvestable) * 3,
+            ))
+
+        # PRIORITY 2a: Ship harvested crops IMMEDIATELY after harvest (CRITICAL - get money!)
+        # Check inventory for sellable crops - add right after harvest for proper order
+        sellable_crops = ["Parsnip", "Potato", "Cauliflower", "Green Bean", "Kale", "Melon",
+                         "Blueberry", "Corn", "Tomato", "Pumpkin", "Cranberry", "Eggplant", "Grape", "Radish"]
+        sellables = [item for item in inventory if item and item.get("name") in sellable_crops and item.get("stack", 0) > 0]
+        if sellables or harvestable:
+            total_to_ship = sum(item.get("stack", 0) for item in sellables)
+            self.tasks.append(DailyTask(
+                id=f"ship_{self.current_day}_1",
+                description=f"Ship {total_to_ship if sellables else 'harvested'} crops at shipping bin",
+                category="farming",
+                priority=TaskPriority.CRITICAL.value,  # CRITICAL so it stays right after harvest
+                target_location="Farm",
+                target_coords=(71, 14),  # Shipping bin location
+                estimated_time=10,
+            ))
+
+        # PRIORITY 2b: Water crops (CRITICAL - they die without water!)
         # Exclude harvestable crops - they don't need water, they need harvesting!
         unwatered = [c for c in crops if not c.get("isWatered", False) and not c.get("isReadyForHarvest", False)]
         if unwatered:
@@ -400,38 +430,16 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 estimated_time=len(unwatered) * 2,
             ))
 
-        # PRIORITY 2b: Harvest ready crops (CRITICAL - get money, clear space for replanting)
-        harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
-        if harvestable:
-            self.tasks.append(DailyTask(
-                id=f"harvest_{self.current_day}_1",
-                description=f"Harvest {len(harvestable)} mature crops",
-                category="farming",
-                priority=TaskPriority.CRITICAL.value,
-                target_location="Farm",
-                estimated_time=len(harvestable) * 3,
-            ))
+        # (Ship task moved to PRIORITY 2a - right after harvest)
 
-        # PRIORITY 3.5: Ship items if we have sellable crops in inventory
-        sellable_crops = ["Parsnip", "Potato", "Cauliflower", "Green Bean", "Kale", "Melon",
-                         "Blueberry", "Corn", "Tomato", "Pumpkin", "Cranberry", "Eggplant", "Grape", "Radish"]
-        sellables = [item for item in inventory if item and item.get("name") in sellable_crops and item.get("stack", 0) > 0]
-        if sellables or harvestable:
-            total_to_ship = sum(item.get("stack", 0) for item in sellables)
-            self.tasks.append(DailyTask(
-                id=f"ship_{self.current_day}_1",
-                description=f"Ship {total_to_ship if sellables else 'harvested'} crops at shipping bin",
-                category="farming",
-                priority=TaskPriority.HIGH.value,
-                target_location="Farm",
-                target_coords=DEFAULT_LOCATIONS["shipping_bin"],  # From constants
-                estimated_time=10,
-            ))
-
-        # PRIORITY 4: Plant seeds if we have them (HIGH - grow more)
+        # PRIORITY 4: Plant seeds (HIGH - grow more)
+        # Add plant task even if we don't have seeds - PrereqResolver will add buy_seeds prereq
         seed_items = [item for item in inventory if item and "seed" in item.get("name", "").lower()]
+        total_seeds = sum(item.get("stack", 1) for item in seed_items) if seed_items else 0
+        money = data.get("player", {}).get("money", 0)
+        
         if seed_items:
-            total_seeds = sum(item.get("stack", 1) for item in seed_items)
+            # Have seeds - plant them
             self.tasks.append(DailyTask(
                 id=f"plant_{self.current_day}_1",
                 description=f"Plant {total_seeds} seeds",
@@ -439,6 +447,16 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 priority=TaskPriority.HIGH.value,
                 target_location="Farm",
                 estimated_time=total_seeds * 3,
+            ))
+        elif money >= 20:  # 20g = cheapest seed (parsnip)
+            # No seeds but have money - PrereqResolver will add buy_seeds prereq
+            self.tasks.append(DailyTask(
+                id=f"plant_{self.current_day}_1",
+                description="Plant seeds (need to buy first)",
+                category="farming",
+                priority=TaskPriority.HIGH.value,
+                target_location="Farm",
+                estimated_time=30,  # Estimate for buy + plant
             ))
 
         # PRIORITY 5: Clear debris if nothing else to do (MEDIUM - expand)
@@ -639,7 +657,7 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         return "\n".join(lines)
 
     def get_current_focus(self) -> str:
-        """Get what Rusty should be focused on right now."""
+        """Get what Elias should be focused on right now."""
         in_progress = [t for t in self.tasks if t.status == "in_progress"]
         if in_progress:
             return in_progress[0].description

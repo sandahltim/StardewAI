@@ -1,6 +1,6 @@
 """Commentary generator - VLM-driven inner monologue.
 
-Rusty's voice comes from the VLM, not templates.
+Elias's voice comes from the VLM, not templates.
 This module just passes through VLM output and handles TTS.
 """
 
@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from .rusty_character import TTS_VOICES, DEFAULT_VOICE, get_voice_id
+from .elias_character import TTS_VOICES, DEFAULT_VOICE, get_voice_id
 
 
 class CommentaryGenerator:
-    """Pass through Rusty's VLM-generated inner monologue."""
+    """Pass through Elias's VLM-generated inner monologue."""
 
     def __init__(self, voice: str = DEFAULT_VOICE):
         self.voice = voice if voice in TTS_VOICES else DEFAULT_VOICE

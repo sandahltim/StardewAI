@@ -317,7 +317,7 @@ class PrereqResolver:
                 cheapest_seed_price = min(SEED_PRICES.values())  # 20g for parsnip
 
                 if money >= cheapest_seed_price:
-                    # Have money - go buy seeds
+                    # Have money - go buy seeds then return to farm
                     prereqs.append(PrereqAction(
                         action_type="go_to_pierre",
                         task_type="navigate",
@@ -330,6 +330,14 @@ class PrereqResolver:
                         task_type="buy_seeds",
                         description="Buy seeds from Pierre",
                         params={},
+                        estimated_time=5,
+                    ))
+                    # Return to farm for planting
+                    prereqs.append(PrereqAction(
+                        action_type="warp_to_farm",
+                        task_type="navigate",
+                        description="Return to farm",
+                        params={"destination": "Farm"},
                         estimated_time=5,
                     ))
                 else:
@@ -355,6 +363,14 @@ class PrereqResolver:
                             task_type="buy_seeds",
                             description="Buy seeds from Pierre",
                             params={},
+                            estimated_time=5,
+                        ))
+                        # Return to farm for planting
+                        prereqs.append(PrereqAction(
+                            action_type="warp_to_farm",
+                            task_type="navigate",
+                            description="Return to farm",
+                            params={"destination": "Farm"},
                             estimated_time=5,
                         ))
                     else:

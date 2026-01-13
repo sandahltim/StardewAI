@@ -57,7 +57,17 @@ class TargetGenerator:
         }
         
         # Single-target tasks (use params)
-        if task_type == "navigate":
+        if task_type == "ship_items":
+            return self._generate_ship_targets(game_state, player_pos)
+        elif task_type == "buy_seeds":
+            # Buy seeds at current location (should already be at Pierre's)
+            return [Target(
+                x=player_pos[0],
+                y=player_pos[1],
+                target_type="buy",
+                metadata={"action": "buy_parsnip_seeds"},
+            )]
+        elif task_type == "navigate":
             return self._generate_navigate_target(player_pos, task_params)
         elif task_type == "refill_watering_can":
             return self._generate_refill_target(game_state, player_pos, task_params)
@@ -253,6 +263,56 @@ class TargetGenerator:
         )
         return self._sort_targets(targets, pos, strategy)
 
+
+    def _generate_ship_targets(
+        self,
+        game_state: Dict[str, Any],
+        player_pos: Tuple[int, int],
+    ) -> List[Target]:
+        """
+        Generate target for shipping bin.
+        
+        Checks inventory for sellable items and creates a single target
+        at the shipping bin location if there are items to ship.
+        """
+        data = game_state.get("data") or game_state
+        location = data.get("location") or {}
+        inventory = data.get("inventory") or []
+        
+        # Check if there are sellable items in inventory
+        sellable_categories = ["crop", "forage", "artisan"]
+        sellable_items = [
+            item for item in inventory
+            if item and item.get("type") in sellable_categories and item.get("stack", 0) > 0
+        ]
+        
+        if not sellable_items:
+            return []
+        
+        # Get shipping bin location
+        shipping_bin = location.get("shippingBin")
+        if not shipping_bin:
+            # Default Farm shipping bin location
+            shipping_bin = {"x": 71, "y": 14}
+        
+        bin_x = shipping_bin.get("x", 71)
+        bin_y = shipping_bin.get("y", 14)
+        
+        # Calculate total items to ship
+        total_stack = sum(item.get("stack", 0) for item in sellable_items)
+        item_names = [item.get("name", "item") for item in sellable_items]
+        
+        return [Target(
+            x=bin_x,
+            y=bin_y,
+            target_type="ship",
+            metadata={
+                "items": item_names,
+                "total_stack": total_stack,
+                "sellable_items": sellable_items,
+            },
+        )]
+
     def _generate_navigate_target(
         self,
         player_pos: Tuple[int, int],
@@ -262,30 +322,50 @@ class TargetGenerator:
         Generate single target for navigation task.
         
         Destination comes from task_params (set by PrereqResolver).
-        Returns single Target at destination coords.
+        For location names (SeedShop, Farm, etc.), returns target at current pos for warp.
+        For coords, returns target at destination.
         """
         if not task_params:
             return []
         
-        # Get destination coords from params
+        destination = task_params.get("destination", "")
         target_coords = task_params.get("target_coords")
-        if not target_coords:
-            # Try destination as fallback (might be location name, not coords)
-            return []
         
-        if isinstance(target_coords, (list, tuple)) and len(target_coords) >= 2:
-            x, y = int(target_coords[0]), int(target_coords[1])
-        else:
-            return []
+        # Known warp destinations - execute warp skill at current position
+        WARP_DESTINATIONS = {
+            "SeedShop": "go_to_pierre",
+            "Farm": "warp_to_farm",
+            "Town": "warp_to_town",
+            "Beach": "warp_to_beach",
+            "Mountain": "warp_to_mountain",
+            "Forest": "warp_to_forest",
+            "Mine": "warp_to_mine",
+        }
         
-        return [Target(
-            x=x,
-            y=y,
-            target_type="navigate",
-            metadata={
-                "destination": task_params.get("destination", "unknown"),
-            },
-        )]
+        if destination in WARP_DESTINATIONS:
+            # Return target at current position - warp skill handles transport
+            return [Target(
+                x=player_pos[0],
+                y=player_pos[1],
+                target_type="warp",
+                metadata={
+                    "destination": destination,
+                    "skill": WARP_DESTINATIONS[destination],
+                },
+            )]
+        
+        # For coordinate-based navigation
+        if target_coords:
+            if isinstance(target_coords, (list, tuple)) and len(target_coords) >= 2:
+                x, y = int(target_coords[0]), int(target_coords[1])
+                return [Target(
+                    x=x,
+                    y=y,
+                    target_type="navigate",
+                    metadata={"destination": destination},
+                )]
+        
+        return []
 
     def _generate_refill_target(
         self,

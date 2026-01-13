@@ -111,8 +111,10 @@ class TaskExecutor:
         "clear_debris": None,  # Determined by debris type
         "till_soil": "till_soil",
         "plant_seeds": "plant_seed",
+        "ship_items": "ship_item",
         "navigate": None,  # No skill - just movement to destination
         "refill_watering_can": "refill_watering_can",
+        "buy_seeds": "buy_parsnip_seeds",  # Default to parsnip seeds
     }
     
     # Map debris names to clearing skills
@@ -137,6 +139,11 @@ class TaskExecutor:
         self._event_queue: List[Tuple[CommentaryEvent, str]] = []
         self._last_row: Optional[int] = None  # Track row changes
         self._milestone_hits: Set[CommentaryEvent] = set()  # Track which milestones triggered
+        # Stuck detection for movement
+        self._last_move_pos: Optional[Tuple[int, int]] = None
+        self._stuck_count: int = 0
+        self._max_stuck: int = 3  # Try to clear obstacle after 3 stuck attempts
+        self._clearing_obstacle: bool = False  # Currently clearing an obstacle
 
     def _queue_event(self, event: CommentaryEvent, context: str = "") -> None:
         """Queue a commentary event for VLM to react to."""
@@ -283,8 +290,38 @@ class TaskExecutor:
 
         # If not adjacent (distance > 1), need to move
         if distance > 1:
+            # Stuck detection: check if position hasn't changed
+            if self._last_move_pos == player_pos and self.state == TaskState.MOVING_TO_TARGET:
+                self._stuck_count += 1
+                logger.warning(f"TaskExecutor: Stuck at {player_pos} ({self._stuck_count}/{self._max_stuck})")
+
+                # After max stuck attempts, try to clear obstacle
+                if self._stuck_count >= self._max_stuck:
+                    clear_action = self._try_clear_obstacle(player_pos, target, dx, dy, surroundings)
+                    if clear_action:
+                        logger.info(f"🪓 TaskExecutor: Clearing obstacle to reach target")
+                        self._stuck_count = 0  # Reset after attempting clear
+                        return clear_action
+                    else:
+                        # No clearable obstacle - skip this target
+                        logger.warning(f"TaskExecutor: Can't clear path, skipping target at ({target.x}, {target.y})")
+                        self._stuck_count = 0
+                        self.current_index += 1
+                        if self.progress:
+                            self.progress.failed_targets += 1
+                        if self.current_index >= len(self.targets):
+                            self.state = TaskState.TASK_COMPLETE
+                            return None
+                        # Try next target
+                        self._last_move_pos = None
+                        return None
+            else:
+                # Position changed, reset stuck counter
+                self._stuck_count = 0
+
+            self._last_move_pos = player_pos
             self.state = TaskState.MOVING_TO_TARGET
-            return self._create_move_action(player_pos, target, dx, dy)
+            return self._create_move_action(player_pos, target, dx, dy, surroundings)
 
         # Check if this task type requires a skill at target
         skill_name = self._get_skill_for_target(target)
@@ -393,20 +430,41 @@ class TaskExecutor:
         target: Target,
         dx: int,
         dy: int,
+        surroundings: Optional[Dict[str, Any]] = None,
     ) -> ExecutorAction:
-        """Create move action toward target (stop 1 tile away)."""
-        # Determine primary direction (larger delta first for efficiency)
+        """Create move action toward target (stop 1 tile away).
+
+        If primary direction is blocked, tries secondary direction.
+        """
+        # Determine primary and secondary directions
         if abs(dy) > abs(dx):
-            direction = "south" if dy > 0 else "north"
-            # Move to 1 tile away
-            tiles = abs(dy) - 1 if abs(dy) > 1 else 0
+            primary = "south" if dy > 0 else "north"
+            secondary = "east" if dx > 0 else "west" if dx != 0 else None
+            primary_tiles = abs(dy) - 1 if abs(dy) > 1 else 1
+            secondary_tiles = abs(dx) if dx != 0 else 0
         else:
-            direction = "east" if dx > 0 else "west"
-            tiles = abs(dx) - 1 if abs(dx) > 1 else 0
-        
-        # At least 1 tile
-        tiles = max(1, tiles)
-        
+            primary = "east" if dx > 0 else "west"
+            secondary = "south" if dy > 0 else "north" if dy != 0 else None
+            primary_tiles = abs(dx) - 1 if abs(dx) > 1 else 1
+            secondary_tiles = abs(dy) if dy != 0 else 0
+
+        # Check if primary direction is blocked
+        direction = primary
+        tiles = max(1, primary_tiles)
+
+        if surroundings:
+            data = surroundings.get("data") or surroundings
+            directions = data.get("directions", {})
+            primary_info = directions.get(primary, {})
+
+            # If primary blocked and we have a secondary option, use it
+            if not primary_info.get("clear", True) and secondary:
+                secondary_info = directions.get(secondary, {})
+                if secondary_info.get("clear", True):
+                    direction = secondary
+                    tiles = max(1, secondary_tiles) if secondary_tiles else 1
+                    logger.info(f"🧭 Primary direction {primary} blocked, using {direction}")
+
         return ExecutorAction(
             action_type="move",
             params={"direction": direction, "tiles": tiles},
@@ -452,6 +510,10 @@ class TaskExecutor:
 
         task_type = self.progress.task_type
 
+        # Check if target has explicit skill in metadata (e.g., warp targets)
+        if target.metadata.get("skill"):
+            return target.metadata["skill"]
+
         # Debris needs specific tool based on type
         if task_type == "clear_debris":
             debris_name = target.metadata.get("name", "")
@@ -462,8 +524,71 @@ class TaskExecutor:
         if skill is None and task_type not in self.TASK_TO_SKILL:
             # Unknown task type - fallback to interact
             return "interact"
-        return skill  # May be None for navigate
-    
+        return skill  # May be None for navigate  # May be None for navigate
+
+    def _try_clear_obstacle(
+        self,
+        player_pos: Tuple[int, int],
+        target: Target,
+        dx: int,
+        dy: int,
+        surroundings: Optional[Dict[str, Any]],
+    ) -> Optional[ExecutorAction]:
+        """
+        Check if there's a clearable obstacle blocking the path and return action to clear it.
+
+        Returns ExecutorAction to clear obstacle, or None if no clearable obstacle found.
+        """
+        if not surroundings:
+            return None
+
+        # Determine which direction we're trying to move
+        if abs(dy) > abs(dx):
+            direction = "south" if dy > 0 else "north"
+        else:
+            direction = "east" if dx > 0 else "west"
+
+        # Get objects from surroundings
+        data = surroundings.get("data") or surroundings
+        nearby = data.get("nearby", {})
+        objects = nearby.get("objects", [])
+
+        # Calculate position in the direction we want to move
+        offset = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
+        check_x = player_pos[0] + offset[direction][0]
+        check_y = player_pos[1] + offset[direction][1]
+
+        # Clearable obstacles and their tools
+        CLEARABLE = {
+            "Tree": "clear_tree",      # Axe
+            "Stone": "clear_stone",    # Pickaxe
+            "Weeds": "clear_weeds",    # Scythe
+            "Twig": "clear_wood",      # Axe
+            "Wood": "clear_wood",      # Axe
+            "Grass": "clear_weeds",    # Scythe
+        }
+
+        # Check if there's a clearable obstacle at that position
+        for obj in objects:
+            obj_x = obj.get("x", obj.get("tileX", -1))
+            obj_y = obj.get("y", obj.get("tileY", -1))
+            obj_name = obj.get("name", "")
+
+            if obj_x == check_x and obj_y == check_y:
+                if obj_name in CLEARABLE:
+                    skill = CLEARABLE[obj_name]
+                    logger.info(f"🪓 Found clearable obstacle: {obj_name} at ({obj_x}, {obj_y})")
+                    return ExecutorAction(
+                        action_type=skill,
+                        params={"target_direction": direction},
+                        target=Target(x=obj_x, y=obj_y, target_type="obstacle", metadata={"name": obj_name}),
+                        reason=f"Clearing {obj_name} blocking path to target"
+                    )
+                else:
+                    logger.debug(f"Non-clearable obstacle: {obj_name} at ({obj_x}, {obj_y})")
+
+        return None
+
     def report_result(self, success: bool, error: Optional[str] = None) -> None:
         """
         Report result of last action execution.
@@ -532,7 +657,24 @@ class TaskExecutor:
         if self.state not in (TaskState.IDLE, TaskState.TASK_COMPLETE):
             logger.info(f"TaskExecutor: Interrupted - {reason}")
             self.state = TaskState.INTERRUPTED
-    
+
+    def clear(self) -> None:
+        """Reset executor to idle state, clearing all task data."""
+        self.state = TaskState.IDLE
+        self.targets = []
+        self.current_index = 0
+        self.progress = None
+        self.tick_count = 0
+        self._consecutive_failures = 0
+        self._task_params = None
+        self._event_queue.clear()
+        self._last_row = None
+        self._milestone_hits.clear()
+        self._last_move_pos = None
+        self._stuck_count = 0
+        self._clearing_obstacle = False
+        logger.debug("TaskExecutor: Cleared")
+
     def is_complete(self) -> bool:
         """Check if current task is done."""
         return self.state in (TaskState.TASK_COMPLETE, TaskState.IDLE)

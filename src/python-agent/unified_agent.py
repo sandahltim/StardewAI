@@ -455,7 +455,7 @@ class UnifiedVLM:
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": "You are Rusty, an AI farmer in Stardew Valley. Think carefully and respond concisely."},
+                {"role": "system", "content": "You are Elias, an AI farmer in Stardew Valley. Think carefully and respond concisely."},
                 {"role": "user", "content": prompt}
             ],
             "max_tokens": 500,  # Shorter for reasoning
@@ -2014,21 +2014,21 @@ class StardewAgent:
             except Exception as e:
                 logging.warning(f"Lesson memory failed to load: {e}")
 
-        # Rusty memory (character persistence across sessions)
-        self.rusty_memory = None
+        # Character memory (Elias's persistence across sessions)
+        self.rusty_memory = None  # TODO: Rename to elias_memory
         if HAS_MEMORY and get_rusty_memory:
             try:
                 self.rusty_memory = get_rusty_memory()
                 state = self.rusty_memory.character_state
                 logging.info(
-                    f"🤖 Rusty memory loaded: {state['mood']} mood, "
+                    f"🤖 Elias memory loaded: {state['mood']} mood, "
                     f"{self.rusty_memory.get_confidence_level()} confidence, "
                     f"{len(self.rusty_memory.relationships)} NPCs known"
                 )
             except Exception as e:
-                logging.warning(f"Rusty memory failed to load: {e}")
+                logging.warning(f"Elias memory failed to load: {e}")
 
-        # Daily planner (Rusty's task planning system)
+        # Daily planner (Elias's task planning system)
         self.daily_planner = None
         self._last_planned_day = 0  # Track when we last ran planning
         if HAS_MEMORY and get_daily_planner:
@@ -2909,15 +2909,20 @@ class StardewAgent:
                 logging.warning("🌱 Cell farming: No seeds in inventory")
                 return False
 
+            # Get player position for cell selection (avoids cliff navigation issues)
+            player = data.get("player", {})
+            player_pos = (player.get("tileX", 64), player.get("tileY", 15))
+
             logging.info(f"🌱 Cell farming: Surveying farm for {total_seeds} {seed_type} (slot {seed_slot})")
 
-            # Survey and create plan
+            # Survey and create plan - use player position as center
             surveyor = get_farm_surveyor()
             self._cell_farming_plan = surveyor.create_farming_plan(
                 farm_state=farm_state,
                 seed_count=total_seeds,
                 seed_type=seed_type,
                 seed_slot=seed_slot,
+                player_pos=player_pos,  # Select cells near player to stay on same cliff level
             )
 
             if not self._cell_farming_plan or not self._cell_farming_plan.cells:
@@ -4585,11 +4590,11 @@ Recent: {recent}"""
         if dynamic_hints:
             result += f"\n\n--- HINTS ---\n{dynamic_hints}"
 
-        # Add Rusty's character context (for personality continuity)
+        # Add Elias's character context (for personality continuity)
         if self.rusty_memory:
-            rusty_context = self.rusty_memory.get_context_for_prompt()
-            if rusty_context:
-                result += f"\n\n--- RUSTY ---\n{rusty_context}"
+            elias_context = self.rusty_memory.get_context_for_prompt()
+            if elias_context:
+                result += f"\n\n--- ELIAS ---\n{elias_context}"
 
         # Add daily plan context (task awareness)
         if self.daily_planner and self.daily_planner.tasks:
