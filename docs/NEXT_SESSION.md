@@ -1,130 +1,97 @@
-# Session 84: Test & Expand Agent Capabilities
+# Session 85: Test ResourceClump Fix + Agent Run
 
-**Last Updated:** 2026-01-12 Session 83 by Claude
-**Status:** ✅ SMAPI API Complete - 16 endpoints implemented
-
----
-
-## Session 83 Summary
-
-### Complete API Implementation
-
-| Endpoint | Purpose | Status |
-|----------|---------|--------|
-| `/health` | Health check | ✅ Existing |
-| `/state` | Full game state | ✅ Existing |
-| `/surroundings` | 4 adjacent tiles | ✅ Existing |
-| `/farm` | Farm-wide data | ✅ Existing |
-| `/action` | Execute actions | ✅ Existing |
-| `/check-path` | A* pathfinding | ✅ NEW |
-| `/passable` | Tile passability | ✅ NEW |
-| `/passable-area` | Area scan | ✅ NEW |
-| `/skills` | Player skills | ✅ NEW |
-| `/npcs` | NPC data | ✅ NEW |
-| `/animals` | Farm animals | ✅ NEW |
-| `/machines` | Artisan equipment | ✅ NEW |
-| `/calendar` | Events/festivals | ✅ NEW |
-| `/fishing` | Fishing data | ✅ NEW |
-| `/mining` | Mine floor data | ✅ NEW |
-| `/storage` | Chest contents | ✅ NEW |
-
-### Python Integration
-
-**farm_surveyor.py** now uses `/check-path` to filter unreachable cells:
-- Fixes cliff navigation bug from Session 82
-- Falls back gracefully if API unavailable
-
-### Files Modified
-
-| File | Lines Added |
-|------|-------------|
-| `Models/GameState.cs` | ~200 (new model classes) |
-| `HttpServer.cs` | ~100 (routes + handlers) |
-| `ModEntry.cs` | ~300 (data readers) |
-| `farm_surveyor.py` | ~40 (pathfinding check) |
-| `docs/SMAPI_API_EXPANSION.md` | Full API reference |
+**Last Updated:** 2026-01-12 Session 84 by Claude
+**Status:** ✅ ResourceClump detection complete
 
 ---
 
-## Session 84 Priority
+## Session 84 Summary
 
-### 1. Test the New API
+### API Testing
+All 16 SMAPI endpoints verified working:
+- `/skills`, `/npcs`, `/calendar`, `/storage` - all return correct data
+- `/check-path`, `/passable`, `/passable-area` - pathfinding works
+- `/machines` - found many Casks in Cellar
+- `/animals`, `/fishing`, `/mining` - ready for use
+
+### Bug Found & Fixed: ResourceClump Clipping
+**Problem:** Agent walked through large stumps/logs that need tool upgrades.
+
+**Root Cause:** ResourceClumps (2x2 obstacles) weren't tracked in `/farm` endpoint.
+
+**Fixes Applied:**
+1. Added `ResourceClumpInfo` model to SMAPI mod
+2. `/farm` now returns `resourceClumps` array with type, size, requiredTool
+3. Farm surveyor marks all clump tiles as "blocked" (can't farm there)
+
+**Farm has 22 ResourceClumps blocking 88 tiles:**
+- 17 Stumps (need Copper Axe)
+- 3 Logs (need Steel Axe)
+- 3 Boulders (need Steel Pickaxe)
+
+### UI Updates (Codex)
+- Added NPC panel with birthdays and nearby villagers
+- Added Calendar panel with upcoming events
+- Added SMAPI proxy endpoints for new data
+
+### Character Rename
+- Rusty → Elias (AI farmer persona)
+- All references updated
+
+### Commits
+- `46a67c9` - Session 84: Elias character refactor + cliff navigation fix
+- `8df6e66` - Session 84: ResourceClump detection + Codex UI panels
+- `b56b9cb` - Fix: Farm surveyor now excludes ResourceClump tiles
+
+---
+
+## Session 85 Priority
+
+### 1. Test Agent with ResourceClump Fix
 
 ```bash
-# Restart Stardew Valley to load updated mod
-# Then test all endpoints:
-
-curl http://localhost:8790/health
-curl http://localhost:8790/skills
-curl http://localhost:8790/npcs
-curl http://localhost:8790/calendar
-curl http://localhost:8790/storage
-curl "http://localhost:8790/check-path?startX=64&startY=15&endX=32&endY=17"
-
-# Run agent to test cliff navigation fix
+# Run agent - should avoid stumps/logs/boulders now
 python src/python-agent/unified_agent.py --goal "Plant seeds"
+
+# Watch for log message:
+# "FarmSurveyor: Mapped X tiles (crops=Y, tilled=Z, objects=W, clumps=22 blocking 88 tiles)"
 ```
 
-### 2. Expand Agent to Use New Data
+### 2. Multi-Day Test
+Run autonomous farming loop overnight:
+- Day 1: Plant seeds
+- Days 2-3: Water crops
+- Day 4: Harvest
 
-Now that we have full API coverage, the agent can:
-- **NPC interactions**: Find villagers, check birthdays, track friendship
-- **Animal care**: Monitor happiness, collect products, open/close doors
-- **Artisan production**: Track machine status, plan harvests
-- **Calendar awareness**: Plan around festivals, prioritize birthday gifts
-- **Storage management**: Know what's in chests without visiting them
-- **Mine navigation**: Track floor type, find ores, avoid monsters
+### 3. Expand Agent Intelligence
+Use new endpoints for smarter behavior:
+- Check `/calendar` - skip festival days
+- Check `/npcs` - find birthday gifts
+- Check `/machines` - harvest ready products
 
 ---
 
 ## Current Game State
 
-- **Day:** 9 (Spring, Year 1)
+- **Day:** 8 (Spring, Year 1)
 - **Location:** Farm
-- **Money:** 695g
-- **Seeds:** 4 Parsnip Seeds
-- **Crops:** 6 planted
+- **Character:** Elias
+- **Energy:** 270/270
+- **ResourceClumps:** 22 (blocking 88 tiles)
 
 ---
 
-## Architecture Reference
+## Files Modified This Session
 
-```
-SMAPI API (port 8790):
-├── Core State
-│   ├── /health          - Health check
-│   ├── /state           - Full game state
-│   ├── /surroundings    - 4 adjacent tiles
-│   └── /farm            - Farm-wide data
-├── Actions
-│   └── /action (POST)   - Execute 20+ action types
-├── Navigation
-│   ├── /check-path      - A* pathfinding
-│   ├── /passable        - Single tile check
-│   └── /passable-area   - Area scan
-├── Player
-│   └── /skills          - Skill levels + professions
-├── World
-│   ├── /npcs            - NPC locations + friendship
-│   ├── /animals         - Farm animals + buildings
-│   ├── /machines        - Artisan equipment
-│   ├── /calendar        - Events + birthdays
-│   ├── /fishing         - Location fishing data
-│   ├── /mining          - Mine floor data
-│   └── /storage         - Chests + fridge + silo
-```
+| File | Change |
+|------|--------|
+| `Models/GameState.cs` | +ResourceClumpInfo model |
+| `GameStateReader.cs` | +ResourceClump reading |
+| `farm_surveyor.py` | +ResourceClump blocking |
+| `unified_agent.py` | Rusty→Elias rename |
+| `docs/SMAPI_API_EXPANSION.md` | +ResourceClump docs |
+| `src/ui/*` | NPC/Calendar panels (Codex) |
 
 ---
 
-## Next Steps
-
-1. **Test cliff fix** - Verify agent can now navigate around interior cliffs
-2. **Multi-day test** - Run overnight autonomous farming loop
-3. **Expand agent logic** - Use new endpoints for smarter decisions:
-   - Check calendar before planning (skip festivals)
-   - Track machine outputs for harvest timing
-   - Monitor animal happiness for optimal care
-
----
-
-*Session 83: Complete SMAPI API implementation (11 new endpoints) — Claude*
+*Session 84: ResourceClump detection + farm surveyor blocking — Claude*

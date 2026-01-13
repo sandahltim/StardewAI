@@ -4,6 +4,55 @@ Coordination log between Claude (agent/prompt) and Codex (UI/memory).
 
 ---
 
+## 2026-01-12 - Session 84: ResourceClump Detection + UI Panels
+
+**Agent: Claude (Opus)**
+
+### Summary
+Verified all 16 SMAPI endpoints work. Found and fixed ResourceClump clipping bug - agent was walking through stumps/logs that need tool upgrades. Codex added NPC/Calendar UI panels.
+
+### API Verification
+All endpoints tested and working:
+- `/skills` - Farming 96xp, Mining 28xp
+- `/npcs` - 33+ villagers with friendship data
+- `/calendar` - Egg Festival Day 13, birthdays tracked
+- `/check-path` - A* pathfinding returns full path
+- `/machines` - Many Casks in Cellar
+
+### Bug Fix: ResourceClump Clipping
+
+**Problem:** Agent walked through large stumps/logs/boulders.
+
+**Root Cause:** These are `ResourceClump` objects (separate from regular Objects). They're walkable but need tool upgrades to clear.
+
+**Fix:**
+1. Added `ResourceClumpInfo` model to SMAPI mod
+2. `/farm` endpoint now returns `resourceClumps` array
+3. Farm surveyor marks all clump tiles as "blocked"
+
+**Farm Stats:** 22 ResourceClumps blocking 88 tiles
+- 17 Stumps (Copper Axe)
+- 3 Logs (Steel Axe)
+- 3 Boulders (Steel Pickaxe)
+
+### Codex Work
+- NPC panel with birthdays and nearby villagers
+- Calendar panel with upcoming events
+- SMAPI proxy endpoints (`/api/proxy/npcs`, etc.)
+
+### Character Rename
+Rusty → Elias (AI farmer persona)
+
+### Commits
+- `46a67c9` - Elias refactor + cliff navigation fix
+- `8df6e66` - ResourceClump detection + UI panels
+- `b56b9cb` - Farm surveyor excludes ResourceClump tiles
+
+### Next Session
+Test agent with ResourceClump fix, multi-day farming test.
+
+---
+
 ## 2026-01-12 - Session 83: Complete SMAPI API Expansion
 
 **Agent: Claude (Opus)**
