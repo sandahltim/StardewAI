@@ -1,10 +1,41 @@
 # StardewAI Team Plan
 
 **Created:** 2026-01-08
-**Last Updated:** 2026-01-13 Session 90
+**Last Updated:** 2026-01-13 Session 100
 **Project Lead:** Claude (Opus) - Agent logic, architecture, coordination
 **UI/Memory:** Codex - User interface, memory systems, state persistence
 **Human Lead:** Tim - Direction, testing, hardware, final decisions
+
+---
+
+## Session 100 Highlight: TTS Pipeline & VLM Prompting
+
+### TTS Rate Limiting Fixed
+**Problem:** TTS takes ~40s per monologue, but commentary pushed every ~6s → queue backed up, spoke stale content.
+
+**Fixes:**
+- `_min_commentary_interval = 45.0` seconds between TTS pushes
+- VLM commentary interval: 2 → 5 ticks
+- Only push NEW monologues (duplicate tracking)
+
+### VLM Skill Parameters Fixed
+**Problem:** VLM calling `till_soil: {}` without `target_direction` → stuck in loop.
+
+**Fixes:**
+- Config examples updated with `target_direction`
+- Skill context shows `(target_direction: north/south/east/west)` for directional skills
+
+### Repetitive Openings Fixed
+**Problem:** Every monologue started with "Ah, the farm..." - annoying.
+
+**Fix:** BANNED instruction in prompts - VLM respects "BANNED" stronger than "NEVER".
+
+### Files Modified Session 100
+| File | Change |
+|------|--------|
+| `config/settings.yaml` | `target_direction` in examples, BANNED "Ah" |
+| `unified_agent.py` | TTS rate limit, VLM interval, skill context params |
+| `elias_character.py` | BANNED "Ah" opening |
 
 ---
 
@@ -140,6 +171,10 @@ With full API coverage, the agent can now:
 | **Warp Case-Sensitivity Fix** | ✅ Fixed | 53 |
 | **SeedShop Buy Override** | ✅ New | 53 |
 | **Pierre Navigation (direct warp)** | ✅ Fixed | 53 |
+| **Coqui TTS (GPU)** | ✅ Working | 99 |
+| **TTS Rate Limiting** | ✅ Fixed | 100 |
+| **VLM Skill Parameters** | ✅ Fixed | 100 |
+| **Commentary Throttling** | ✅ Fixed | 100 |
 
 ### Current Focus
 | Task | Status |
@@ -151,17 +186,19 @@ With full API coverage, the agent can now:
 | Task Execution Layer | ✅ COMPLETE (Session 54) |
 | Ship/Buy/Plant Cycle | ✅ COMPLETE (Session 81) |
 | Cliff Navigation Fix | ✅ COMPLETE (Session 82-83) |
-| **SMAPI API Expansion** | ✅ COMPLETE (Session 83) |
+| SMAPI API Expansion | ✅ COMPLETE (Session 83) |
+| TTS Pipeline Fixes | ✅ COMPLETE (Session 99-100) |
+| VLM Skill Params | ✅ COMPLETE (Session 100) |
 
-### Next Priority (Session 84+)
+### Next Priority (Session 101+)
 | Task | Description |
 |------|-------------|
-| Test cliff fix | Verify pathfinding prevents cliff-stuck |
-| Multi-day autonomy | Run overnight without intervention |
+| Daily summary JSON fix | Tuple keys crash on bedtime (line 4342) |
+| Phantom failure investigation | Skills report success but state unchanged |
+| Multi-day autonomy | Extended run without intervention |
 | Use NPC data | Find villagers, track birthdays |
 | Use animal data | Monitor happiness, collect products |
 | Use machine data | Track when artisan goods ready |
-| Calendar awareness | Plan around festivals |
 
 ---
 
@@ -817,3 +854,37 @@ Then filter unreachable cells in farm_surveyor.py before selection.
 SMAPI API should expose all game knowledge the agent needs from the start. Pathfinding was built but never exposed, causing this gap.
 
 *Updated Session 82 — Claude (PM)*
+
+---
+
+## Session 99-100 Highlights
+
+**Session 99: TTS Pipeline Fix**
+
+| Problem | Fix |
+|---------|-----|
+| Commentary flooding queue | Added `_last_pushed_monologue` - only push NEW monologues |
+| TTS on CPU too slow | Moved Coqui XTTS to GPU (cuda:1 = 4070) |
+| Queue backed up | Events dropped when queue full |
+
+**Before/After:**
+| Metric | Before | After |
+|--------|--------|-------|
+| Events per VLM tick | 20-30 (duplicates) | 1 (unique only) |
+| TTS generation time | 3-5 seconds (CPU) | ~0.5-1 second (GPU) |
+
+**Session 100: VLM Prompting**
+
+| Problem | Fix |
+|---------|-----|
+| VLM missing `target_direction` | Config examples + skill context hints |
+| TTS still behind | Rate limit 45s + VLM interval 5 ticks |
+| "Ah, the..." openings | BANNED instruction (stronger than NEVER) |
+
+**GPU Usage:**
+```
+3090 Ti: VLM (tensor-split main) - ~17GB/24GB used
+4070:    VLM (tensor-split 17%) + TTS (~2GB) - ~6GB/12GB used
+```
+
+*Updated Session 100 — Claude (PM)*
