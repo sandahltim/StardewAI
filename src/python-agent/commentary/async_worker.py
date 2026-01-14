@@ -55,7 +55,7 @@ class AsyncCommentaryWorker:
             
         logging.info(f"TTS backend: {type(self.tts).__name__}")
         
-        self._queue: queue.Queue[Optional[CommentaryEvent]] = queue.Queue(maxsize=10)
+        self._queue: queue.Queue[Optional[CommentaryEvent]] = queue.Queue(maxsize=50)
         self._thread: Optional[threading.Thread] = None
         self._running = False
         
@@ -157,9 +157,8 @@ class AsyncCommentaryWorker:
                 
     def _process_event(self, event: CommentaryEvent) -> None:
         """Process a single commentary event."""
-        # Skip stale events (older than 5 seconds)
-        if time.time() - event.timestamp > 5.0:
-            return
+        # Don't skip stale events - let TTS keep flowing continuously
+        # Old events still have valid commentary worth speaking
             
         # Get display text for UI
         ui_text = self.generator.get_display_text(

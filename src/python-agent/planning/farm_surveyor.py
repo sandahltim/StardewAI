@@ -149,39 +149,39 @@ class FarmSurveyor:
         timeout: float = 0.5,
     ) -> bool:
         """
-        Check if we can reach AND stand at the action position for a cell.
-        
+        Check if action position for a cell is valid (static terrain only).
+
         For tilling/planting, the player stands at (X, Y+1) facing north to act on (X, Y).
-        This method checks:
-        1. The action position (X, Y+1) is reachable via pathfinding
-        2. The action position is not blocked (debris, water, cliff, etc.)
-        
+
+        IMPORTANT: Only filter by STATIC impassable terrain (water, cliffs, buildings).
+        Do NOT filter by debris - agent clears debris dynamically as it works.
+        Do NOT use live pathfinding - debris blocks paths but we clear it.
+
         Args:
-            player_pos: Current player (x, y) tile position
+            player_pos: Current player (x, y) tile position (unused, kept for API compat)
             cell_pos: Target cell (x, y) to act on
             tiles: Tile state map from survey()
-            timeout: Request timeout in seconds
-            
+            timeout: Request timeout in seconds (unused)
+
         Returns:
-            True if action position is valid, False otherwise
+            True if action position has passable terrain, False if water/cliff/building
         """
         x, y = cell_pos
         action_pos = (x, y + 1)  # Stand south of target, face north
-        
-        # Check 1: Is the action position reachable via pathfinding?
-        if not self.is_cell_reachable(player_pos, action_pos, timeout):
-            return False
-        
-        # Check 2: Is the action position passable (not blocked)?
+
+        # Only filter by STATIC impassable terrain - agent clears debris dynamically
         action_tile = tiles.get(action_pos)
         if action_tile:
-            # If tile has debris, it's blocked
-            if action_tile.state == "debris":
+            # Water and cliffs are permanently impassable
+            if action_tile.state in ("water", "cliff"):
                 return False
-            # If tile is water or cliff (non-passable), it's blocked
-            if action_tile.state in ("water", "cliff", "blocked"):
+
+        # Also check the target cell itself
+        target_tile = tiles.get(cell_pos)
+        if target_tile:
+            if target_tile.state in ("water", "cliff"):
                 return False
-        
+
         return True
 
     def survey(self, farm_state: Dict[str, Any]) -> Dict[Tuple[int, int], TileState]:

@@ -1659,12 +1659,24 @@ class ModBridgeController:
                     logging.error("move_to requires x and y coordinates")
                     return False
 
-                # Send the move command
-                success = self._send_action({
-                    "action": "move_to",
-                    "target": {"x": x, "y": y}
-                })
-                if not success:
+                # Send the move command - check data.success for path failures
+                try:
+                    resp = httpx.post(
+                        f"{self.base_url}/action",
+                        json={"action": "move_to", "target": {"x": x, "y": y}},
+                        timeout=5
+                    )
+                    if resp.status_code != 200:
+                        logging.warning(f"move_to HTTP error: {resp.status_code}")
+                        return False
+                    result = resp.json()
+                    data = result.get("data", {})
+                    if not data.get("success", False):
+                        error = data.get("error", "Unknown error")
+                        logging.warning(f"move_to failed: {error}")
+                        return False  # No path found - don't poll
+                except Exception as e:
+                    logging.error(f"move_to request failed: {e}")
                     return False
 
                 # Poll for arrival (max 10 seconds, check every 200ms)
@@ -2130,6 +2142,12 @@ class StardewAgent:
         self._pending_warp_time: float = 0.0  # When warp was issued
         if HAS_CELL_FARMING:
             logging.info("🌱 Cell-by-cell farming available")
+
+        # Day 1 Clearing Mode - systematic debris clearing without VLM
+        self._day1_clearing_active = False
+        self._day1_tiles_cleared = 0
+        self._day1_last_clear_time = 0.0
+        self._last_vlm_time = 0.0  # Track VLM timing for commentary during clearing
 
         # Memory trigger tracking
         self.last_location: str = ""
@@ -2934,14 +2952,20 @@ class StardewAgent:
 
         # Get current day to detect day change
         data = game_state.get("data") or game_state
-        location = data.get("location", {})
-        current_day = location.get("day", 0) or data.get("day", 0)
+        time_data = data.get("time", {})
+        current_day = time_data.get("day", 0)
         
         # Reset flag on new day
         if current_day != self._cell_farming_last_day:
             self._cell_farming_done_today = False
             self._cell_farming_last_day = current_day
             logging.info(f"🌱 Cell farming: New day {current_day}, reset done flag")
+
+        # Day 1: Skip cell farming - debris blocks all paths
+        # Focus on clearing debris first, plant on Day 2+
+        if current_day == 1:
+            logging.info("🌱 Cell farming: Day 1 - skipping (clear debris first, plant Day 2+)")
+            return False
 
         # Don't restart if already actively farming cells
         if self.cell_coordinator and not self.cell_coordinator.is_complete():
@@ -3274,6 +3298,112 @@ class StardewAgent:
         self._cell_farming_plan = None
         self._current_cell_actions = []
         self._cell_action_index = 0
+
+    # ========== DAY 1 CLEARING MODE ==========
+    # Systematic debris clearing without VLM overhead
+    # VLM is for decisions, not grunt work
+
+    def _start_day1_clearing(self) -> bool:
+        """Start Day 1 clearing mode - systematic debris clearing."""
+        self._day1_clearing_active = True
+        self._day1_tiles_cleared = 0
+        self._day1_last_clear_time = time.time()
+        logging.info("🧹 Day 1 clearing: Started - clearing debris near farmhouse")
+        return True
+
+    def _process_day1_clearing(self) -> Optional[Action]:
+        """
+        Process one tick of Day 1 clearing.
+
+        Simple logic - no VLM needed:
+        1. Get surroundings
+        2. Find debris in 4 cardinal directions
+        3. Clear with appropriate tool
+        4. If no debris, move toward next debris or go to bed
+        """
+        if not self._day1_clearing_active:
+            return None
+
+        # Get surroundings
+        surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
+        if not surroundings:
+            return None
+
+        data = surroundings.get("data") or surroundings
+        directions = data.get("directions", {})
+        player = data.get("player", {})
+        energy = player.get("stamina", 100)
+
+        # Low energy - go to bed
+        if energy < 15:
+            logging.info("🧹 Day 1 clearing: Low energy, going to bed")
+            self._finish_day1_clearing()
+            return Action(action_type="go_to_bed", params={}, description="Low energy, ending day")
+
+        # Tool mapping for debris types
+        DEBRIS_TOOLS = {
+            "Stone": ("clear_stone", 3),   # Pickaxe slot
+            "Twig": ("clear_wood", 0),     # Axe slot
+            "Weeds": ("clear_weeds", 4),   # Scythe slot
+        }
+
+        # Check each direction for adjacent debris (tilesUntilBlocked == 1)
+        for direction in ["north", "east", "south", "west"]:
+            dir_info = directions.get(direction, {})
+            blocker = dir_info.get("blocker")  # API uses "blocker" not "blockedBy"
+            tiles_until = dir_info.get("tilesUntilBlocked", 99)
+
+            if blocker and blocker in DEBRIS_TOOLS and tiles_until == 0:
+                skill_name, tool_slot = DEBRIS_TOOLS[blocker]
+                self._day1_tiles_cleared += 1
+                self._day1_last_clear_time = time.time()
+
+                logging.info(f"🧹 Day 1: Clearing {blocker} to {direction} (#{self._day1_tiles_cleared})")
+
+                # Queue primitive actions: face, select_slot, use_tool
+                self.action_queue.append(Action(
+                    action_type="face",
+                    params={"direction": direction},
+                    description=f"Face {direction}"
+                ))
+                self.action_queue.append(Action(
+                    action_type="select_slot",
+                    params={"slot": tool_slot},
+                    description=f"Select tool slot {tool_slot}"
+                ))
+                return Action(
+                    action_type="use_tool",
+                    params={},
+                    description=f"Clear {blocker}"
+                )
+
+        # No adjacent debris - find direction with debris further away and move toward it
+        for direction in ["north", "east", "south", "west"]:
+            dir_info = directions.get(direction, {})
+            blocker = dir_info.get("blocker")
+            tiles_until = dir_info.get("tilesUntilBlocked", 99)
+
+            if blocker and blocker in DEBRIS_TOOLS and tiles_until >= 1:
+                # Debris further away - move toward it
+                logging.info(f"🧹 Day 1: Moving {direction} toward {blocker} ({tiles_until} tiles)")
+                return Action(
+                    action_type="move",
+                    params={"direction": direction, "tiles": 1},
+                    description=f"Move toward {blocker}"
+                )
+
+        # No debris found nearby - clearing done for now
+        if self._day1_tiles_cleared > 0:
+            logging.info(f"🧹 Day 1 clearing: No more debris nearby, cleared {self._day1_tiles_cleared} tiles")
+        self._finish_day1_clearing()
+        return None
+
+    def _finish_day1_clearing(self) -> None:
+        """Complete Day 1 clearing mode."""
+        logging.info(f"🧹 Day 1 clearing complete: {self._day1_tiles_cleared} tiles cleared")
+        self._day1_clearing_active = False
+
+    # ========== END DAY 1 CLEARING ==========
 
     def _execute_obstacle_clear(self) -> Optional[Action]:
         """
@@ -5047,7 +5177,52 @@ Recent: {recent}"""
                 self.task_executor.state = TaskState.IDLE
                 self.task_executor.progress = None
 
-        # STEP 2a: Cell-by-cell farming execution (if active)
+        # STEP 2a: Day 1 clearing mode (systematic, no VLM)
+        # Check if we should be in Day 1 clearing mode
+        game_state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if game_state:
+            data = game_state.get("data") or game_state
+            time_data = data.get("time", {})
+            current_day = time_data.get("day", 0)
+            location = data.get("location", {}).get("name", "")
+
+            if current_day == 1:
+                # Warp to Farm if in FarmHouse (use pending warp to prevent loop)
+                if location == "FarmHouse":
+                    if self._pending_warp_location != "Farm":
+                        logging.info("🧹 Day 1: Warping to Farm for clearing")
+                        self._pending_warp_location = "Farm"
+                        self._pending_warp_time = time.time()
+                        self.action_queue.append(Action(
+                            action_type="warp",
+                            params={"location": "Farm"},
+                            description="Day 1: Warp to Farm for clearing"
+                        ))
+                    return
+                elif location == "Farm":
+                    self._pending_warp_location = None  # Clear pending warp
+                    if not self._day1_clearing_active:
+                        self._start_day1_clearing()
+
+        if self._day1_clearing_active:
+            # Run VLM commentary every 25 seconds during clearing
+            now = time.time()
+            time_since_vlm = now - getattr(self, '_last_vlm_time', 0)
+
+            if time_since_vlm < 25:
+                # Process clearing
+                clear_action = self._process_day1_clearing()
+                if clear_action:
+                    self.action_queue.append(clear_action)
+                    self.vlm_status = f"Day 1 clearing: {self._day1_tiles_cleared} tiles cleared"
+                    self._send_ui_status()
+                    return  # Action queued - skip VLM this tick
+            else:
+                # Let VLM run for commentary, then resume clearing
+                logging.debug("🧹 Day 1: Allowing VLM commentary")
+                # VLM will run below, _last_vlm_time updated there
+
+        # STEP 2b: Cell-by-cell farming execution (if active, Day 2+)
         if self.cell_coordinator and not self.cell_coordinator.is_complete():
             cell_action = self._process_cell_farming()
             if cell_action:
@@ -5058,12 +5233,15 @@ Recent: {recent}"""
             # No action = waiting for pathfinding - allow VLM commentary to run
 
         # STEP 2b: Try to start a task from daily planner if executor is idle
-        if self.task_executor and not self.task_executor.is_active():
+        # Skip task executor on Day 1 - Day 1 clearing handles everything
+        if self._day1_clearing_active:
+            pass  # Day 1 clearing is exclusive
+        elif self.task_executor and not self.task_executor.is_active():
             if self._try_start_daily_task():
                 # Task started - executor will handle it next iteration
                 pass
 
-        if self.task_executor and self.task_executor.is_active():
+        if self.task_executor and self.task_executor.is_active() and not self._day1_clearing_active:
             # Get FRESH game state for position and precondition checks
             game_state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
             surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
@@ -5309,6 +5487,7 @@ Recent: {recent}"""
                 result = self.vlm.think(img, self.goal, spatial_context=spatial_context, memory_context=memory_context, action_context=action_context)
 
             self.think_count += 1
+            self._last_vlm_time = time.time()  # Track for Day 1 clearing commentary timing
             if result.latency_ms:
                 self.latency_history.append(result.latency_ms)
                 self.latency_history = self.latency_history[-60:]

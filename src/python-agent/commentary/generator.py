@@ -44,12 +44,12 @@ class CommentaryGenerator:
 
     def generate(self, action: Optional[str], state: Optional[Dict], vlm_monologue: str = "") -> str:
         """Get commentary - only return NEW VLM monologue, never repeat.
-        
+
         Args:
             action: Current action type
             state: Game state dict
             vlm_monologue: Inner monologue from VLM response (preferred)
-        
+
         Returns:
             Commentary text for display/TTS, or empty string if nothing new
         """
