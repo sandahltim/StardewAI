@@ -1652,16 +1652,40 @@ class ModBridgeController:
 
             elif action_type == "move_to":
                 # Direct pathfinding to coordinates - SMAPI handles A* navigation
+                # Must poll for completion since movement takes multiple game ticks
                 x = action.params.get("x")
                 y = action.params.get("y")
-                if x is not None and y is not None:
-                    return self._send_action({
-                        "action": "move",
-                        "target": {"x": x, "y": y}
-                    })
-                else:
+                if x is None or y is None:
                     logging.error("move_to requires x and y coordinates")
                     return False
+
+                # Send the move command
+                success = self._send_action({
+                    "action": "move_to",
+                    "target": {"x": x, "y": y}
+                })
+                if not success:
+                    return False
+
+                # Poll for arrival (max 10 seconds, check every 200ms)
+                max_polls = 50
+                for i in range(max_polls):
+                    time.sleep(0.2)
+                    state = self.get_state()
+                    if state:
+                        player = state.get("player", {})
+                        # Use tileX/tileY directly (not position.x/64)
+                        px = player.get("tileX", 0)
+                        py = player.get("tileY", 0)
+                        # Check if arrived (within 1 tile)
+                        if abs(px - x) <= 1 and abs(py - y) <= 1:
+                            logging.debug(f"move_to arrived at ({px}, {py})")
+                            return True
+                    if i > 0 and i % 10 == 0:
+                        logging.debug(f"move_to polling... {i}/{max_polls}")
+
+                logging.warning(f"move_to timeout - may not have reached ({x}, {y})")
+                return True  # Return true anyway - let task executor handle stuck detection
 
             elif action_type == "interact":
                 return self._send_action({"action": "interact_facing"})

@@ -46,6 +46,7 @@ public class ActionExecutor
             return command.Action?.ToLower() switch
             {
                 "move" => StartMove(command.Target),
+                "move_to" => StartMove(command.Target),  // Alias for move - A* pathfinding to target
                 "move_direction" => MoveDirection(command.Direction, command.Tiles),
                 "warp" => WarpTo(command.Target),
                 "warp_to_farm" => WarpToFarm(),
@@ -109,24 +110,52 @@ public class ActionExecutor
         if (target == null)
             return new ActionResult { Success = false, Error = "No target specified", State = ActionState.Failed };
 
-        var start = Game1.player.TilePoint;
+        var player = Game1.player;
+        var start = player.TilePoint;
         var end = new Point(target.X, target.Y);
 
-        _currentPath = _pathfinder.FindPath(start, end, Game1.currentLocation);
+        // Check if already at destination
+        if (start == end)
+        {
+            return new ActionResult
+            {
+                Success = true,
+                Message = $"Already at ({target.X}, {target.Y})",
+                State = ActionState.Complete
+            };
+        }
 
-        if (_currentPath == null || _currentPath.Count == 0)
+        // Find path using A* pathfinding
+        var path = _pathfinder.FindPath(start, end, Game1.currentLocation);
+
+        if (path == null || path.Count == 0)
         {
             return new ActionResult { Success = false, Error = $"No path found to ({target.X}, {target.Y})", State = ActionState.Failed };
         }
 
-        _pathIndex = 0;
-        _state = ActionState.MovingToTarget;
+        // SYNCHRONOUS: Teleport directly to destination (like MoveDirection does)
+        // This works reliably - async movement via setMoving() doesn't work well
+        player.Halt();
+        player.forceCanMove();
+        player.Position = new Microsoft.Xna.Framework.Vector2(target.X * 64f, target.Y * 64f);
+
+        // Face direction of travel
+        if (path.Count >= 2)
+        {
+            var lastStep = path[path.Count - 1];
+            var secondLast = path[path.Count - 2];
+            int direction = TilePathfinder.GetDirectionBetweenTiles(secondLast, lastStep);
+            player.FacingDirection = direction;
+        }
+
+        _monitor.Log($"Moved to ({target.X}, {target.Y}) via {path.Count}-tile path", LogLevel.Debug);
+        _state = ActionState.Complete;
 
         return new ActionResult
         {
             Success = true,
-            Message = $"Moving to ({target.X}, {target.Y}), {_currentPath.Count} tiles",
-            State = ActionState.MovingToTarget
+            Message = $"Moved to ({target.X}, {target.Y}), {path.Count} tiles",
+            State = ActionState.Complete
         };
     }
 
@@ -301,6 +330,30 @@ public class ActionExecutor
         {
             int facing = TilePathfinder.DirectionToFacing(direction);
             if (facing >= 0) player.FacingDirection = facing;
+        }
+
+        // SAFETY: Prevent axe/pickaxe from destroying planted crops
+        if (tool is Axe || tool is Pickaxe)
+        {
+            var facingDir = player.FacingDirection;
+            var delta = GetDirectionDelta(facingDir);
+            int targetX = player.TilePoint.X + delta.X;
+            int targetY = player.TilePoint.Y + delta.Y;
+            var facingTile = new Microsoft.Xna.Framework.Vector2(targetX, targetY);
+
+            var location = Game1.currentLocation;
+            if (location.terrainFeatures.TryGetValue(facingTile, out var feature) &&
+                feature is StardewValley.TerrainFeatures.HoeDirt hoeDirt &&
+                hoeDirt.crop != null)
+            {
+                _monitor.Log($"BLOCKED: {tool.DisplayName} would destroy crop at ({targetX}, {targetY})", LogLevel.Warn);
+                return new ActionResult
+                {
+                    Success = false,
+                    Error = $"Blocked: {tool.DisplayName} would destroy planted crop",
+                    State = ActionState.Failed
+                };
+            }
         }
 
         // Check if holding a tool
