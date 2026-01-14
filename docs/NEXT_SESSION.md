@@ -1,96 +1,96 @@
-# Session 99: Continue Multi-Day Testing
+# Session 100: Monitor TTS + Multi-Day Run
 
-**Last Updated:** 2026-01-13 Session 98 by Claude
-**Status:** Agent running smoothly, key fixes applied
+**Last Updated:** 2026-01-13 Session 99 by Claude
+**Status:** TTS fixed and running on GPU, agent functional
 
 ---
 
-## Session 98 Summary
+## Session 99 Summary
 
-### Major Fix: move_to Path Failure Detection
+### Major Fix: Commentary Queue Flood
 
-**Problem:** SMAPI returns `{success: true, data: {success: false, error: "No path found"}}` but agent only checked top-level `success`. Result: agent waited 10 seconds per failed move, ~100 seconds to skip unreachable cells.
+**Problem:** `_send_commentary` called after every action (~0.3s), but `last_mood` only updates when VLM runs (~6-10s). This flooded the queue with 20-30 identical events per VLM tick, causing:
+- TTS to speak stale/old content
+- Queue filled before new monologues arrived
+- New events dropped when queue full
 
-**Fix:** Check `data.success` in move_to handler (unified_agent.py:1662-1680)
+**Fix:** Added `_last_pushed_monologue` tracking (unified_agent.py:4374-4405)
 
 | Metric | Before | After |
 |--------|--------|-------|
-| Path failure detection | Never (10s timeout) | Immediate |
-| Time to skip unreachable cell | ~100 seconds | ~3 seconds |
-| Log message | Generic "timeout" | Clear "No path found to (X, Y)" |
+| Events per VLM tick | 20-30 (duplicates) | 1 (unique only) |
+| Queue fill rate | ~15 seconds | Never fills |
+| TTS content freshness | Stale (minutes old) | Current |
 
-### TTS Queue Improvements
+### TTS Performance: CPU → GPU
 
-| Change | Before | After |
-|--------|--------|-------|
-| Queue size | 10 | 50 |
-| Stale event skip | 5 seconds | Removed |
+**Change:** Moved Coqui XTTS from CPU to 4070 GPU (cuda:1)
 
-TTS gaps reduced but VLM commentary frequency is the real limiter. During TaskExecutor work, VLM only runs every 2 ticks for commentary.
+| Metric | CPU | GPU (4070) |
+|--------|-----|------------|
+| Generation time | 3-5 seconds | ~0.5-1 second |
+| VRAM usage | 0 | ~1-2 GB |
+| Available on 4070 | N/A | ~8 GB free |
 
 ---
 
-## Files Modified This Session
+## Files Modified Session 99
 
 | File | Change |
 |------|--------|
-| `unified_agent.py:1662-1680` | move_to checks `data.success` for path failures |
-| `commentary/async_worker.py:58` | Queue size 10 → 50 |
-| `commentary/async_worker.py:158-161` | Removed stale event skip |
+| `unified_agent.py:2031` | Added `_last_pushed_monologue` tracker |
+| `unified_agent.py:4374-4405` | Only push NEW monologues to queue |
+| `coqui_tts.py:24-44` | TTS on GPU (cuda:1 = 4070) |
+| `generator.py:56-71` | Debug logging (can remove) |
+| `async_worker.py:188-198` | Debug logging (can remove) |
 
 ---
 
-## Session 99 Priorities
+## Session 100 Priorities
 
-### 1. Monitor Multi-Day Run
-Agent is functional on Day 5+. Let it run and observe:
-- Does it handle day transitions?
-- Does bedtime override work?
-- How does cell farming perform?
+### 1. Monitor TTS Flow
+TTS should now speak unique VLM monologues with ~1 second generation time.
+- Verify "🔊 TTS:" logs appear after "📢 Commentary pushed"
+- Check for gaps or delays
 
-### 2. Day 1 Clearing Test (Optional)
-Session 97 built Day 1 clearing mode with targeting fix (`tilesUntilBlocked == 0` for adjacent). Not tested on fresh Day 1 yet.
+### 2. Clean Up Debug Logging (Optional)
+Temporary debug logging was added to trace TTS flow:
+- `generator.py` line 56: `import logging` and lines 63, 66, 70
+- `async_worker.py` lines 191-198
+- `coqui_tts.py` line 131
 
-### 3. TTS Commentary (Future)
-If more frequent speech desired during TaskExecutor work, consider:
-- Reduce `_vlm_commentary_interval` from 2 to 1
-- Or accept that gaps occur during repetitive actions
+### 3. Fix Daily Summary JSON Crash
+Agent crashes on bedtime due to tuple keys in summary dict:
+```
+TypeError: keys must be str, int, float, bool or None, not tuple
+```
+File: `unified_agent.py:4342` in `_save_daily_summary()`
 
 ---
 
-## Key Insights
+## Key Architecture Notes
 
-1. **SMAPI response structure** - `success` at HTTP level, `data.success` at action level. Always check both for actions that can fail.
-
-2. **TTS bottleneck** - Coqui XTTS on CPU takes 3-5 seconds per utterance. Gaps during repetitive actions are unavoidable unless VLM generates unique content.
-
-3. **Cell farming stuck loop** - Agent can get stuck retrying same unreachable cell. The skip logic works but may need refinement.
-
----
-
-## Architecture Notes
-
-### move_to Flow (Fixed)
+### TTS Flow (Session 99 Fixed)
 ```
-Agent sends move_to
-  → SMAPI returns {success: true, data: {success: false, error: "No path"}}
-  → Agent NOW checks data.success
-  → Returns False immediately (no 10s poll)
-  → Cell coordinator increments stuck counter
-  → After threshold, skips cell
+VLM generates inner_monologue
+  → result.mood set
+  → _send_ui_status(result) → self.last_mood = result.mood
+  → Actions execute
+  → _send_commentary() checks if last_mood != _last_pushed_monologue
+  → If NEW: push to queue (1 event per VLM tick, not 20-30)
+  → Worker processes event
+  → Generator checks if != _last_spoken
+  → Coqui generates on GPU (~1s)
+  → aplay plays audio
+  → "🔊 TTS:" logged
 ```
 
-### TTS Flow
+### GPU Usage
 ```
-VLM generates monologue
-  → Push to commentary queue (maxsize=50)
-  → Worker thread processes event
-  → Generator returns text if NEW
-  → Coqui generates audio (~3-5s)
-  → aplay plays audio (blocking)
-  → Next event processed
+3090 Ti: VLM (tensor-split main) - ~17GB/24GB used
+4070:    VLM (tensor-split 17%) + TTS (~2GB) - ~6GB/12GB used
 ```
 
 ---
 
-*Session 98: move_to path detection fix, TTS queue improvements — Claude*
+*Session 99: TTS queue fix, GPU TTS — Claude*

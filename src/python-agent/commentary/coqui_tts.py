@@ -27,10 +27,17 @@ def _get_tts():
     if _tts_instance is None:
         try:
             from TTS.api import TTS
-            logging.info("Loading Coqui XTTS v2 model (first time, may download)...")
-            # Force CPU to not compete with VLM for GPU
-            _tts_instance = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cpu")
-            logging.info("Coqui XTTS v2 loaded on CPU")
+            import torch
+            # Try GPU (4070 = cuda:1) first, fall back to CPU
+            device = "cpu"
+            if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+                # Use 4070 (device 1) - has ~8GB free, VLM uses tensor-split
+                device = "cuda:1"
+                logging.info("Loading Coqui XTTS v2 model on GPU (cuda:1 = 4070)...")
+            else:
+                logging.info("Loading Coqui XTTS v2 model on CPU...")
+            _tts_instance = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
+            logging.info(f"Coqui XTTS v2 loaded on {device}")
         except Exception as e:
             logging.error(f"Failed to load Coqui TTS: {e}")
             _tts_instance = False  # Mark as failed, don't retry
@@ -128,6 +135,7 @@ class CoquiTTS:
         if not voice_file:
             voice_file = self.voice_file
         
+        logging.info(f"🎤 Coqui TTS generating: {text[:40]}...")
         try:
             # Generate to temp file then play
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:

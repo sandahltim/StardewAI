@@ -188,6 +188,14 @@ class AsyncCommentaryWorker:
         # TTS (blocks until complete to prevent overlap)
         if self._should_speak(tts_text):
             self._speak(tts_text)
+        else:
+            # Debug: why didn't we speak?
+            if not tts_text:
+                logging.debug(f"🔇 TTS skip: generator returned empty (filtered as duplicate)")
+            elif not self._tts_enabled:
+                logging.info(f"🔇 TTS skip: TTS disabled")
+            elif not self.tts.available:
+                logging.info(f"🔇 TTS skip: TTS not available")
             
     def _should_speak(self, text: str) -> bool:
         """Check if we should speak this text."""

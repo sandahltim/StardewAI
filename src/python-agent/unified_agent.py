@@ -2028,6 +2028,7 @@ class StardewAgent:
         # Async commentary worker - runs in background thread
         self.commentary_worker = None  # Initialized after UI is set up
         self.last_mood: str = ""
+        self._last_pushed_monologue: str = ""  # Track to avoid pushing duplicates
         # Commentary settings cache - avoid HTTP calls on every tick
         self._commentary_settings_cache: Dict[str, Any] = {}
         self._commentary_settings_last_fetch: float = 0.0
@@ -4370,6 +4371,17 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
                 )
                 self._commentary_settings_applied = True
             
+        # Only push if there's a NEW monologue - avoids flooding queue with duplicates
+        # VLM generates new monologue every ~6-10s, but _send_commentary is called after every action (~0.3s)
+        # Without this check, queue fills with 20-30 identical events per VLM tick
+        current_mood = self.last_mood or ""
+        if not current_mood:
+            logging.debug(f"📢 Commentary skip: no mood")
+            return
+        if current_mood == self._last_pushed_monologue:
+            logging.debug(f"📢 Commentary skip: same as last push")
+            return
+
         # Build minimal state for commentary
         state = self.last_state or {}
         state_data = {
@@ -4382,13 +4394,15 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             "location": state.get("location", {}).get("name", ""),
             "crops": state.get("location", {}).get("crops", []),
         }
-        
+
         # Push to worker queue (non-blocking)
         self.commentary_worker.push(
             action_type=action.action_type,
             state=state_data,
-            vlm_monologue=self.last_mood or "",
+            vlm_monologue=current_mood,
         )
+        self._last_pushed_monologue = current_mood
+        logging.info(f"📢 Commentary pushed: {current_mood[:50]}...")
 
     def _check_memory_triggers(self, result: ThinkResult, game_day: str = "") -> None:
         """Check for events that should trigger memory storage."""

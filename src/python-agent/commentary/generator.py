@@ -53,17 +53,21 @@ class CommentaryGenerator:
         Returns:
             Commentary text for display/TTS, or empty string if nothing new
         """
+        import logging
         # Only use VLM monologue if it's NEW (different from last spoken)
         if vlm_monologue and vlm_monologue.strip():
             monologue = vlm_monologue.strip()
             if monologue != self._last_spoken:
                 self._last_monologue = monologue
                 self._last_spoken = monologue
+                logging.info(f"🎙️ Generator: NEW monologue for TTS: {monologue[:40]}...")
                 return monologue
             # Same as last time - return empty to skip TTS
+            logging.debug(f"🎙️ Generator: DUPLICATE filtered: {monologue[:30]}...")
             return ""
 
         # No VLM monologue - return empty (don't fall back to descriptions for TTS)
+        logging.debug("🎙️ Generator: No monologue provided")
         return ""
     
     def get_display_text(self, action: Optional[str], state: Optional[Dict], vlm_monologue: str = "") -> str:
