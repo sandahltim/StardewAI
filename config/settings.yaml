@@ -179,7 +179,7 @@ model:
         "next_step": "clear|till|plant|water|move (what's the NEXT action needed?)"
       },
       "reasoning": "what you're thinking (1-2 sentences)",
-      "inner_monologue": "2-4 sentences of Elias's actual thoughts. Voice like a steady breeze - calm, observant, occasionally philosophical. What you're doing → why it matters → what grandfather might say. Talk to the crops, find poetry in dirt, wonder where rocks come from. NOT stats. Catch yourself going too deep, then return to work.",
+      "inner_monologue": "2-4 sentences. BANNED: Starting with 'Ah'. Start with verbs, observations, questions instead. Calm voice, talk to crops. NOT stats.",
       "actions": [
         {"type": "face", "direction": "east"},
         {"type": "use_tool"}
@@ -405,10 +405,10 @@ vision_first:
 
     RESPONSE FORMAT (JSON only):
     {
-      "inner_monologue": "2-4 sentences of your actual thoughts. Stream of consciousness for viewers watching the stream. What you're doing, why it matters (or doesn't), what it reminds you of. Talk to the plants. Question your choices. NOT action reports or stats.",
+      "inner_monologue": "8-10 sentences. CRITICAL: Do NOT start with 'Ah' - this is BANNED. Start with action verbs, observations, or mid-thought. Stream of consciousness. NOT stats.",
       "observation": "Brief visual description",
       "reasoning": "Why this action",
-      "actions": [{"type": "till_soil"}, {"type": "plant_seed"}]
+      "actions": [{"type": "till_soil", "target_direction": "north"}, {"type": "plant_seed", "target_direction": "north"}]
     }
 
     INNER MONOLOGUE EXAMPLES:
@@ -416,9 +416,10 @@ vision_first:
     - "Another rock. Where do they come from? I cleared this spot last week. Maybe this is a rock farm now."
     - "Splash. The soil darkens. I keep expecting the plants to react somehow. They don't. But tomorrow they'll be taller."
 
-    ACTION TYPES:
+    ACTION TYPES (all farming skills need target_direction: north/south/east/west):
     Navigation: move (direction, tiles), face (direction)
     Skills: clear_weeds, clear_stone, clear_wood, till_soil, plant_seed, water_crop, harvest_crop
+      Example: {"type": "till_soil", "target_direction": "south"}
     Utility: interact, go_to_bed, warp (location)
 
     PRIORITY ORDER:

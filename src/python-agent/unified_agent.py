@@ -2029,6 +2029,8 @@ class StardewAgent:
         self.commentary_worker = None  # Initialized after UI is set up
         self.last_mood: str = ""
         self._last_pushed_monologue: str = ""  # Track to avoid pushing duplicates
+        self._last_commentary_push_time: float = 0.0  # Rate limit TTS pushes
+        self._min_commentary_interval: float = 45.0  # Minimum seconds between TTS pushes (TTS takes ~35-50s)
         # Commentary settings cache - avoid HTTP calls on every tick
         self._commentary_settings_cache: Dict[str, Any] = {}
         self._commentary_settings_last_fetch: float = 0.0
@@ -2121,7 +2123,7 @@ class StardewAgent:
 
         # Task Executor (deterministic task execution)
         self.task_executor = None
-        self._vlm_commentary_interval = 2  # VLM commentary every N ticks (lower = more frequent narration)
+        self._vlm_commentary_interval = 5  # VLM commentary every N ticks (lower = more frequent narration)
         self._commentary_event = None  # Event context for VLM prompt injection
         self._pending_executor_action = None  # Executor action to prepend after VLM runs
         self._task_executor_commentary_only = False  # When True, VLM observes only, no actions
@@ -2492,6 +2494,12 @@ class StardewAgent:
             available = self.skill_context.get_available_skills(self.last_state)
             if not available:
                 return ""
+            # Skills that require target_direction parameter
+            DIRECTION_SKILLS = {
+                "till_soil", "plant_seed", "water_crop", "harvest_crop",
+                "clear_weeds", "clear_stone", "clear_wood"
+            }
+            
             # Group by category for readability
             by_category: Dict[str, List[str]] = {}
             for skill in available:
@@ -2499,7 +2507,11 @@ class StardewAgent:
                 if cat not in by_category:
                     by_category[cat] = []
                 # Format: skill_name - description (for VLM to output skill names)
-                by_category[cat].append(f"{skill.name} - {skill.description}")
+                # Add parameter hint for directional skills
+                if skill.name in DIRECTION_SKILLS:
+                    by_category[cat].append(f"{skill.name} (target_direction: north/south/east/west) - {skill.description}")
+                else:
+                    by_category[cat].append(f"{skill.name} - {skill.description}")
             # Format as compact list - emphasize skill names for VLM selection
             lines = ["AVAILABLE SKILLS (use skill name as action type):"]
             for cat, skills in sorted(by_category.items()):
@@ -4381,6 +4393,13 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
         if current_mood == self._last_pushed_monologue:
             logging.debug(f"📢 Commentary skip: same as last push")
             return
+        
+        # Rate limit: don't push too frequently (TTS can't keep up)
+        now = time.time()
+        time_since_last = now - self._last_commentary_push_time
+        if time_since_last < self._min_commentary_interval:
+            logging.debug(f"📢 Commentary skip: rate limited ({time_since_last:.1f}s < {self._min_commentary_interval}s)")
+            return
 
         # Build minimal state for commentary
         state = self.last_state or {}
@@ -4402,6 +4421,7 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             vlm_monologue=current_mood,
         )
         self._last_pushed_monologue = current_mood
+        self._last_commentary_push_time = time.time()
         logging.info(f"📢 Commentary pushed: {current_mood[:50]}...")
 
     def _check_memory_triggers(self, result: ThinkResult, game_day: str = "") -> None:
