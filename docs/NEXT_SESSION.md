@@ -1,19 +1,20 @@
-# Session 96: Water Refill Loop Fix
+# Session 96: Continue Farm Testing
 
 **Last Updated:** 2026-01-13 Session 95 by Claude
-**Status:** Three major bugs fixed, water refill loop identified
+**Status:** All major bugs fixed, ready for extended testing
 
 ---
 
 ## Session 95 Summary
 
-### Bug Fixes
+### Bug Fixes (4 total)
 
 | Bug | Fix | File |
 |-----|-----|------|
 | **Navigate-to-Farm goes west every morning** | Location-based completion for warp targets | `task_executor.py:290-308` |
-| **TaskExecutor slow step-by-step moves** | Use `move_to` for A* pathfinding | `task_executor.py:489-525` |
-| **Crops skipped as no_crop_at_target** | Fix game_state structure (already `.data`) | `task_executor.py:559-560, 574-575` |
+| **TaskExecutor slow step-by-step moves** | Use `move_to` for A* pathfinding | `task_executor.py:521-557` |
+| **Crops skipped as no_crop_at_target** | Fix game_state structure (already `.data`) | `task_executor.py:591-592, 606-607` |
+| **Water refill infinite loop** | NEEDS_REFILL state tracking + poll for arrival | `task_executor.py:262-294, 843-846` |
 
 ### Bug Details
 
@@ -21,81 +22,65 @@
 **Problem:** After sleeping, player wakes in FarmHouse at (10, 9). Navigate-to-Farm task set target at (10, 9). After exiting farmhouse door (~64, 14), task still tried to reach (10, 9) → walked west.
 
 **Fix:** Check if player's current location matches destination location (not coordinates).
-```python
-if target.target_type == "warp" and target.metadata.get("destination"):
-    dest_location = target.metadata["destination"]
-    if location_name == dest_location:
-        logger.info(f"🎯 Navigate complete: arrived at {dest_location} location")
-        # Complete task
-```
 
 #### 2. TaskExecutor Slow Navigation
 **Problem:** `_create_move_action` used step-by-step directional moves, causing slow navigation.
 
 **Fix:** Use `move_to` with adjacent target coordinates for A* pathfinding.
-```python
-return ExecutorAction(
-    action_type="move_to",
-    params={"x": best_pos[0], "y": best_pos[1]},
-    target=target,
-    reason=f"Pathfinding to adjacent ({best_pos[0]}, {best_pos[1]})"
-)
-```
 
 #### 3. Crop Detection Bug
 **Problem:** `game_state.get("data", {})` returned empty dict because `controller.get_state()` already extracts `.data`.
 
-**Fix:** Access crops directly from game_state:
-```python
-# Before (broken):
-data = game_state.get("data", {}) if game_state else {}
-crops = data.get("location", {}).get("crops", [])
+**Fix:** Access crops directly from game_state.
 
-# After (fixed):
-crops = game_state.get("location", {}).get("crops", []) if game_state else []
-```
+#### 4. Water Refill Loop (NEW)
+**Problem:** When watering can empty:
+1. Precondition returned `navigate_to_water` skill
+2. Skill completed immediately (pathfinding is async)
+3. `is_active()` returned False (didn't include NEEDS_REFILL)
+4. Task restarted → precondition check → loop (18+ restarts!)
+
+**Fix:** Two changes:
+- Added `NEEDS_REFILL` to `is_active()` to prevent task restart
+- Added poll-for-arrival logic: when in NEEDS_REFILL state, check if adjacent to water before re-running preconditions
 
 ### Verification Results
 
 | Fix | Status | Evidence |
 |-----|--------|----------|
-| Navigate-to-Farm | ✅ Working | No "Moving west toward (10, 9)" in logs |
-| move_to pathfinding | ✅ Working | 11 occurrences of "move_to" in test |
-| Crop detection | ✅ Working | No "no_crop_at_target" in logs |
+| Navigate-to-Farm | ✅ Working | No "Moving west toward (10, 9)" |
+| move_to pathfinding | ✅ Working | "move_to" actions in logs |
+| Crop detection | ✅ Working | No "no_crop_at_target" |
+| Water refill | ✅ Working | Only 1 task start (vs 18+), "Now adjacent to water - refilling" |
 
 ---
 
 ## Session 96 Priority
 
-### 1. Fix Water Refill Loop
+### 1. Extended Farm Testing
+Run full day cycle to verify all fixes hold:
+- [ ] Morning watering (now with working refill!)
+- [ ] Harvest ready crops
+- [ ] Ship crops
+- [ ] Plant seeds
+- [ ] Go to bed
 
-**Problem:** Agent stuck in loop:
-1. Navigate to water source
-2. Try to refill, but still not adjacent (precondition fails)
-3. Navigate to water again
-4. Repeat 132+ times
-
-**Investigation needed:**
-- [ ] Check why `adjacent_to: water_source` precondition keeps failing
-- [ ] May be pathfinding not getting close enough
-- [ ] Or adjacency detection not working
-
-**Logs show:**
-```
-🎯 Executing skill: refill_watering_can {'target_direction': 'south'}
-🎯 Executing skill: navigate_to_water (Walk to nearest water source for refilling)
-🎯 Executing skill: navigate_to_water ... (repeats)
-```
+### 2. Performance Monitoring
+Watch for:
+- Cell farming speed with move_to
+- Commentary timing (should still run every 20-30 sec)
+- Any remaining stuck/loop behaviors
 
 ---
 
 ## Current Game State (at handoff)
 
 - **Day:** 9 (Spring, Year 1)
-- **Time:** ~6:00 AM (start of day)
+- **Time:** ~6:10 AM
 - **Weather:** Sunny
-- **Location:** Farm
+- **Location:** Farm (near water at 71, 30)
 - **Crops:** 16 (10 ready for harvest)
+- **Watering Can:** Recently refilled
 - **Agent:** STOPPED (timeout during test)
 
 ---
@@ -105,8 +90,10 @@ crops = game_state.get("location", {}).get("crops", []) if game_state else []
 | File | Change |
 |------|--------|
 | `task_executor.py:290-308` | Location-based navigate completion |
-| `task_executor.py:489-525` | Use move_to for pathfinding |
-| `task_executor.py:559-560, 574-575` | Fix game_state crop access |
+| `task_executor.py:521-557` | Use move_to for pathfinding |
+| `task_executor.py:591-592, 606-607` | Fix game_state crop access |
+| `task_executor.py:262-294` | NEEDS_REFILL poll-for-arrival |
+| `task_executor.py:843-846` | Add NEEDS_REFILL to is_active() |
 
 ---
 
@@ -118,4 +105,4 @@ crops = game_state.get("location", {}).get("crops", []) if game_state else []
 
 ---
 
-*Session 95: 3 major bug fixes (navigate-west, move_to, crop detection) — Claude (PM)*
+*Session 95: 4 major bug fixes (navigate-west, move_to, crop detection, water refill loop) — Claude (PM)*

@@ -254,11 +254,45 @@ class TaskExecutor:
         """
         if self.state in (TaskState.IDLE, TaskState.TASK_COMPLETE, TaskState.INTERRUPTED):
             return None
-        
+
         if self.current_index >= len(self.targets):
             self.state = TaskState.TASK_COMPLETE
             return None
-        
+
+        # If already in NEEDS_REFILL state, don't spam precondition actions
+        # Instead, check if we're now adjacent to water - if so, do the refill
+        if self.state == TaskState.NEEDS_REFILL:
+            is_adjacent_to_water = False
+            target_direction = "south"
+            if surroundings:
+                dirs = surroundings.get("directions", {})
+                for direction in ["north", "south", "east", "west"]:
+                    dir_data = dirs.get(direction, {})
+                    blocker = dir_data.get("blocker", "")
+                    tiles_until = dir_data.get("tilesUntilBlocked", 99)
+                    if blocker and "water" in blocker.lower() and tiles_until == 0:
+                        is_adjacent_to_water = True
+                        target_direction = direction
+                        break
+                nearest_water = surroundings.get("nearestWater", {})
+                if not is_adjacent_to_water and nearest_water.get("distance", 99) <= 1:
+                    is_adjacent_to_water = True
+                    target_direction = nearest_water.get("direction", "south").lower()
+
+            if is_adjacent_to_water:
+                # Now adjacent! Return refill action and move to normal state
+                logger.info(f"💧 Now adjacent to water - refilling")
+                self.state = TaskState.EXECUTING_AT_TARGET
+                return ExecutorAction(
+                    action_type="refill_watering_can",
+                    params={"target_direction": target_direction},
+                    reason=f"Refilling watering can (arrived at water)",
+                )
+            else:
+                # Still waiting for pathfinding - return None to let agent poll
+                logger.debug(f"💧 NEEDS_REFILL: waiting for arrival at water...")
+                return None
+
         # Check preconditions before executing task
         prereq_action = self._check_preconditions(game_state, surroundings)
         if prereq_action:
@@ -810,7 +844,8 @@ class TaskExecutor:
     
     def is_active(self) -> bool:
         """Check if actively executing a task."""
-        return self.state in (TaskState.MOVING_TO_TARGET, TaskState.EXECUTING_AT_TARGET)
+        # Include NEEDS_REFILL to prevent task restart during precondition handling
+        return self.state in (TaskState.MOVING_TO_TARGET, TaskState.EXECUTING_AT_TARGET, TaskState.NEEDS_REFILL)
     
     def should_vlm_comment(self, interval: int = 5) -> Tuple[bool, Optional[str]]:
         """
