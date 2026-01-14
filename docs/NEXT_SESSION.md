@@ -1,88 +1,102 @@
-# Session 95: Continue Farm Automation Testing
+# Session 96: Water Refill Loop Fix
 
-**Last Updated:** 2026-01-13 Session 94 by Claude
-**Status:** Performance optimizations applied, ready for testing
+**Last Updated:** 2026-01-13 Session 95 by Claude
+**Status:** Three major bugs fixed, water refill loop identified
 
 ---
 
-## Session 94 Summary
+## Session 95 Summary
 
 ### Bug Fixes
 
 | Bug | Fix | File |
 |-----|-----|------|
-| **`_check_crop_at_cell()` wrong attribute** | Changed `self.smapi_client` → `self.controller` | `unified_agent.py:3227` |
+| **Navigate-to-Farm goes west every morning** | Location-based completion for warp targets | `task_executor.py:290-308` |
+| **TaskExecutor slow step-by-step moves** | Use `move_to` for A* pathfinding | `task_executor.py:489-525` |
+| **Crops skipped as no_crop_at_target** | Fix game_state structure (already `.data`) | `task_executor.py:559-560, 574-575` |
 
-### Performance Optimizations
+### Bug Details
 
-| Optimization | Description | File |
-|--------------|-------------|------|
-| **`move_to` action** | Added direct pathfinding via SMAPI A* | `unified_agent.py:1653-1664` |
-| **Cell navigation** | Use `move_to` instead of step-by-step moves | `unified_agent.py:3103-3109` |
-| **Skip VLM when action queued** | VLM skipped only when executing, commentary still runs | `unified_agent.py:5026-5034` |
+#### 1. Navigate-to-Farm West Bug
+**Problem:** After sleeping, player wakes in FarmHouse at (10, 9). Navigate-to-Farm task set target at (10, 9). After exiting farmhouse door (~64, 14), task still tried to reach (10, 9) → walked west.
 
-### New Logic Path
-
-```
-Old (slow):
-  For each cell:
-    - Poll position (tick)
-    - VLM thinks (~5 sec)
-    - Move 1 tile
-    - Repeat 10+ times to reach cell
-    - VLM thinks (~5 sec)
-    - Execute action
-  Total: ~60 seconds per cell
-
-New (fast):
-  For each cell:
-    - Send move_to(x, y) - SMAPI pathfinds
-    - Poll until arrived (no VLM)
-    - Execute all cell actions sequentially
-    - Mark complete
-  Total: ~3-5 seconds per cell
+**Fix:** Check if player's current location matches destination location (not coordinates).
+```python
+if target.target_type == "warp" and target.metadata.get("destination"):
+    dest_location = target.metadata["destination"]
+    if location_name == dest_location:
+        logger.info(f"🎯 Navigate complete: arrived at {dest_location} location")
+        # Complete task
 ```
 
-### Verification Results (from earlier)
+#### 2. TaskExecutor Slow Navigation
+**Problem:** `_create_move_action` used step-by-step directional moves, causing slow navigation.
+
+**Fix:** Use `move_to` with adjacent target coordinates for A* pathfinding.
+```python
+return ExecutorAction(
+    action_type="move_to",
+    params={"x": best_pos[0], "y": best_pos[1]},
+    target=target,
+    reason=f"Pathfinding to adjacent ({best_pos[0]}, {best_pos[1]})"
+)
+```
+
+#### 3. Crop Detection Bug
+**Problem:** `game_state.get("data", {})` returned empty dict because `controller.get_state()` already extracts `.data`.
+
+**Fix:** Access crops directly from game_state:
+```python
+# Before (broken):
+data = game_state.get("data", {}) if game_state else {}
+crops = data.get("location", {}).get("crops", [])
+
+# After (fixed):
+crops = game_state.get("location", {}).get("crops", []) if game_state else []
+```
+
+### Verification Results
 
 | Fix | Status | Evidence |
 |-----|--------|----------|
-| **Session 92: Water skip ready crops** | ✅ Working | `🌾 Crop at (66, 22) is ready for harvest - should harvest, not water` |
-| **Session 93: Dynamic crop check** | ✅ Fixed | `self.controller.get_state()` works |
-| **Session 93: Nearest-first navigation** | ✅ Working | Cells processed efficiently |
+| Navigate-to-Farm | ✅ Working | No "Moving west toward (10, 9)" in logs |
+| move_to pathfinding | ✅ Working | 11 occurrences of "move_to" in test |
+| Crop detection | ✅ Working | No "no_crop_at_target" in logs |
 
 ---
 
-## Session 95 Priority
+## Session 96 Priority
 
-### 1. Test Pathfinding Performance
+### 1. Fix Water Refill Loop
 
-Run agent and verify:
-- [ ] `move_to` uses SMAPI A* pathfinding
-- [ ] No step-by-step VLM calls during navigation
-- [ ] Cell farming completes faster
+**Problem:** Agent stuck in loop:
+1. Navigate to water source
+2. Try to refill, but still not adjacent (precondition fails)
+3. Navigate to water again
+4. Repeat 132+ times
 
-### 2. Full Day Cycle Test
+**Investigation needed:**
+- [ ] Check why `adjacent_to: water_source` precondition keeps failing
+- [ ] May be pathfinding not getting close enough
+- [ ] Or adjacency detection not working
 
-Complete Day 8 with optimizations:
-- Morning: Water crops
-- Harvest ready crops
-- Ship harvested crops
-- Plant seeds (verify fast pathfinding)
-- Go to bed
+**Logs show:**
+```
+🎯 Executing skill: refill_watering_can {'target_direction': 'south'}
+🎯 Executing skill: navigate_to_water (Walk to nearest water source for refilling)
+🎯 Executing skill: navigate_to_water ... (repeats)
+```
 
 ---
 
 ## Current Game State (at handoff)
 
-- **Day:** 8 (Spring, Year 1)
-- **Time:** ~8:00 PM
+- **Day:** 9 (Spring, Year 1)
+- **Time:** ~6:00 AM (start of day)
 - **Weather:** Sunny
 - **Location:** Farm
-- **Energy:** 246/270
-- **Money:** 854g
-- **Crops:** 15 (7 ready, others growing)
-- **Agent:** STOPPED
+- **Crops:** 16 (10 ready for harvest)
+- **Agent:** STOPPED (timeout during test)
 
 ---
 
@@ -90,32 +104,18 @@ Complete Day 8 with optimizations:
 
 | File | Change |
 |------|--------|
-| `unified_agent.py:1653-1664` | Added `move_to` action type |
-| `unified_agent.py:3083-3109` | Use `move_to` for cell navigation |
-| `unified_agent.py:3227` | Fixed crop check attribute |
-| `unified_agent.py:5026-5034` | Skip VLM during cell farming |
+| `task_executor.py:290-308` | Location-based navigate completion |
+| `task_executor.py:489-525` | Use move_to for pathfinding |
+| `task_executor.py:559-560, 574-575` | Fix game_state crop access |
 
 ---
 
-## Session 93 Fixes (Still Active)
+## Session 94 Fixes (Still Active)
 
-- `unified_agent.py` - Dynamic crop check before water action
-- `unified_agent.py` - Use `get_nearest_cell()` for efficient cell selection
-- `cell_coordinator.py` - `get_nearest_cell()` and fixed `is_complete()`
-
-## Session 92 Fixes (Still Active)
-
-- `target_generator.py` - Skip ready-to-harvest crops in water targets
-- `unified_agent.py` - Handle ready crops in phantom detection
-- `farming.yaml` - Ship only crops, not all sellables
+- `unified_agent.py:1653-1664` - `move_to` action type in ModBridgeController
+- `unified_agent.py:3083-3109` - Cell farming uses move_to
+- `unified_agent.py:3227` - Fixed crop check attribute
 
 ---
 
-## Known Issues / Future Work
-
-1. **Pathfinding failures** - SMAPI may fail on complex paths; stuck detection handles this
-2. **TaskExecutor still slow** - Not optimized yet (still uses VLM per-tick)
-
----
-
-*Session 94: move_to pathfinding + skip VLM during cell farming — Claude (PM)*
+*Session 95: 3 major bug fixes (navigate-west, move_to, crop detection) — Claude (PM)*

@@ -286,6 +286,27 @@ class TaskExecutor:
             data = game_state.get("data") or game_state
             location = data.get("location", {})
             location_name = location.get("name", "") if isinstance(location, dict) else ""
+
+            # For location-based navigate tasks: if at destination location, complete immediately
+            # This fixes the bug where player exits FarmHouse to Farm but task still targets old coords
+            if target.target_type == "warp" and target.metadata.get("destination"):
+                dest_location = target.metadata["destination"]
+                if location_name == dest_location:
+                    logger.info(f"🎯 Navigate complete: arrived at {dest_location} location")
+                    if self.progress:
+                        self.progress.completed_targets += 1
+                    self.current_index += 1
+                    self._check_milestone()
+                    if self.current_index >= len(self.targets):
+                        self.state = TaskState.TASK_COMPLETE
+                        self._queue_event(
+                            CommentaryEvent.TASK_COMPLETE,
+                            f"Arrived at {dest_location}"
+                        )
+                        logger.info(f"✅ TaskExecutor: Navigate task COMPLETE")
+                        return None
+                    return None
+
             if location_name and location_name not in ("Farm", ""):
                 # Special case: At SeedShop with no seeds = stay to buy seeds first
                 if location_name == "SeedShop":
@@ -475,42 +496,32 @@ class TaskExecutor:
     ) -> ExecutorAction:
         """Create move action toward target (stop 1 tile away).
 
-        If primary direction is blocked, tries secondary direction.
+        Uses move_to for direct A* pathfinding via SMAPI - much faster than step-by-step.
+        Calculates adjacent position to stop at (for skill execution).
         """
-        # Determine primary and secondary directions
-        if abs(dy) > abs(dx):
-            primary = "south" if dy > 0 else "north"
-            secondary = "east" if dx > 0 else "west" if dx != 0 else None
-            primary_tiles = abs(dy) - 1 if abs(dy) > 1 else 1
-            secondary_tiles = abs(dx) if dx != 0 else 0
-        else:
-            primary = "east" if dx > 0 else "west"
-            secondary = "south" if dy > 0 else "north" if dy != 0 else None
-            primary_tiles = abs(dx) - 1 if abs(dx) > 1 else 1
-            secondary_tiles = abs(dy) if dy != 0 else 0
+        # Calculate adjacent position (1 tile from target, toward player)
+        # Pick the adjacent tile that's closest to player
+        adjacent_positions = [
+            (target.x - 1, target.y),  # west of target
+            (target.x + 1, target.y),  # east of target
+            (target.x, target.y - 1),  # north of target
+            (target.x, target.y + 1),  # south of target
+        ]
 
-        # Check if primary direction is blocked
-        direction = primary
-        tiles = max(1, primary_tiles)
-
-        if surroundings:
-            data = surroundings.get("data") or surroundings
-            directions = data.get("directions", {})
-            primary_info = directions.get(primary, {})
-
-            # If primary blocked and we have a secondary option, use it
-            if not primary_info.get("clear", True) and secondary:
-                secondary_info = directions.get(secondary, {})
-                if secondary_info.get("clear", True):
-                    direction = secondary
-                    tiles = max(1, secondary_tiles) if secondary_tiles else 1
-                    logger.info(f"🧭 Primary direction {primary} blocked, using {direction}")
+        # Find closest adjacent position to player
+        best_pos = adjacent_positions[0]
+        best_dist = abs(player_pos[0] - best_pos[0]) + abs(player_pos[1] - best_pos[1])
+        for pos in adjacent_positions[1:]:
+            dist = abs(player_pos[0] - pos[0]) + abs(player_pos[1] - pos[1])
+            if dist < best_dist:
+                best_dist = dist
+                best_pos = pos
 
         return ExecutorAction(
-            action_type="move",
-            params={"direction": direction, "tiles": tiles},
+            action_type="move_to",
+            params={"x": best_pos[0], "y": best_pos[1]},
             target=target,
-            reason=f"Moving {direction} toward target at ({target.x}, {target.y})"
+            reason=f"Pathfinding to adjacent ({best_pos[0]}, {best_pos[1]}) for target ({target.x}, {target.y})"
         )
     
     def _should_skip_target(
@@ -545,8 +556,8 @@ class TaskExecutor:
         
         # For water tasks: check if crop exists and is already watered
         if task_type == "water_crops":
-            data = game_state.get("data", {}) if game_state else {}
-            crops = data.get("location", {}).get("crops", [])
+            # game_state is already the "data" content from /state endpoint
+            crops = game_state.get("location", {}).get("crops", []) if game_state else []
             crop_found = False
             for crop in crops:
                 if crop.get("x") == target.x and crop.get("y") == target.y:
@@ -560,8 +571,8 @@ class TaskExecutor:
 
         # For harvest tasks: check if crop exists and is ready
         if task_type == "harvest_crops":
-            data = game_state.get("data", {}) if game_state else {}
-            crops = data.get("location", {}).get("crops", [])
+            # game_state is already the "data" content from /state endpoint
+            crops = game_state.get("location", {}).get("crops", []) if game_state else []
             crop_found = False
             for crop in crops:
                 if crop.get("x") == target.x and crop.get("y") == target.y:
