@@ -3112,19 +3112,26 @@ class StardewAgent:
                 self.recent_actions = self.recent_actions[-10:]
                 return False
 
-        # Session 118: Block till_soil if target tile is already tilled
+        # Session 118+119: Block till_soil if target tile is already tilled OR not tillable
         if skill_name == "till_soil" and self.last_surroundings:
             target_dir = params.get("target_direction", "south")
             dirs = self.last_surroundings.get("directions", {})
             dir_info = dirs.get(target_dir, {})
             adj_tile = dir_info.get("adjacentTile", {})
+            blocker = dir_info.get("blocker", "")
             if adj_tile.get("isTilled", False):
                 logging.warning(f"🛡️ BLOCKED: till_soil target {target_dir} already tilled! Skipping.")
                 self.recent_actions.append(f"BLOCKED: till_soil ({target_dir} already tilled)")
                 self.recent_actions = self.recent_actions[-10:]
                 return False
+            # Session 119: Block if tile is not tillable (water, cliff, etc.)
+            if not adj_tile.get("canTill", False):
+                logging.warning(f"🛡️ BLOCKED: till_soil target {target_dir} not tillable (blocker={blocker})! Skipping.")
+                self.recent_actions.append(f"BLOCKED: till_soil ({target_dir} not tillable)")
+                self.recent_actions = self.recent_actions[-10:]
+                return False
 
-        # Session 118: Block plant_seed if target tile already has crop
+        # Session 118+119: Block plant_seed if target tile already has crop OR is not tilled
         if skill_name == "plant_seed" and self.last_surroundings:
             target_dir = params.get("target_direction", "south")
             dirs = self.last_surroundings.get("directions", {})
@@ -3135,6 +3142,39 @@ class StardewAgent:
                 self.recent_actions.append(f"BLOCKED: plant_seed ({target_dir} has crop)")
                 self.recent_actions = self.recent_actions[-10:]
                 return False
+            # Session 119: Block if tile is NOT tilled - can't plant on untilled ground
+            if not adj_tile.get("isTilled", False) and not adj_tile.get("canPlant", False):
+                logging.warning(f"🛡️ BLOCKED: plant_seed target {target_dir} not tilled! Skipping.")
+                self.recent_actions.append(f"BLOCKED: plant_seed ({target_dir} not tilled)")
+                self.recent_actions = self.recent_actions[-10:]
+                return False
+
+        # Session 119: Block debris clearing if no clearable object in target direction
+        # Uses SMAPI surroundings data directly - blocker field contains object name
+        if skill_name in ["clear_weeds", "clear_stone", "clear_wood"] and self.last_surroundings:
+            target_dir = params.get("target_direction", "south")
+            dirs = self.last_surroundings.get("directions", {})
+            dir_info = dirs.get(target_dir, {})
+            blocker = (dir_info.get("blocker") or "").lower()
+
+            # Non-clearable blockers - terrain features that can't be removed
+            NON_CLEARABLE = {"water", "wall", "building", "cliff", "fence", ""}
+
+            if blocker in NON_CLEARABLE:
+                logging.warning(f"🛡️ BLOCKED: {skill_name} target {target_dir} has no clearable object (blocker={blocker or 'none'})! Skipping.")
+                self.recent_actions.append(f"BLOCKED: {skill_name} ({target_dir} nothing to clear)")
+                self.recent_actions = self.recent_actions[-10:]
+                return False
+
+            # Optional: Warn if wrong tool for debris type (but still allow - game might accept it)
+            tool_debris_map = {
+                "clear_weeds": ["weeds", "grass", "fiber"],
+                "clear_stone": ["stone", "boulder", "rock"],
+                "clear_wood": ["twig", "stump", "log", "wood", "branch"],
+            }
+            expected = tool_debris_map.get(skill_name, [])
+            if blocker and not any(e in blocker for e in expected):
+                logging.info(f"⚠️ {skill_name} target has {blocker} - may need different tool")
 
         # WATER VALIDATION: Auto-target nearest unwatered crop in adjacent tiles
         if skill_name == "water_crop" and self.last_state:
@@ -5625,6 +5665,8 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
         """
         Override: If stuck at map edge (cliffs/water), force movement toward farm center.
         Detects repetitive actions at edges and forces retreat.
+
+        Session 119: Improved detection - also triggers on BLOCKED actions at edge.
         """
         if not actions:
             return actions
@@ -5640,26 +5682,42 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
 
         player_x = state.get("player", {}).get("tileX", 0)
         player_y = state.get("player", {}).get("tileY", 0)
-        
+
         # Farm center is roughly (60, 20) - farmhouse area
-        # Edges are: east > 72, south > 45, north < 10, west < 8
-        at_edge = player_x > 72 or player_x < 8 or player_y > 45 or player_y < 10
-        
+        # Edges are: east > 75 (water), south > 50 (south water), north < 8 (north edge), west < 6
+        # Session 119: Expanded edge zones to catch more edge cases
+        at_edge = player_x > 73 or player_x < 7 or player_y > 48 or player_y < 9
+
         if not at_edge:
             return actions  # Not at edge
 
-        # Check if we're repeating debris OR move actions
-        stuck_actions = {"clear_stone", "clear_wood", "clear_weeds", "clear_debris", 
-                         "chop_tree", "mine_boulder", "break_stone", "move"}
+        # Session 119: Check if surrounded by water/impassable (worse than just being at edge)
+        surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
+        blocked_dirs = 0
+        if surroundings:
+            dirs = surroundings.get("directions", {})
+            for d in ["north", "south", "east", "west"]:
+                dir_info = dirs.get(d, {})
+                if not dir_info.get("clear", True) and dir_info.get("tilesUntilBlocked", 99) <= 1:
+                    blocked_dirs += 1
+
+        # Check if we're repeating stuck-prone actions
+        stuck_actions = {"clear_stone", "clear_wood", "clear_weeds", "clear_debris",
+                         "chop_tree", "mine_boulder", "break_stone", "move",
+                         "plant_seed", "till_soil"}  # Session 119: Added plant_seed, till_soil
         first_action = actions[0].action_type if actions else ""
-        
+
         if first_action not in stuck_actions:
             return actions  # Not a stuck-prone action
 
-        # Check repetition in recent history (any stuck action)
-        repeat_count = sum(1 for a in self.recent_actions[-5:] if any(d in a for d in stuck_actions))
-        
-        if repeat_count < 3:
+        # Check repetition in recent history (any stuck action OR BLOCKED messages)
+        # Session 119: Also count BLOCKED messages as stuck indicators
+        repeat_count = sum(1 for a in self.recent_actions[-5:]
+                          if any(d in a for d in stuck_actions) or "BLOCKED" in a)
+
+        # Session 119: Lower threshold if surrounded (2 instead of 3)
+        threshold = 2 if blocked_dirs >= 2 else 3
+        if repeat_count < threshold:
             return actions  # Not stuck yet
 
         # Calculate direction toward farm center (60, 20)

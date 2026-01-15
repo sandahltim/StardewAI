@@ -241,6 +241,17 @@ class PrereqResolver:
             return "refill_watering_can"
         elif "till" in desc_lower or "hoe" in desc_lower:
             return "till_soil"
+        # Session 119: Add missing task types
+        elif "mine" in desc_lower or "mining" in desc_lower:
+            return "go_mining"
+        elif "explore" in desc_lower or "town" in desc_lower or "neighbor" in desc_lower:
+            return "explore"
+        elif "fish" in desc_lower:
+            return "go_fishing"
+        elif "forage" in desc_lower:
+            return "forage"
+        elif "bed" in desc_lower or "sleep" in desc_lower:
+            return "go_to_bed"
 
         return None
 
