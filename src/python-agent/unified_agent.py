@@ -3597,10 +3597,51 @@ class StardewAgent:
 
                 refill_success = False
                 for adj_x, adj_y, face_dir in water_adjacent:
-                    self.controller.execute(Action("move_to", {"x": adj_x, "y": adj_y}, "move to water"))
-                    await asyncio.sleep(0.3)
+                    logging.info(f"🚿 Attempting to reach ({adj_x}, {adj_y}) to refill facing {face_dir}")
 
-                    # Equip watering can and try to refill
+                    # Try move_to first (uses A* pathfinding)
+                    move_result = self.controller.execute(Action("move_to", {"x": adj_x, "y": adj_y}, "move to water"))
+
+                    # Check if we actually arrived
+                    await asyncio.sleep(0.2)
+                    self._refresh_state_snapshot()
+                    arrived = False
+                    if self.last_state:
+                        player = self.last_state.get("player", {})
+                        px, py = player.get("tileX", 0), player.get("tileY", 0)
+                        dist = abs(px - adj_x) + abs(py - adj_y)
+                        if dist <= 1:
+                            arrived = True
+                            logging.info(f"🚿 Arrived at ({px},{py}) via move_to")
+
+                    # If move_to failed, use warp (teleport - no pathfinding needed)
+                    if not arrived:
+                        logging.info(f"🚿 move_to failed, trying direct warp to ({adj_x},{adj_y})")
+                        # Send warp directly to API (controller.execute doesn't support coord warp)
+                        try:
+                            import httpx
+                            resp = httpx.post(
+                                f"{self.controller.base_url}/action",
+                                json={"action": "warp", "target": {"x": adj_x, "y": adj_y}},
+                                timeout=5
+                            )
+                            if resp.status_code == 200:
+                                await asyncio.sleep(0.2)
+                                self._refresh_state_snapshot()
+                                if self.last_state:
+                                    player = self.last_state.get("player", {})
+                                    px, py = player.get("tileX", 0), player.get("tileY", 0)
+                                    if abs(px - adj_x) + abs(py - adj_y) <= 1:
+                                        arrived = True
+                                        logging.info(f"🚿 Arrived at ({px},{py}) via warp")
+                        except Exception as e:
+                            logging.warning(f"🚿 Warp failed: {e}")
+
+                    if not arrived:
+                        logging.warning(f"🚿 Could not reach ({adj_x},{adj_y}), trying next position")
+                        continue
+
+                    # We're close enough - try to refill
                     self.controller.execute(Action("select_item_type", {"value": "Watering Can"}, "equip can"))
                     await asyncio.sleep(0.1)
                     self.controller.execute(Action("face", {"direction": face_dir}, f"face {face_dir}"))
@@ -3617,6 +3658,8 @@ class StardewAgent:
                         logging.info(f"✅ Refilled water can to {new_water} (refill #{refill_count})")
                         refill_success = True
                         break
+                    else:
+                        logging.warning(f"🚿 Refill attempt failed at ({adj_x},{adj_y}) facing {face_dir} - not facing water?")
 
                 if refill_success:
                     # Already on farm (pond is on farm), just continue watering
