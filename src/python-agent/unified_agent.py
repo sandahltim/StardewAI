@@ -3585,7 +3585,19 @@ class StardewAgent:
         grass_positions = {(g.get("x"), g.get("y")) for g in data.get("grassPositions", [])}
         debris = {(d.get("x"), d.get("y")) for d in data.get("debris", [])}
         
-        all_blocked = permanent_blocked | debris | set(objects_by_pos.keys()) | grass_positions
+        # ResourceClumps = large stumps, logs, boulders (need upgraded tools)
+        # These have width x height, so block ALL tiles they occupy
+        clump_blocked = set()
+        for clump in data.get("resourceClumps", []):
+            cx, cy = clump.get("x", 0), clump.get("y", 0)
+            cw, ch = clump.get("width", 2), clump.get("height", 2)
+            for dx in range(cw):
+                for dy in range(ch):
+                    clump_blocked.add((cx + dx, cy + dy))
+        
+        all_blocked = permanent_blocked | debris | set(objects_by_pos.keys()) | grass_positions | clump_blocked
+        if clump_blocked:
+            logging.info(f"🌱 Avoiding {len(clump_blocked)} tiles blocked by stumps/boulders")
         
         # Get player position for proximity
         player_pos = None
@@ -3599,7 +3611,9 @@ class StardewAgent:
         start_x, start_y = self._find_best_grid_start(all_blocked, count, GRID_WIDTH, data, player_pos)
         logging.info(f"🌱 Grid start: ({start_x}, {start_y}) near player at {player_pos}")
         
-        # Generate grid positions
+        # Generate grid positions - skip anything we can't clear
+        # (permanent_blocked = already tilled/planted, clump_blocked = need upgraded tools)
+        unclearable = permanent_blocked | clump_blocked
         grid_positions = []
         for row in range(count // GRID_WIDTH + 2):
             for col in range(GRID_WIDTH):
@@ -3607,7 +3621,7 @@ class StardewAgent:
                     break
                 x = start_x + col
                 y = start_y + row
-                if (x, y) not in permanent_blocked and (x, y) not in debris:
+                if (x, y) not in unclearable:
                     grid_positions.append((x, y))
             if len(grid_positions) >= count:
                 break
