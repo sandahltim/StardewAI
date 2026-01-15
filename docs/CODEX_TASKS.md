@@ -86,7 +86,7 @@ Build UI with **placeholder/mock data** for now. Backend tracking will be added 
 
 #### Blocked By
 ~~Claude implementing verification tracking in `unified_agent.py`.~~
-**UNBLOCKED** - Build with placeholder data, backend coming Session 116.
+**COMPLETED Session 116** - Backend now writes to `logs/verification_status.json`. Endpoint `/api/verification-status` serves real data.
 
 ---
 

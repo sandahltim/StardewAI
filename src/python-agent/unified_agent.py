@@ -2057,6 +2057,89 @@ class ModBridgeController:
             "watered": {(c.get("x"), c.get("y")) for c in farm.get("crops", []) if c.get("isWatered", False)},
         }
 
+    def verify_player_at(self, x: int, y: int, tolerance: int = 1) -> bool:
+        """Verify player is at or adjacent to expected position.
+        
+        Args:
+            x, y: Target tile coordinates
+            tolerance: How many tiles away is acceptable (default 1 = adjacent)
+            
+        Returns True if player is within tolerance of target.
+        """
+        state = self.get_state()
+        if not state:
+            logging.warning(f"verify_player_at({x},{y}): No state data")
+            return False
+        player = state.get("player", {})
+        px, py = player.get("tileX", 0), player.get("tileY", 0)
+        distance = abs(px - x) + abs(py - y)  # Manhattan distance
+        result = distance <= tolerance
+        if not result:
+            logging.warning(f"verify_player_at({x},{y}): Player at ({px},{py}), distance={distance} > tolerance={tolerance}")
+        return result
+
+    # =========================================================================
+    # Verification Tracking - Persists to logs/verification_status.json
+    # =========================================================================
+    
+    def reset_verification_tracking(self):
+        """Reset tracking counters for a new batch operation."""
+        self._verification_tracking = {
+            "status": "active",
+            "window_seconds": 60,
+            "tilled": {"attempted": 0, "verified": 0},
+            "planted": {"attempted": 0, "verified": 0},
+            "watered": {"attempted": 0, "verified": 0},
+            "failures": [],
+            "updated_at": None,
+        }
+    
+    def record_verification(self, action_type: str, x: int, y: int, success: bool, reason: str = ""):
+        """Record a verification result.
+        
+        Args:
+            action_type: "tilled", "planted", or "watered"
+            x, y: Tile coordinates
+            success: Whether verification passed
+            reason: Failure reason if not successful
+        """
+        if not hasattr(self, "_verification_tracking"):
+            self.reset_verification_tracking()
+        
+        tracking = self._verification_tracking
+        if action_type in tracking:
+            tracking[action_type]["attempted"] += 1
+            if success:
+                tracking[action_type]["verified"] += 1
+            else:
+                tracking["failures"].append({
+                    "action": action_type.rstrip("ed"),  # tilled -> till
+                    "x": x,
+                    "y": y,
+                    "reason": reason or f"{action_type} verification failed",
+                })
+        
+        # Update timestamp
+        from datetime import datetime
+        tracking["updated_at"] = datetime.now().isoformat()
+    
+    def persist_verification_tracking(self):
+        """Save tracking to logs/verification_status.json for UI consumption."""
+        if not hasattr(self, "_verification_tracking"):
+            return
+        
+        import json
+        from pathlib import Path
+        
+        path = Path("/home/tim/StardewAI/logs/verification_status.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            path.write_text(json.dumps(self._verification_tracking, indent=2))
+            logging.debug(f"Persisted verification tracking: {self._verification_tracking}")
+        except Exception as e:
+            logging.error(f"Failed to persist verification tracking: {e}")
+
 
 # =============================================================================
 # GamepadController - Xbox controller input (legacy)
@@ -3138,6 +3221,9 @@ class StardewAgent:
         skipped_crops = set()  # Crops we couldn't reach (behind buildings, etc.)
         watered_this_batch = set()  # Track crops we've watered (SMAPI cache is stale for ~250ms)
         
+        # Initialize verification tracking (Session 116)
+        self.controller.reset_verification_tracking()
+        
         while batch_count < max_batch:
             # Force state refresh (bypass 0.5s throttle for batch operations)
             self.last_state_poll = 0
@@ -3237,9 +3323,11 @@ class StardewAgent:
                         watered_this_batch.add((adjacent_crop['x'], adjacent_crop['y']))
                         await asyncio.sleep(0.3)  # Wait for cache refresh before verification
                         
-                        # VERIFY: Check if crop is actually watered (Session 115 fix)
+                        # VERIFY: Check if crop is actually watered (Session 115 fix + Session 116 tracking)
                         crop_x, crop_y = adjacent_crop['x'], adjacent_crop['y']
-                        if self.controller.verify_watered(crop_x, crop_y):
+                        water_verified = self.controller.verify_watered(crop_x, crop_y)
+                        self.controller.record_verification("watered", crop_x, crop_y, water_verified, "crop not watered")
+                        if water_verified:
                             batch_count += 1
                             if batch_count % 10 == 0:
                                 logging.info(f"🚿 Batch progress: {batch_count} VERIFIED, {len(unwatered)-1} remaining")
@@ -3361,6 +3449,9 @@ class StardewAgent:
         
         if batch_count > 0:
             logging.info(f"🚿 Batch watering done: {batch_count} crops, {refill_count} refills")
+        
+        # Persist verification tracking for UI (Session 116)
+        self.controller.persist_verification_tracking()
 
     async def _batch_plant_seeds(self, seed_type: str = None, tilled_positions: list = None) -> int:
         """Batch plant seeds at positions.
@@ -3683,6 +3774,9 @@ class StardewAgent:
         tilled = 0
         planted = 0
         
+        # Initialize verification tracking (Session 116)
+        self.controller.reset_verification_tracking()
+        
         logging.info(f"🌱 Combined till+plant+water: {count} tiles")
         
         # Ensure we're on the farm (with menu dismissal and retry)
@@ -3795,14 +3889,11 @@ class StardewAgent:
 
             await asyncio.sleep(0.3)  # Wait for move to complete (was 0.1 - too fast)
 
-            # Verify we actually moved
-            self._refresh_state_snapshot()
-            if self.last_state:
-                player = self.last_state.get("player", {})
-                actual_x, actual_y = player.get("tileX", 0), player.get("tileY", 0)
-                if abs(actual_x - stand_x) > 1 or abs(actual_y - stand_y) > 1:
-                    logging.warning(f"🌱 Move failed: wanted ({stand_x},{stand_y}), at ({actual_x},{actual_y})")
-                    continue
+            # Verify we actually moved (Session 116: use verify_player_at)
+            if not self.controller.verify_player_at(stand_x, stand_y, tolerance=1):
+                logging.warning(f"🌱 Move failed: player not at ({stand_x},{stand_y})")
+                self.controller.record_verification("tilled", x, y, False, "player not at position")
+                continue
             
             # 1. Clear if needed (grass or object)
             if (x, y) in grass_positions:
@@ -3830,8 +3921,10 @@ class StardewAgent:
             self.controller.execute(Action("use_tool", {"direction": "north"}, "till"))
             await asyncio.sleep(0.5)  # Tool animation - hoe swing must complete
             
-            # VERIFY: Check if tile actually got tilled (Session 115 fix)
-            if self.controller.verify_tilled(x, y):
+            # VERIFY: Check if tile actually got tilled (Session 115 fix + Session 116 tracking)
+            till_verified = self.controller.verify_tilled(x, y)
+            self.controller.record_verification("tilled", x, y, till_verified, "tile not in tilledTiles")
+            if till_verified:
                 tilled += 1
                 logging.info(f"✓ Till verified at ({x},{y})")
             else:
@@ -3845,8 +3938,10 @@ class StardewAgent:
             self.controller.execute(Action("use_tool", {"direction": "north"}, "plant"))
             await asyncio.sleep(0.3)  # Planting animation
             
-            # VERIFY: Check if crop now exists (Session 115 fix)
-            if self.controller.verify_planted(x, y):
+            # VERIFY: Check if crop now exists (Session 115 fix + Session 116 tracking)
+            plant_verified = self.controller.verify_planted(x, y)
+            self.controller.record_verification("planted", x, y, plant_verified, "no crop at position")
+            if plant_verified:
                 planted += 1
                 logging.info(f"✓ Plant verified at ({x},{y})")
             else:
@@ -3859,8 +3954,10 @@ class StardewAgent:
             self.controller.execute(Action("use_tool", {"direction": "north"}, "water"))
             await asyncio.sleep(0.3)  # Watering animation
             
-            # VERIFY: Check if crop is watered (Session 115 fix)
-            if self.controller.verify_watered(x, y):
+            # VERIFY: Check if crop is watered (Session 115 fix + Session 116 tracking)
+            water_verified = self.controller.verify_watered(x, y)
+            self.controller.record_verification("watered", x, y, water_verified, "crop not watered")
+            if water_verified:
                 logging.debug(f"✓ Water verified at ({x},{y})")
             else:
                 logging.warning(f"⚠ Water not verified at ({x},{y}) - may need retry")
@@ -3869,6 +3966,10 @@ class StardewAgent:
                 logging.info(f"🌱 Progress: {tilled}/{count} tilled, {planted} planted (VERIFIED)")
         
         logging.info(f"🌱 Complete: {tilled} tilled, {planted} planted & watered")
+        
+        # Persist verification tracking for UI (Session 116)
+        self.controller.persist_verification_tracking()
+        
         return (tilled, planted)
 
     async def _batch_till_grid(self, count: int) -> tuple:
@@ -3887,6 +3988,9 @@ class StardewAgent:
 
         tilled = 0
         tilled_positions = []  # Track what we actually tilled
+
+        # Initialize verification tracking (Session 116)
+        self.controller.reset_verification_tracking()
 
         logging.info(f"🔨 Batch tilling {count} tiles in grid pattern")
 
@@ -4011,8 +4115,10 @@ class StardewAgent:
             self.controller.execute(Action("use_tool", {}, "till"))
             await asyncio.sleep(0.5)  # Wait for tool animation
 
-            # VERIFY: Check if tile actually got tilled (Session 115 fix)
-            if self.controller.verify_tilled(x, y):
+            # VERIFY: Check if tile actually got tilled (Session 115 fix + Session 116 tracking)
+            till_verified = self.controller.verify_tilled(x, y)
+            self.controller.record_verification("tilled", x, y, till_verified, "tile not in tilledTiles")
+            if till_verified:
                 tilled += 1
                 tilled_positions.append((x, y))
                 if tilled % 5 == 0:
@@ -4021,6 +4127,10 @@ class StardewAgent:
                 logging.error(f"✗ Till FAILED at ({x},{y}) - tile not tilled!")
 
         logging.info(f"🔨 Batch tilling complete: {tilled} VERIFIED tiles at positions {tilled_positions[:3]}...")
+        
+        # Persist verification tracking for UI (Session 116)
+        self.controller.persist_verification_tracking()
+        
         return (tilled, tilled_positions)
 
     def _find_best_grid_start(self, blocked: set, count: int, grid_width: int, farm_data: dict = None, player_pos: tuple = None) -> tuple:
