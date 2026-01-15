@@ -81,13 +81,16 @@ When batch returns 0 actions, VLM takes over with scattered operations. Batch sh
 
 ## Session 113 Summary
 
-**Fixed:** Batch chores now use `get_farm()` for full crop visibility instead of distance-limited `location.crops`
+**Fix 1:** Batch chores now use `get_farm()` for full crop visibility instead of distance-limited `location.crops`
 
-**Key Insight:** SMAPI has two crop sources:
-- `get_state().location.crops` → 15 tile radius only
-- `get_farm().crops` → ALL crops on farm
+**Fix 2:** Batch till+plant timing was too fast (0.05s) - tool animations need ~0.4s. Added explicit `direction` param to all `use_tool` calls.
 
-**Handoff:** Batch farm chores should now properly detect all crops on farm — Claude
+**Key Issues Found:**
+- `get_state().location.crops` → 15 tile radius only (use `get_farm()` instead)
+- `use_tool` calls need explicit `direction` param, not relying on prior `face` action
+- Tool animations need 0.3-0.4s to complete, not 0.05s
+
+**Handoff:** Batch till+plant should now actually till before planting — Claude
 
 ---
 

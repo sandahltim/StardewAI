@@ -3630,14 +3630,13 @@ class StardewAgent:
                 logging.debug(f"🌱 Can't reach ({stand_x},{stand_y}), skipping")
                 continue
             
-            await asyncio.sleep(0.05)
-            self.controller.execute(Action("face", {"direction": "north"}, "face north"))
+            await asyncio.sleep(0.1)  # Wait for move to complete
             
             # 1. Clear if needed (grass or object)
             if (x, y) in grass_positions:
                 self.controller.execute(Action("select_item_type", {"value": "Scythe"}, "equip scythe"))
-                self.controller.execute(Action("use_tool", {}, "clear grass"))
-                await asyncio.sleep(0.05)
+                self.controller.execute(Action("use_tool", {"direction": "north"}, "clear grass"))
+                await asyncio.sleep(0.4)  # Tool animation
             elif (x, y) in objects_by_pos:
                 obj = objects_by_pos.get((x, y), {})
                 obj_name = obj.get("name", "").lower()
@@ -3647,25 +3646,25 @@ class StardewAgent:
                     self.controller.execute(Action("select_item_type", {"value": "Axe"}, "equip axe"))
                 else:
                     self.controller.execute(Action("select_item_type", {"value": "Scythe"}, "equip scythe"))
-                self.controller.execute(Action("use_tool", {}, "clear"))
-                await asyncio.sleep(0.05)
+                self.controller.execute(Action("use_tool", {"direction": "north"}, "clear"))
+                await asyncio.sleep(0.4)  # Tool animation
             
-            # 2. Till
+            # 2. Till - MUST complete before planting
             self.controller.execute(Action("select_item_type", {"value": "Hoe"}, "equip hoe"))
-            self.controller.execute(Action("use_tool", {}, "till"))
-            await asyncio.sleep(0.05)
+            self.controller.execute(Action("use_tool", {"direction": "north"}, "till"))
+            await asyncio.sleep(0.4)  # Tool animation - hoe swing must complete
             tilled += 1
             
-            # 3. Plant
+            # 3. Plant - on the now-tilled tile
             self.controller.execute(Action("select_slot", {"slot": seed_slot}, "select seeds"))
-            self.controller.execute(Action("use_tool", {}, "plant"))
-            await asyncio.sleep(0.05)
+            self.controller.execute(Action("use_tool", {"direction": "north"}, "plant"))
+            await asyncio.sleep(0.2)  # Planting is faster
             planted += 1
             
             # 4. Water
             self.controller.execute(Action("select_item_type", {"value": "Watering Can"}, "equip can"))
-            self.controller.execute(Action("use_tool", {}, "water"))
-            await asyncio.sleep(0.05)
+            self.controller.execute(Action("use_tool", {"direction": "north"}, "water"))
+            await asyncio.sleep(0.3)  # Watering animation
             
             if tilled % 5 == 0:
                 logging.info(f"🌱 Progress: {tilled}/{count} tilled, {planted} planted")
