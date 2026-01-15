@@ -21,11 +21,21 @@
 - Include surroundings from SMAPI in skill_state before executing refill skill
 - Added debug log: "Surroundings nearestWater: {x, y, distance, direction}"
 
+### Batch Harvest Fix
+
+**Problem:** Batch harvest didn't verify if `move_to` succeeded. If path was blocked (crop behind building/water), it would try to harvest from wrong position, silently failing.
+
+**Fix:**
+- Try 4 adjacent positions (south, north, east, west of crop)
+- Verify player actually reached target position before harvesting
+- Log skipped crops that couldn't be reached
+
 ---
 
 ## Commits This Session
 
 ```
+24a1cfe Session 120: Fix batch harvest - verify move and try multiple positions
 2b5a7ce Session 120: Fix batch water refill - include surroundings data
 3ed4d94 Session 120: Fix batch water infinite loop on empty can
 ```
