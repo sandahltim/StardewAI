@@ -465,6 +465,9 @@ function updateStatus(status) {
   const calendarUpcoming = document.getElementById("calendarUpcoming");
   const actionFailureList = document.getElementById("actionFailureList");
   const actionFailureStats = document.getElementById("actionFailureStats");
+  const verificationMeta = document.getElementById("verificationMeta");
+  const verificationRecent = document.getElementById("verificationRecent");
+  const verificationFailures = document.getElementById("verificationFailures");
 
   const formatDuration = (seconds) => {
     if (!Number.isFinite(seconds) || seconds <= 0) return "-";
@@ -2058,6 +2061,82 @@ function init() {
     });
   };
 
+  const updateVerificationStatus = (payload) => {
+    if (!verificationMeta || !verificationRecent || !verificationFailures) return;
+    const status = payload?.status || "no_data";
+    if (!payload || status === "no_data" || status === "error") {
+      verificationMeta.textContent = payload?.message || "Verification tracking not available yet.";
+      verificationRecent.innerHTML = "<li>None</li>";
+      verificationFailures.innerHTML = "<li>None</li>";
+      return;
+    }
+
+    const windowSeconds = Number(payload.window_seconds ?? payload.windowSeconds ?? 60);
+    const metaLabel = Number.isFinite(windowSeconds)
+      ? `Recent batch window: ${windowSeconds}s`
+      : "Recent batch window";
+    verificationMeta.textContent = payload?.message || metaLabel;
+
+    const actions = [
+      { key: "tilled", label: "Tilled" },
+      { key: "planted", label: "Planted" },
+      { key: "watered", label: "Watered" },
+    ];
+    verificationRecent.innerHTML = "";
+    actions.forEach((action) => {
+      const stats = payload?.[action.key] || {};
+      const attempted = Number(stats.attempted ?? 0);
+      const verified = Number(stats.verified ?? 0);
+      const percent = attempted > 0 ? Math.round((verified / attempted) * 100) : 0;
+
+      const item = document.createElement("li");
+      item.className = "verification-item";
+
+      const row = document.createElement("div");
+      row.className = "verification-item__row";
+      const label = document.createElement("span");
+      label.textContent = action.label;
+      const meta = document.createElement("span");
+      meta.className = "verification-item__meta";
+      meta.textContent = `✓ ${verified}/${attempted} verified (${percent}%)`;
+      row.append(label, meta);
+
+      const bar = document.createElement("div");
+      bar.className = "verification-item__bar";
+      const fill = document.createElement("div");
+      fill.className = "verification-item__fill";
+      fill.style.width = `${percent}%`;
+      if (attempted > 0 && percent < 70) {
+        fill.classList.add("danger");
+      } else if (attempted > 0 && percent < 90) {
+        fill.classList.add("warn");
+      }
+      bar.append(fill);
+
+      item.append(row, bar);
+      verificationRecent.append(item);
+    });
+
+    verificationFailures.innerHTML = "";
+    const failures = Array.isArray(payload?.failures) ? payload.failures : [];
+    if (!failures.length) {
+      const item = document.createElement("li");
+      item.textContent = "None";
+      verificationFailures.append(item);
+    } else {
+      failures.slice(0, 6).forEach((entry) => {
+        const action = entry?.action || entry?.type || "action";
+        const x = entry?.x;
+        const y = entry?.y;
+        const coord = Number.isFinite(x) && Number.isFinite(y) ? ` (${x}, ${y})` : "";
+        const reason = entry?.reason ? ` - ${entry.reason}` : "";
+        const item = document.createElement("li");
+        item.textContent = `✗ ${action}${coord}${reason}`;
+        verificationFailures.append(item);
+      });
+    }
+  };
+
   const updateCropStatus = (crops) => {
     if (!cropStatus || !cropStatusNote) return;
     cropStatus.classList.remove("ok", "warn");
@@ -2800,6 +2879,15 @@ function init() {
       })
       .catch(() => {
         updateActionFailures(null);
+      });
+
+    fetch("/api/verification-status")
+      .then((res) => res.json())
+      .then((payload) => {
+        updateVerificationStatus(payload);
+      })
+      .catch(() => {
+        updateVerificationStatus(null);
       });
 
     fetch("/api/rusty/memory")

@@ -6,6 +6,90 @@
 
 ---
 
+## 🆕 NEW: Action Verification Status Panel (Session 115)
+
+### TASK: Action Verification UI Indicators
+
+**Priority:** HIGH - Critical for debugging batch chores
+**Assigned:** 2026-01-15 Session 115
+**Status:** 🔲 Not Started
+
+#### Background
+
+Session 115 identified that batch farm chores (till, plant, water) log success without verifying game state. Claude is adding verification helpers that will track verified vs unverified action counts.
+
+Codex: Add UI indicators showing verification status for recent actions.
+
+#### Requirements
+
+**1. Add Verification Status Panel**
+
+```
+┌──────────────────────────────────────────┐
+│ ✓ ACTION VERIFICATION                    │
+├──────────────────────────────────────────┤
+│ RECENT BATCH (last 60s):                 │
+│ Tilled:   ✓ 8/12 verified (67%)          │
+│ Planted:  ✓ 8/8 verified (100%)          │
+│ Watered:  ✓ 6/8 verified (75%)           │
+├──────────────────────────────────────────┤
+│ FAILED VERIFICATIONS:                    │
+│ • Till (54,19) - tile not in tilledTiles │
+│ • Till (55,19) - tile not in tilledTiles │
+└──────────────────────────────────────────┘
+```
+
+**2. API Endpoint**
+
+Add endpoint in `src/ui/app.py`:
+```python
+@app.get("/api/verification-status")
+def get_verification_status():
+    """Get action verification stats from agent."""
+    # Pull from agent's verification tracking
+    return {
+        "tilled": {"attempted": 12, "verified": 8},
+        "planted": {"attempted": 8, "verified": 8},
+        "watered": {"attempted": 8, "verified": 6},
+        "failures": [
+            {"action": "till", "x": 54, "y": 19, "reason": "tile not tilled"}
+        ]
+    }
+```
+
+**3. Visual Elements**
+
+- ✓ Green check for verified actions
+- ✗ Red X for failed verifications
+- Percentage bar showing verification rate
+- List of specific failures with coordinates
+
+#### Files to Modify
+- `src/ui/app.py` - Add `/api/verification-status` endpoint
+- `src/ui/static/app.js` - Add `pollVerificationStatus()`, `renderVerificationStatus()`
+- `src/ui/templates/index.html` - Add panel section
+- `src/ui/static/app.css` - Style for verification indicators
+
+#### Implementation Note
+Build UI with **placeholder/mock data** for now. Backend tracking will be added in Session 116. Use this mock response to test rendering:
+```json
+{
+    "tilled": {"attempted": 12, "verified": 8},
+    "planted": {"attempted": 8, "verified": 8},
+    "watered": {"attempted": 8, "verified": 6},
+    "failures": [
+        {"action": "till", "x": 54, "y": 19, "reason": "tile not tilled"},
+        {"action": "till", "x": 55, "y": 19, "reason": "tile not tilled"}
+    ]
+}
+```
+
+#### Blocked By
+~~Claude implementing verification tracking in `unified_agent.py`.~~
+**UNBLOCKED** - Build with placeholder data, backend coming Session 116.
+
+---
+
 ## 🆕 NEW: Farm Layout Visualizer Panel (Session 108)
 
 ### TASK: Farm Layout Preview UI

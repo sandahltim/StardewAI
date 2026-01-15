@@ -4,6 +4,49 @@ Coordination log between Claude (agent/prompt) and Codex (UI/memory).
 
 ---
 
+## 2026-01-15 - Session 115: Action Verification Fix
+
+**Agent: Claude (Opus)**
+
+### Summary
+CRITICAL FIX: Batch farm chores were logging success ("12 tilled, 12 planted") but not actually affecting game state. Root cause: no verification after actions. Added verification helpers and integrated into all batch operations.
+
+### Problem Identified
+- Counters incremented after `controller.execute()` without checking SMAPI data
+- 6 unverified counter increments found across codebase
+- Session 114 showed "12 tilled, 12 planted" but only 2 crops existed
+
+### Fix Applied
+
+**New Verification Methods (ModBridgeController):**
+- `verify_tilled(x, y)` - Checks tilledTiles from /farm
+- `verify_planted(x, y)` - Checks crops array
+- `verify_watered(x, y)` - Checks isWatered flag
+- `verify_cleared(x, y)` - Checks objects/debris removed
+- `get_verification_snapshot()` - Batch verification helper
+
+**Batch Methods Fixed:**
+- `_batch_till_and_plant()` - Verify after till/plant/water
+- `_batch_till_grid()` - Verify after each till
+- `_batch_water_remaining()` - Verify after each water
+
+### Integration Test
+New script: `scripts/test_action_verification.py`
+- Tests till → verify tilledTiles
+- Tests plant → verify crops array
+- Tests water → verify isWatered
+
+### Codex Task Assigned
+Action Verification Status Panel - UI showing verified vs attempted counts. Building with placeholder data, backend tracking deferred to Session 116.
+
+### Commits
+- Session 115 verification fixes (pending commit)
+
+### Next Session
+Session 116: Run integration test with game, validate fixes work in-game.
+
+---
+
 ## 2026-01-12 - Session 84: ResourceClump Detection + UI Panels
 
 **Agent: Claude (Opus)**

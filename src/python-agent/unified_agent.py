@@ -1971,6 +1971,92 @@ class ModBridgeController:
         """No-op for mod bridge."""
         pass
 
+    # ========== VERIFICATION HELPERS ==========
+    # These methods check game state to verify actions actually worked.
+    # Critical fix for Session 115: batch chores logged success without verification.
+    
+    def verify_tilled(self, x: int, y: int) -> bool:
+        """Verify that tile at (x,y) is now tilled (HoeDirt without crop).
+        
+        Returns True if tile is in tilledTiles from /farm endpoint.
+        Call this AFTER use_tool with Hoe and waiting for animation.
+        """
+        farm = self.get_farm()
+        if not farm:
+            logging.warning(f"verify_tilled({x},{y}): No farm data")
+            return False
+        tilled = {(t.get("x"), t.get("y")) for t in farm.get("tilledTiles", [])}
+        result = (x, y) in tilled
+        if not result:
+            logging.debug(f"verify_tilled({x},{y}): NOT in tilledTiles (count: {len(tilled)})")
+        return result
+    
+    def verify_planted(self, x: int, y: int) -> bool:
+        """Verify that crop exists at (x,y).
+        
+        Returns True if position is in crops array from /farm endpoint.
+        Call this AFTER planting seeds and waiting for animation.
+        """
+        farm = self.get_farm()
+        if not farm:
+            logging.warning(f"verify_planted({x},{y}): No farm data")
+            return False
+        crops = {(c.get("x"), c.get("y")) for c in farm.get("crops", [])}
+        result = (x, y) in crops
+        if not result:
+            logging.debug(f"verify_planted({x},{y}): NOT in crops (count: {len(crops)})")
+        return result
+    
+    def verify_watered(self, x: int, y: int) -> bool:
+        """Verify that crop at (x,y) is watered.
+        
+        Returns True if crop exists and isWatered=True.
+        Call this AFTER watering and waiting for animation.
+        """
+        farm = self.get_farm()
+        if not farm:
+            logging.warning(f"verify_watered({x},{y}): No farm data")
+            return False
+        for crop in farm.get("crops", []):
+            if crop.get("x") == x and crop.get("y") == y:
+                return crop.get("isWatered", False)
+        logging.debug(f"verify_watered({x},{y}): No crop found at position")
+        return False
+    
+    def verify_cleared(self, x: int, y: int) -> bool:
+        """Verify that debris/object at (x,y) was cleared.
+        
+        Returns True if position is NOT in objects or debris arrays.
+        Call this AFTER clearing with appropriate tool.
+        """
+        farm = self.get_farm()
+        if not farm:
+            logging.warning(f"verify_cleared({x},{y}): No farm data")
+            return False
+        objects = {(o.get("x"), o.get("y")) for o in farm.get("objects", [])}
+        debris = {(d.get("x"), d.get("y")) for d in farm.get("debris", [])}
+        grass = {(g.get("x"), g.get("y")) for g in farm.get("grassPositions", [])}
+        blocked = objects | debris | grass
+        result = (x, y) not in blocked
+        if not result:
+            logging.debug(f"verify_cleared({x},{y}): Still blocked (objects:{len(objects)}, debris:{len(debris)}, grass:{len(grass)})")
+        return result
+    
+    def get_verification_snapshot(self) -> dict:
+        """Get current farm state for batch verification.
+        
+        Returns dict with sets for quick membership testing.
+        Use this at start of batch operation, then verify against fresh data after.
+        """
+        farm = self.get_farm()
+        if not farm:
+            return {"tilledTiles": set(), "crops": set(), "watered": set()}
+        return {
+            "tilledTiles": {(t.get("x"), t.get("y")) for t in farm.get("tilledTiles", [])},
+            "crops": {(c.get("x"), c.get("y")) for c in farm.get("crops", [])},
+            "watered": {(c.get("x"), c.get("y")) for c in farm.get("crops", []) if c.get("isWatered", False)},
+        }
+
 
 # =============================================================================
 # GamepadController - Xbox controller input (legacy)
@@ -3147,12 +3233,19 @@ class StardewAgent:
                     skill_state = dict(self.last_state)
                     result = await self.skill_executor.execute(skill, params, skill_state)
                     if result.success:
-                        batch_count += 1
-                        # Track this crop as watered (SMAPI cache won't update for ~250ms)
+                        # Track locally immediately (SMAPI cache is stale for ~250ms)
                         watered_this_batch.add((adjacent_crop['x'], adjacent_crop['y']))
-                        if batch_count % 10 == 0:
-                            logging.info(f"🚿 Batch progress: {batch_count} crops, {len(unwatered)-1} remaining")
-                        await asyncio.sleep(0.03)  # Minimal delay - water action is instant
+                        await asyncio.sleep(0.3)  # Wait for cache refresh before verification
+                        
+                        # VERIFY: Check if crop is actually watered (Session 115 fix)
+                        crop_x, crop_y = adjacent_crop['x'], adjacent_crop['y']
+                        if self.controller.verify_watered(crop_x, crop_y):
+                            batch_count += 1
+                            if batch_count % 10 == 0:
+                                logging.info(f"🚿 Batch progress: {batch_count} VERIFIED, {len(unwatered)-1} remaining")
+                        else:
+                            logging.warning(f"⚠ Water not verified at ({crop_x},{crop_y}) - counted anyway (cache may be stale)")
+                            batch_count += 1  # Count anyway since we tracked locally
                         continue
                     else:
                         logging.warning(f"🚿 Batch water failed at ({adjacent_crop['x']}, {adjacent_crop['y']})")
@@ -3735,25 +3828,45 @@ class StardewAgent:
             self.controller.execute(Action("face", {"direction": "north"}, "face north"))
             await asyncio.sleep(0.05)
             self.controller.execute(Action("use_tool", {"direction": "north"}, "till"))
-            await asyncio.sleep(0.5)  # Tool animation - hoe swing must complete (increased)
-            tilled += 1
+            await asyncio.sleep(0.5)  # Tool animation - hoe swing must complete
+            
+            # VERIFY: Check if tile actually got tilled (Session 115 fix)
+            if self.controller.verify_tilled(x, y):
+                tilled += 1
+                logging.info(f"✓ Till verified at ({x},{y})")
+            else:
+                logging.error(f"✗ Till FAILED at ({x},{y}) - tile not tilled! Skipping plant.")
+                continue  # Skip planting since till failed
 
-            # 3. Plant - on the now-tilled tile
+            # 3. Plant - on the now-tilled tile (only if till verified)
             logging.info(f"🌱 Planting at ({x},{y}) - slot {seed_slot}")
             self.controller.execute(Action("select_slot", {"slot": seed_slot}, "select seeds"))
             await asyncio.sleep(0.1)  # Wait for item selection
             self.controller.execute(Action("use_tool", {"direction": "north"}, "plant"))
-            await asyncio.sleep(0.3)  # Planting animation (increased)
-            planted += 1
+            await asyncio.sleep(0.3)  # Planting animation
+            
+            # VERIFY: Check if crop now exists (Session 115 fix)
+            if self.controller.verify_planted(x, y):
+                planted += 1
+                logging.info(f"✓ Plant verified at ({x},{y})")
+            else:
+                logging.error(f"✗ Plant FAILED at ({x},{y}) - no crop found!")
+                continue  # Skip watering since plant failed
 
-            # 4. Water
+            # 4. Water (only if plant verified)
             self.controller.execute(Action("select_item_type", {"value": "Watering Can"}, "equip can"))
             await asyncio.sleep(0.1)
             self.controller.execute(Action("use_tool", {"direction": "north"}, "water"))
             await asyncio.sleep(0.3)  # Watering animation
+            
+            # VERIFY: Check if crop is watered (Session 115 fix)
+            if self.controller.verify_watered(x, y):
+                logging.debug(f"✓ Water verified at ({x},{y})")
+            else:
+                logging.warning(f"⚠ Water not verified at ({x},{y}) - may need retry")
 
             if tilled % 5 == 0:
-                logging.info(f"🌱 Progress: {tilled}/{count} tilled, {planted} planted")
+                logging.info(f"🌱 Progress: {tilled}/{count} tilled, {planted} planted (VERIFIED)")
         
         logging.info(f"🌱 Complete: {tilled} tilled, {planted} planted & watered")
         return (tilled, planted)
@@ -3891,19 +4004,23 @@ class StardewAgent:
             # Move adjacent (stand south, face north)
             stand_x, stand_y = x, y + 1
             self.controller.execute(Action("move_to", {"x": stand_x, "y": stand_y}, f"move to till"))
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.2)  # Increased for move completion
 
             # Face north and till
             self.controller.execute(Action("face", {"direction": "north"}, "face north"))
             self.controller.execute(Action("use_tool", {}, "till"))
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.5)  # Wait for tool animation
 
-            tilled += 1
-            tilled_positions.append((x, y))
-            if tilled % 5 == 0:
-                logging.info(f"🔨 Tilled {tilled}/{count}")
+            # VERIFY: Check if tile actually got tilled (Session 115 fix)
+            if self.controller.verify_tilled(x, y):
+                tilled += 1
+                tilled_positions.append((x, y))
+                if tilled % 5 == 0:
+                    logging.info(f"🔨 Tilled {tilled}/{count} (VERIFIED)")
+            else:
+                logging.error(f"✗ Till FAILED at ({x},{y}) - tile not tilled!")
 
-        logging.info(f"🔨 Batch tilling complete: {tilled} tiles at positions {tilled_positions[:3]}...")
+        logging.info(f"🔨 Batch tilling complete: {tilled} VERIFIED tiles at positions {tilled_positions[:3]}...")
         return (tilled, tilled_positions)
 
     def _find_best_grid_start(self, blocked: set, count: int, grid_width: int, farm_data: dict = None, player_pos: tuple = None) -> tuple:

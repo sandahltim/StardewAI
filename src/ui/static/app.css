@@ -364,6 +364,81 @@ h2 {
   color: var(--muted);
 }
 
+.verification-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  background: #f3f8ff;
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.verification-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.verification-section {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.verification-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+#verificationRecent {
+  padding-left: 0;
+  list-style: none;
+}
+
+.verification-item {
+  display: grid;
+  gap: 4px;
+}
+
+.verification-item__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.verification-item__meta {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.verification-item__bar {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.verification-item__fill {
+  height: 100%;
+  width: 0%;
+  background: #22c55e;
+  transition: width 0.2s ease;
+}
+
+.verification-item__fill.warn {
+  background: #f59e0b;
+}
+
+.verification-item__fill.danger {
+  background: #ef4444;
+}
+
 .farming-cycle-card {
   border: 1px solid var(--border);
   border-radius: 16px;

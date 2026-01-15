@@ -69,6 +69,7 @@ FARM_PLAN_PATH = Path("/home/tim/StardewAI/logs/farm_plans/current.json")
 LESSONS_PATH = Path("/home/tim/StardewAI/logs/lessons.json")
 RUSTY_STATE_PATH = Path("/home/tim/StardewAI/logs/rusty_state.json")
 DAILY_SUMMARY_PATH = Path("/home/tim/StardewAI/logs/daily_summary.json")
+VERIFICATION_STATUS_PATH = Path("/home/tim/StardewAI/logs/verification_status.json")
 GAME_KNOWLEDGE_DB = BASE_DIR.parents[1] / "data" / "game_knowledge.db"
 CHROMA_DIR = BASE_DIR.parents[1] / "data" / "chromadb"
 CHROMA_COLLECTION = "rusty_memories"
@@ -338,6 +339,36 @@ def _default_status() -> Dict[str, Any]:
         "executed_action": None,
         "executed_outcome": None,
     }
+
+
+def _default_verification_status() -> Dict[str, Any]:
+    return {
+        "status": "no_data",
+        "message": "Verification tracking not available yet.",
+        "window_seconds": 60,
+        "tilled": {"attempted": 0, "verified": 0},
+        "planted": {"attempted": 0, "verified": 0},
+        "watered": {"attempted": 0, "verified": 0},
+        "failures": [],
+    }
+
+
+def _read_verification_status() -> Dict[str, Any]:
+    defaults = _default_verification_status()
+    if not VERIFICATION_STATUS_PATH.exists():
+        return defaults
+    try:
+        data = json.loads(VERIFICATION_STATUS_PATH.read_text())
+    except json.JSONDecodeError:
+        defaults["status"] = "error"
+        defaults["message"] = "Verification status file is invalid."
+        return defaults
+    if not isinstance(data, dict):
+        defaults["status"] = "error"
+        defaults["message"] = "Verification status format is invalid."
+        return defaults
+    defaults.update(data)
+    return defaults
 
 
 def _read_status() -> Dict[str, Any]:
@@ -1201,6 +1232,12 @@ def get_farm_layout() -> Dict[str, Any]:
 @app.get("/api/action-failures")
 def get_action_failures(limit: int = 50, lesson_limit: int = 10) -> Dict[str, Any]:
     return _summarize_action_failures(limit=limit, lesson_limit=lesson_limit)
+
+
+@app.get("/api/verification-status")
+def get_verification_status() -> Dict[str, Any]:
+    """Get action verification stats from the agent."""
+    return _read_verification_status()
 
 
 @app.get("/api/spatial-map")
