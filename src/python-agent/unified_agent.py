@@ -3460,11 +3460,13 @@ class StardewAgent:
             if result.success:
                 # STATE-CHANGE DETECTION: Wait for game state to settle before verification
                 # Tool swing animation completes, then SMAPI needs time to poll updated state
-                # Tile-modifying skills need longer delay for SMAPI to see updated tile state
+                # Session 121: Increased delays - SMAPI state cache can be slow
                 if skill_name in ("till_soil", "plant_seed", "clear_weeds", "clear_stone", "clear_wood"):
-                    await asyncio.sleep(0.8)  # Tile state takes longer to propagate
+                    await asyncio.sleep(1.2)  # Tile state takes longer to propagate
+                elif skill_name == "water_crop":
+                    await asyncio.sleep(1.0)  # Watering needs time for isWatered to update
                 else:
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.5)
 
                 # STATE-CHANGE DETECTION: Verify actual state change
                 actual_success = self._verify_state_change(skill_name, state_before, params)
@@ -3570,36 +3572,58 @@ class StardewAgent:
                     break
                 
                 logging.info(f"🚿 Water can empty after {batch_count} crops, refilling (attempt {self._refill_attempts})...")
-                refill_skill = self.skills_dict.get("go_refill_watering_can")
-                if refill_skill:
-                    # Session 120: Include surroundings so pathfind_to nearest_water works
-                    self._refresh_state_snapshot()  # Get fresh state
-                    surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else {}
-                    skill_state = dict(self.last_state) if self.last_state else {}
-                    skill_state["surroundings"] = surroundings  # Critical for nearest_water
-                    logging.info(f"🚿 Surroundings nearestWater: {surroundings.get('nearestWater', 'NOT FOUND')}")
-                    result = await self.skill_executor.execute(refill_skill, {}, skill_state)
-                    if result.success:
-                        await asyncio.sleep(0.5)  # Wait for state to update
-                        self._refresh_state_snapshot()
-                        # Session 120: VERIFY water was actually refilled
-                        new_water = self.last_state.get("player", {}).get("wateringCanWater", 0) if self.last_state else 0
-                        if new_water > 0:
-                            refill_count += 1
-                            self._refill_attempts = 0  # Reset on success
-                            logging.info(f"✅ Refilled water can to {new_water} (refill #{refill_count})")
-                            continue  # Continue watering
-                        else:
-                            logging.warning(f"⚠️ Refill skill succeeded but can still empty (water={new_water})")
-                            continue  # Will hit attempt limit if keeps failing
-                    else:
-                        logging.warning(f"❌ Failed to refill water can, stopping")
-                        self._refill_attempts = 0
-                        break
+
+                # Session 121: Direct refill approach - move to water, then use tool
+                self._refresh_state_snapshot()
+                surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else {}
+                nearest_water = surroundings.get("nearestWater")
+
+                if nearest_water and nearest_water.get("x"):
+                    water_x, water_y = nearest_water["x"], nearest_water["y"]
+                    logging.info(f"🚿 Found water at ({water_x}, {water_y}), distance={nearest_water.get('distance', '?')}")
                 else:
-                    logging.warning("🚿 No go_refill_watering_can skill, stopping")
-                    self._refill_attempts = 0
-                    break
+                    # Fallback: Use standard farm pond location
+                    water_x, water_y = 71, 33
+                    logging.info(f"🚿 No nearestWater found, using farm pond at ({water_x}, {water_y})")
+
+                # Move adjacent to water (can't stand ON water)
+                # Try positions around the water tile
+                water_adjacent = [
+                    (water_x, water_y + 1, "north"),
+                    (water_x, water_y - 1, "south"),
+                    (water_x + 1, water_y, "west"),
+                    (water_x - 1, water_y, "east"),
+                ]
+
+                refill_success = False
+                for adj_x, adj_y, face_dir in water_adjacent:
+                    self.controller.execute(Action("move_to", {"x": adj_x, "y": adj_y}, "move to water"))
+                    await asyncio.sleep(0.3)
+
+                    # Equip watering can and try to refill
+                    self.controller.execute(Action("select_item_type", {"value": "Watering Can"}, "equip can"))
+                    await asyncio.sleep(0.1)
+                    self.controller.execute(Action("face", {"direction": face_dir}, f"face {face_dir}"))
+                    await asyncio.sleep(0.1)
+                    self.controller.execute(Action("use_tool", {"direction": face_dir}, "refill"))
+                    await asyncio.sleep(0.5)
+
+                    # Check if refilled
+                    self._refresh_state_snapshot()
+                    new_water = self.last_state.get("player", {}).get("wateringCanWater", 0) if self.last_state else 0
+                    if new_water > 0:
+                        refill_count += 1
+                        self._refill_attempts = 0
+                        logging.info(f"✅ Refilled water can to {new_water} (refill #{refill_count})")
+                        refill_success = True
+                        break
+
+                if refill_success:
+                    # Already on farm (pond is on farm), just continue watering
+                    continue
+                else:
+                    logging.warning(f"⚠️ Could not refill at any position around ({water_x}, {water_y})")
+                    continue  # Will hit attempt limit
             
             # If not on Farm, return to farm
             if location_name != "Farm":
@@ -3645,6 +3669,14 @@ class StardewAgent:
                     break
             
             if adjacent_crop:
+                # Session 121: Double-check water BEFORE attempting to water
+                # This catches cases where state was stale at top of loop
+                self._refresh_state_snapshot()
+                current_water = self.last_state.get("player", {}).get("wateringCanWater", 0) if self.last_state else 0
+                if current_water <= 0:
+                    logging.info(f"🚿 Can empty before watering - need refill first")
+                    continue  # Will trigger refill at top of next iteration
+
                 # Water adjacent crop directly
                 params = {"target_direction": water_dir}
                 skill = self.skills_dict.get("water_crop")

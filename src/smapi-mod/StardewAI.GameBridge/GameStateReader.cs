@@ -254,7 +254,7 @@ public class GameStateReader
                 ["west"] = ScanDirection(location, start.X, start.Y, -1, 0, maxTiles, mapWidth, mapHeight),
                 ["east"] = ScanDirection(location, start.X, start.Y, 1, 0, maxTiles, mapWidth, mapHeight)
             },
-            NearestWater = FindNearestWater(location, start.X, start.Y, 25)
+            NearestWater = FindNearestWater(location, start.X, start.Y, 100)  // Session 121: Increased from 25
         };
     }
 
@@ -760,7 +760,7 @@ public class GameStateReader
                 landmarks["shipping_bin"] = shippingBin;
         }
 
-        var nearestWater = FindNearestWater(location, playerX, playerY, 25);
+        var nearestWater = FindNearestWater(location, playerX, playerY, 100);  // Session 121: Increased from 25
         if (nearestWater != null)
         {
             landmarks["water"] = new LandmarkInfo

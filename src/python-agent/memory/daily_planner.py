@@ -148,6 +148,7 @@ class DailyPlanner:
         # Generate tasks based on game state (rule-based baseline)
         # Use farm_state if available (works when player is in FarmHouse)
         self._generate_farming_tasks(game_state, farm_state)
+        self._generate_crafting_tasks(game_state, farm_state)  # Session 121: Auto-craft essentials
         self._generate_maintenance_tasks(game_state)
         self._generate_social_tasks(game_state)
 
@@ -451,6 +452,99 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
 
         # PRIORITY 5: Clear debris if nothing else to do (MEDIUM - expand)
         # This is added in _generate_maintenance_tasks but we note it's last resort
+
+    def _generate_crafting_tasks(
+        self,
+        state: Dict[str, Any],
+        farm_state: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Generate crafting tasks for essential items.
+
+        Session 121: Auto-craft scarecrow and chest when materials available.
+
+        Essential items:
+        - Scarecrow: Protects crops from crows (need 50 wood, 1 coal, 20 fiber)
+        - Chest: Storage (need 50 wood)
+        """
+        # Handle SMAPI response structure
+        data = state.get("data") or state
+        inventory = data.get("inventory", [])
+
+        # Get farm objects to check what's already placed
+        farm_data = farm_state or {}
+        farm_objects = farm_data.get("objects", [])
+
+        # Count materials in inventory
+        wood_count = 0
+        coal_count = 0
+        fiber_count = 0
+        for item in inventory:
+            if not item:
+                continue
+            name = item.get("name", "").lower()
+            stack = item.get("stack", 1)
+            if name == "wood":
+                wood_count += stack
+            elif name == "coal":
+                coal_count += stack
+            elif name == "fiber":
+                fiber_count += stack
+
+        # Check if scarecrow already placed on farm
+        has_scarecrow = any(
+            "scarecrow" in obj.get("name", "").lower()
+            for obj in farm_objects
+        )
+
+        # Check if chest already placed on farm
+        has_chest = any(
+            obj.get("name", "").lower() == "chest"
+            for obj in farm_objects
+        )
+
+        # SCARECROW: High priority - crows eat crops!
+        # Recipe: 50 wood, 1 coal, 20 fiber
+        if not has_scarecrow:
+            can_craft_scarecrow = wood_count >= 50 and coal_count >= 1 and fiber_count >= 20
+            if can_craft_scarecrow:
+                self.tasks.append(DailyTask(
+                    id=f"craft_scarecrow_{self.current_day}",
+                    description="Craft and place scarecrow (have materials!)",
+                    category="crafting",
+                    priority=TaskPriority.HIGH.value,  # Protect crops from crows
+                    target_location="Farm",
+                    estimated_time=5,
+                    skill_override="craft_scarecrow",
+                    notes=f"Materials: {wood_count}/50 wood, {coal_count}/1 coal, {fiber_count}/20 fiber",
+                ))
+                logger.info(f"📋 Added task: Craft scarecrow (have {wood_count} wood, {coal_count} coal, {fiber_count} fiber)")
+            else:
+                # Log what's missing for debugging
+                missing = []
+                if wood_count < 50:
+                    missing.append(f"wood ({wood_count}/50)")
+                if coal_count < 1:
+                    missing.append(f"coal ({coal_count}/1)")
+                if fiber_count < 20:
+                    missing.append(f"fiber ({fiber_count}/20)")
+                logger.debug(f"📋 Need scarecrow but missing: {', '.join(missing)}")
+
+        # CHEST: Medium priority - inventory management
+        # Recipe: 50 wood
+        if not has_chest:
+            can_craft_chest = wood_count >= 50
+            if can_craft_chest:
+                self.tasks.append(DailyTask(
+                    id=f"craft_chest_{self.current_day}",
+                    description="Craft and place chest for storage (have wood!)",
+                    category="crafting",
+                    priority=TaskPriority.MEDIUM.value,
+                    target_location="Farm",
+                    estimated_time=5,
+                    skill_override="craft_chest",
+                    notes=f"Materials: {wood_count}/50 wood",
+                ))
+                logger.info(f"📋 Added task: Craft chest (have {wood_count} wood)")
 
     def _generate_maintenance_tasks(self, state: Dict[str, Any]) -> None:
         """Generate farm maintenance tasks.

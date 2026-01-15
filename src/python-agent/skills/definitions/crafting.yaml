@@ -6,7 +6,7 @@
 # =============================================================================
 
 craft_scarecrow:
-  description: "Craft a scarecrow to protect crops from crows (8-tile radius)"
+  description: "Craft and place a scarecrow to protect crops from crows (8-tile radius)"
   category: crafting
   energy_cost: 0
 
@@ -21,14 +21,24 @@ craft_scarecrow:
       - type: has_item
         item: Fiber
         count: 20
+      - type: location_is
+        location: Farm
 
   actions:
+    # Step 1: Craft the scarecrow
     - craft:
         item: Scarecrow
         quantity: 1
+    - wait: 0.3
+    # Step 2: Select it from inventory and place it
+    - select_item_type: Scarecrow
+    - wait: 0.2
+    - face: south
+    - wait: 0.1
+    - place_item: south
 
   on_success:
-    message: "Crafted Scarecrow (50 Wood, 1 Coal, 20 Fiber)"
+    message: "Crafted and placed Scarecrow!"
 
   on_failure:
     missing_materials:
@@ -37,7 +47,7 @@ craft_scarecrow:
       message: "Don't know Scarecrow recipe yet"
 
 craft_chest:
-  description: "Craft a chest for storage (36 slots)"
+  description: "Craft and place a chest for storage (36 slots)"
   category: crafting
   energy_cost: 0
 
@@ -46,14 +56,24 @@ craft_chest:
       - type: has_item
         item: Wood
         count: 50
+      - type: location_is
+        location: Farm
 
   actions:
+    # Step 1: Craft the chest
     - craft:
         item: Chest
         quantity: 1
+    - wait: 0.3
+    # Step 2: Select it from inventory and place near farmhouse
+    - select_item_type: Chest
+    - wait: 0.2
+    - face: south
+    - wait: 0.1
+    - place_item: south
 
   on_success:
-    message: "Crafted Chest (50 Wood)"
+    message: "Crafted and placed Chest!"
 
   on_failure:
     missing_materials:
