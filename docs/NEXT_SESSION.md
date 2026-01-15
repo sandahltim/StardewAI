@@ -1,127 +1,169 @@
-# Session 117: Test Multi-Seed Planting & Verification
+# Session 118: Fix Farmable Tile Validation
 
-**Last Updated:** 2026-01-15 Session 116 by Claude
-**Priority:** TESTING - Verify bug fixes work
-
----
-
-## Session 116 Summary
-
-### Completed: Verification Backend + Bug Fixes
-
-**1. Verification Tracking System**
-- `verify_player_at(x, y)` - Check player position before actions
-- `reset_verification_tracking()` / `record_verification()` / `persist_verification_tracking()`
-- All batch methods wired to tracking
-- UI endpoint `/api/verification-status` serves real data
-
-**2. Bug Fixes Applied**
-
-| Bug | Root Cause | Fix |
-|-----|------------|-----|
-| Mixed Seeds not planted | Only used first seed slot | Iterate through EACH seed type separately |
-| Water verification fails | 0.3s wait < SMAPI cache refresh | Increased to 0.5s |
+**Last Updated:** 2026-01-15 Session 117 by Claude
+**Priority:** CRITICAL BUG FIX
 
 ---
 
-## Code Changes (Session 116)
+## Session 117 Summary
 
-### Fix 1: Multi-Seed Planting (lines ~3740-3760)
+### Completed: Verification Improvements
+1. **Diagnostic logging** - `verify_watered()` and `verify_planted()` now log exactly what they see when failing
+2. **Increased wait times** - Water: 0.5s → 1.0s, Plant: 0.3s → 0.5s
+3. **Retry mechanisms** - All verification failures now retry once before recording failure
 
-**Before:**
+### CRITICAL BUG DISCOVERED: Invalid Tile Selection
+
+**Problem:** Agent tried to till/plant on farmhouse lawn - tiles that CANNOT be farmed.
+
+**Root Cause:** `_batch_till_and_plant()` selects grid positions based on:
+- Not in `existing_tilled` or `existing_crops`
+- Not blocked by `resourceClumps` (stumps/boulders)
+- Not in `objects`, `grass`, `debris`
+
+**MISSING:** Validation that tiles are actually **tillable ground** (not building footprints, paths, water, etc.)
+
+---
+
+## Bug Location
+
+**File:** `src/python-agent/unified_agent.py`
+**Method:** `_batch_till_and_plant()` (lines ~3785-4006)
+**Issue:** Grid generation at lines ~3860-3880
+
 ```python
-seed_items = [all seeds]
-seed_count = sum(all stacks)  # 14 + 2 = 16
-seed_slot = seed_items[0].slot  # Only first slot!
-_batch_till_and_plant(16, seed_slot)  # Fails after first type exhausted
+# Current (BROKEN) - only checks for blockers, not tillability
+unclearable = permanent_blocked | clump_blocked
+grid_positions = []
+for row in range(count // GRID_WIDTH + 2):
+    for col in range(GRID_WIDTH):
+        x = start_x + col
+        y = start_y + row
+        if (x, y) not in unclearable:  # ← NOT ENOUGH!
+            grid_positions.append((x, y))
 ```
 
-**After:**
+---
+
+## Fix Required
+
+### Option A: Use SMAPI `/passable-area` endpoint
+Check if tile is passable AND not a building:
 ```python
-for seed_item in seed_items:
-    seed_slot = seed_item.slot
-    seed_count = seed_item.stack
-    _batch_till_and_plant(seed_count, seed_slot)  # Each type planted
+# Before adding to grid:
+passable = self.controller.check_passable(x, y)
+if passable and (x, y) not in unclearable:
+    grid_positions.append((x, y))
 ```
 
-### Fix 2: Water Timing (lines 3324, 3967)
+### Option B: Use `/farm` tilledTiles + known good areas
+The farm has specific tillable regions. Could define bounds:
+```python
+FARMHOUSE_BOUNDS = {"x_min": 56, "x_max": 69, "y_min": 8, "y_max": 16}  # Approximate
+# Skip tiles inside farmhouse area
+```
 
-Changed `asyncio.sleep(0.3)` to `asyncio.sleep(0.5)` for watering verification.
+### Option C: Pre-check with hoe (most accurate)
+Before committing to a tile, verify `canTill` from surroundings:
+```python
+# Get tile info from surroundings
+tile_info = surroundings.get("adjacentTiles", {}).get("north", {})
+if tile_info.get("canTill", False):
+    # Safe to till
+```
+
+**Recommendation:** Option A is cleanest if `/passable-area` works. Option C is most game-accurate.
 
 ---
 
-## Testing Checklist
+## Code Changes Made (Session 117)
 
-### Test 1: Multi-Seed Planting
+### 1. Diagnostic Logging
+```python
+# verify_watered() - line 2023-2025
+if not is_watered:
+    logging.warning(f"verify_watered({x},{y}): Crop exists but isWatered=False (crop={crop.get('cropName', '?')})")
 
-1. Give player multiple seed types (e.g., Parsnip Seeds + Mixed Seeds)
-2. Run agent: `python src/python-agent/unified_agent.py --goal "Plant seeds"`
-3. Verify ALL seed types get planted, not just first
+# verify_planted() - line 2007-2008
+if not result:
+    logging.warning(f"verify_planted({x},{y}): NOT in crops (total_crops={len(crops)})")
+```
 
-### Test 2: Water Verification
+### 2. Water Verification Retry (lines 3967-3987)
+```python
+await asyncio.sleep(1.0)  # Increased from 0.5s
+water_verified = self.controller.verify_watered(x, y)
+if not water_verified:
+    logging.info(f"💧 Water verification failed at ({x},{y}), retrying...")
+    self.controller.execute(Action("use_tool", {"direction": "north"}, "water"))
+    await asyncio.sleep(1.0)
+    water_verified = self.controller.verify_watered(x, y)
+```
 
-1. Run batch watering
-2. Check verification stats: `curl localhost:9001/api/verification-status`
-3. Should see higher water verification rate (was 58%, target 90%+)
+### 3. Plant Verification Retry (lines 3959-3980)
+```python
+await asyncio.sleep(0.5)  # Increased from 0.3s
+plant_verified = self.controller.verify_planted(x, y)
+if not plant_verified:
+    logging.info(f"🌱 Plant verification failed at ({x},{y}), retrying...")
+    # Re-select seeds and retry
+    await asyncio.sleep(0.5)
+    plant_verified = self.controller.verify_planted(x, y)
+```
 
-### Test 3: Full Cycle
+### 4. Similar fix in `_batch_water_remaining()` (lines 3321-3352)
 
+---
+
+## Testing Checklist for Session 118
+
+### Test 1: Validate Grid Positions
+After implementing fix, run agent and verify:
 ```bash
-source venv/bin/activate
-python src/python-agent/unified_agent.py --goal "Do farm chores"
+python src/python-agent/unified_agent.py --goal "Plant seeds"
 ```
+- Grid positions should NOT include farmhouse area
+- All tilled positions should be valid farmland
 
-Watch for:
-- `🔨 Phase 3: Till & Plant X [seed_name] from slot Y` (multiple seed types)
-- `✓ Water verified at (x,y)` logs
-- Verification endpoint shows high success rates
-
----
-
-## Verification Data Format
-
-```json
-{
-  "status": "active",
-  "tilled": {"attempted": N, "verified": N},
-  "planted": {"attempted": N, "verified": N},
-  "watered": {"attempted": N, "verified": N},
-  "failures": [{"action": "...", "x": N, "y": N, "reason": "..."}],
-  "updated_at": "ISO timestamp"
-}
-```
-
----
-
-## Quick Start
-
+### Test 2: Verification Rates
+Check verification after fix:
 ```bash
-cd /home/tim/StardewAI
-source venv/bin/activate
-
-# Start UI (if not running)
-python src/ui/app.py &
-
-# Run agent
-python src/python-agent/unified_agent.py --goal "Plant all seeds"
-
-# Check verification
 curl -s localhost:9001/api/verification-status | jq
 ```
+Target: >90% for till, plant, AND water
+
+### Test 3: Full Cycle
+If verification passes, test complete farm chores cycle.
+
+---
+
+## Quick Reference
+
+**SMAPI Endpoints for Tile Validation:**
+- `GET /passable?x=N&y=N` - Is tile passable?
+- `GET /surroundings` - Returns `adjacentTiles` with `canTill`, `canPlant` flags
+- `GET /farm` - Returns `tilledTiles` array (known good positions)
+
+**Farmhouse approximate bounds (Standard Farm):**
+- Building: x=57-68, y=9-15 (rough - verify in game)
+- Porch/entrance: extends south a few tiles
 
 ---
 
 ## Commits This Session
 
-1. `fdc4bef` - Add verification tracking backend
-2. `a066f28` - Fix multi-seed planting and water timing
+None yet - changes not committed due to critical bug discovery.
+
+**Changed files (uncommitted):**
+- `src/python-agent/unified_agent.py` - Verification improvements + retry logic
 
 ---
 
-## Session 117 Goals
+## Session 118 Priority
 
-1. Verify multi-seed planting works (all seed types planted)
-2. Verify water timing fix improves verification rate
-3. If passing: Run multi-day autonomy test
+1. **FIX:** Add tillable validation to `_batch_till_and_plant()` grid selection
+2. **TEST:** Verify grid excludes farmhouse/buildings
+3. **TEST:** Run verification tests, target >90%
+4. **COMMIT:** All fixes once verified working
 
 -- Claude

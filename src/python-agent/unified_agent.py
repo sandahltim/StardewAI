@@ -959,6 +959,41 @@ class ModBridgeController:
             logging.debug(f"Failed to get farm state: {e}")
         return None
 
+    def get_tillable_area(self, center_x: int, center_y: int, radius: int = 10) -> Optional[set]:
+        """Get set of tillable positions around a center point.
+        
+        Uses the SMAPI /tillable-area endpoint which checks both:
+        - Tile has "Diggable" map property (farmland, not lawn/paths/buildings)
+        - Tile is passable (not blocked by objects/buildings)
+        
+        Returns:
+            Set of (x, y) tuples that can be tilled, or None if endpoint unavailable.
+        """
+        try:
+            resp = httpx.get(
+                f"{self.base_url}/tillable-area",
+                params={"centerX": center_x, "centerY": center_y, "radius": radius},
+                timeout=5
+            )
+            if resp.status_code == 200:
+                data = resp.json().get("data", {})
+                if data.get("success") == False:  # Endpoint exists but failed
+                    logging.warning(f"Tillable area query failed: {data.get('error')}")
+                    return None
+                tillable = set()
+                for tile in data.get("tiles", []):
+                    if tile.get("canTill", False):
+                        tillable.add((tile.get("x"), tile.get("y")))
+                logging.info(f"🌱 Tillable area: {len(tillable)} tiles in radius {radius} around ({center_x},{center_y})")
+                return tillable
+            else:
+                # Endpoint not found (older mod version)
+                logging.warning(f"Tillable area endpoint returned {resp.status_code} - update SMAPI mod")
+                return None
+        except Exception as e:
+            logging.warning(f"Failed to get tillable area: {e}")
+            return None
+
     def format_surroundings(self) -> str:
         """Format surroundings as text for VLM prompt with facing direction emphasis."""
         data = self.get_surroundings()
@@ -1993,7 +2028,7 @@ class ModBridgeController:
     
     def verify_planted(self, x: int, y: int) -> bool:
         """Verify that crop exists at (x,y).
-        
+
         Returns True if position is in crops array from /farm endpoint.
         Call this AFTER planting seeds and waiting for animation.
         """
@@ -2004,12 +2039,13 @@ class ModBridgeController:
         crops = {(c.get("x"), c.get("y")) for c in farm.get("crops", [])}
         result = (x, y) in crops
         if not result:
-            logging.debug(f"verify_planted({x},{y}): NOT in crops (count: {len(crops)})")
+            # Session 117: More diagnostic info for plant failures
+            logging.warning(f"verify_planted({x},{y}): NOT in crops (total_crops={len(crops)})")
         return result
     
     def verify_watered(self, x: int, y: int) -> bool:
         """Verify that crop at (x,y) is watered.
-        
+
         Returns True if crop exists and isWatered=True.
         Call this AFTER watering and waiting for animation.
         """
@@ -2019,7 +2055,11 @@ class ModBridgeController:
             return False
         for crop in farm.get("crops", []):
             if crop.get("x") == x and crop.get("y") == y:
-                return crop.get("isWatered", False)
+                is_watered = crop.get("isWatered", False)
+                if not is_watered:
+                    # Diagnostic: Log why verification failed (WARNING level for debugging Session 117)
+                    logging.warning(f"verify_watered({x},{y}): Crop exists but isWatered=False (crop={crop.get('cropName', '?')})")
+                return is_watered
         logging.debug(f"verify_watered({x},{y}): No crop found at position")
         return False
     
@@ -3321,18 +3361,26 @@ class StardewAgent:
                     if result.success:
                         # Track locally immediately (SMAPI cache is stale for ~250ms)
                         watered_this_batch.add((adjacent_crop['x'], adjacent_crop['y']))
-                        await asyncio.sleep(0.5)  # Wait for SMAPI cache refresh (250ms) + buffer
-                        
+                        await asyncio.sleep(1.0)  # Session 117: Increased from 0.5s to 1.0s
+
                         # VERIFY: Check if crop is actually watered (Session 115 fix + Session 116 tracking)
                         crop_x, crop_y = adjacent_crop['x'], adjacent_crop['y']
                         water_verified = self.controller.verify_watered(crop_x, crop_y)
+
+                        # Session 117: Retry once if verification fails
+                        if not water_verified:
+                            logging.info(f"💧 Water verification failed at ({crop_x},{crop_y}), retrying...")
+                            await self.skill_executor.execute(skill, params, skill_state)
+                            await asyncio.sleep(1.0)
+                            water_verified = self.controller.verify_watered(crop_x, crop_y)
+
                         self.controller.record_verification("watered", crop_x, crop_y, water_verified, "crop not watered")
                         if water_verified:
                             batch_count += 1
                             if batch_count % 10 == 0:
                                 logging.info(f"🚿 Batch progress: {batch_count} VERIFIED, {len(unwatered)-1} remaining")
                         else:
-                            logging.warning(f"⚠ Water not verified at ({crop_x},{crop_y}) - counted anyway (cache may be stale)")
+                            logging.warning(f"⚠ Water not verified at ({crop_x},{crop_y}) after retry - counted anyway")
                             batch_count += 1  # Count anyway since we tracked locally
                         continue
                     else:
@@ -3861,6 +3909,17 @@ class StardewAgent:
         start_x, start_y = self._find_best_grid_start(all_blocked, count, GRID_WIDTH, data, player_pos)
         logging.info(f"🌱 Grid start: ({start_x}, {start_y}) near player at {player_pos}")
         
+        # Session 118: Query tillable area to exclude farmhouse/paths/non-farmland
+        # This checks the "Diggable" map property to ensure tile is actually farmable
+        tillable_area = self.controller.get_tillable_area(start_x, start_y, radius=15)
+        if tillable_area is None:
+            logging.warning("🌱 Tillable validation unavailable - restart game to load updated mod")
+            # Fall back to old behavior (skip tillable check)
+        elif len(tillable_area) == 0:
+            logging.warning("🌱 No tillable tiles in area - may be on non-farmland")
+        else:
+            logging.info(f"🌱 Tillable validation: {len(tillable_area)} valid positions in area")
+        
         # Generate grid positions - skip anything we can't clear
         # (permanent_blocked = already tilled/planted, clump_blocked = need upgraded tools)
         unclearable = permanent_blocked | clump_blocked
@@ -3871,7 +3930,9 @@ class StardewAgent:
                     break
                 x = start_x + col
                 y = start_y + row
-                if (x, y) not in unclearable:
+                # Session 118: Must be tillable (if endpoint available) AND not blocked
+                is_tillable = (tillable_area is None) or ((x, y) in tillable_area)
+                if is_tillable and (x, y) not in unclearable:
                     grid_positions.append((x, y))
             if len(grid_positions) >= count:
                 break
@@ -3943,15 +4004,25 @@ class StardewAgent:
                 logging.error(f"✗ Till FAILED at ({x},{y}) - tile not tilled! Skipping plant.")
                 continue  # Skip planting since till failed
 
-            # 3. Plant - on the now-tilled tile (only if till verified)
+            # 3. Plant - on the now-tilled tile (only if till verified) - Session 117: retry
             logging.info(f"🌱 Planting at ({x},{y}) - slot {seed_slot}")
             self.controller.execute(Action("select_slot", {"slot": seed_slot}, "select seeds"))
             await asyncio.sleep(0.1)  # Wait for item selection
             self.controller.execute(Action("use_tool", {"direction": "north"}, "plant"))
-            await asyncio.sleep(0.3)  # Planting animation
-            
+            await asyncio.sleep(0.5)  # Session 117: Increased from 0.3s to 0.5s
+
             # VERIFY: Check if crop now exists (Session 115 fix + Session 116 tracking)
             plant_verified = self.controller.verify_planted(x, y)
+
+            # Session 117: Retry once if verification fails
+            if not plant_verified:
+                logging.info(f"🌱 Plant verification failed at ({x},{y}), retrying...")
+                self.controller.execute(Action("select_slot", {"slot": seed_slot}, "select seeds"))
+                await asyncio.sleep(0.1)
+                self.controller.execute(Action("use_tool", {"direction": "north"}, "plant"))
+                await asyncio.sleep(0.5)
+                plant_verified = self.controller.verify_planted(x, y)
+
             self.controller.record_verification("planted", x, y, plant_verified, "no crop at position")
             if plant_verified:
                 planted += 1
@@ -3960,19 +4031,27 @@ class StardewAgent:
                 logging.error(f"✗ Plant FAILED at ({x},{y}) - no crop found!")
                 continue  # Skip watering since plant failed
 
-            # 4. Water (only if plant verified)
+            # 4. Water (only if plant verified) - Session 117: increased wait + retry
             self.controller.execute(Action("select_item_type", {"value": "Watering Can"}, "equip can"))
             await asyncio.sleep(0.1)
             self.controller.execute(Action("use_tool", {"direction": "north"}, "water"))
-            await asyncio.sleep(0.5)  # Watering animation + cache refresh
-            
+            await asyncio.sleep(1.0)  # Session 117: Increased from 0.5s to 1.0s for SMAPI state refresh
+
             # VERIFY: Check if crop is watered (Session 115 fix + Session 116 tracking)
             water_verified = self.controller.verify_watered(x, y)
+
+            # Session 117: Retry once if verification fails (SMAPI cache may need more time)
+            if not water_verified:
+                logging.info(f"💧 Water verification failed at ({x},{y}), retrying...")
+                self.controller.execute(Action("use_tool", {"direction": "north"}, "water"))
+                await asyncio.sleep(1.0)
+                water_verified = self.controller.verify_watered(x, y)
+
             self.controller.record_verification("watered", x, y, water_verified, "crop not watered")
             if water_verified:
                 logging.debug(f"✓ Water verified at ({x},{y})")
             else:
-                logging.warning(f"⚠ Water not verified at ({x},{y}) - may need retry")
+                logging.warning(f"⚠ Water not verified at ({x},{y}) after retry")
 
             if tilled % 5 == 0:
                 logging.info(f"🌱 Progress: {tilled}/{count} tilled, {planted} planted (VERIFIED)")

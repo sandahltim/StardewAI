@@ -28,6 +28,7 @@ public class HttpServer : IDisposable
     public Func<int, int, int, int, PathCheckResult> CheckPath { get; set; }
     public Func<int, int, PassableResult> CheckPassable { get; set; }
     public Func<int, int, int, PassableAreaResult> CheckPassableArea { get; set; }
+    public Func<int, int, int, TillableAreaResult> CheckTillableArea { get; set; }
     public Func<SkillsState> GetSkills { get; set; }
 
     // Game data callbacks
@@ -122,6 +123,7 @@ public class HttpServer : IDisposable
                 ("GET", "/check-path") => HandleCheckPath(request),
                 ("GET", "/passable") => HandlePassable(request),
                 ("GET", "/passable-area") => HandlePassableArea(request),
+                ("GET", "/tillable-area") => HandleTillableArea(request),
                 // Player data
                 ("GET", "/skills") => HandleGetSkills(),
                 // Game world data
@@ -294,6 +296,27 @@ public class HttpServer : IDisposable
         catch (Exception ex)
         {
             return JsonSerializer.Serialize(ApiResponse<PassableAreaResult>.Fail($"Error checking area: {ex.Message}"), JsonOptions);
+        }
+    }
+
+    private string HandleTillableArea(HttpListenerRequest request)
+    {
+        if (CheckTillableArea == null)
+            return JsonSerializer.Serialize(ApiResponse<TillableAreaResult>.Fail("Tillable area checker not initialized"), JsonOptions);
+
+        try
+        {
+            int centerX = int.Parse(request.QueryString["centerX"] ?? "0");
+            int centerY = int.Parse(request.QueryString["centerY"] ?? "0");
+            int radius = int.Parse(request.QueryString["radius"] ?? "10");
+            radius = Math.Min(radius, 25); // Limit to prevent performance issues
+
+            var result = CheckTillableArea(centerX, centerY, radius);
+            return JsonSerializer.Serialize(ApiResponse<TillableAreaResult>.Ok(result), JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return JsonSerializer.Serialize(ApiResponse<TillableAreaResult>.Fail($"Error checking tillable area: {ex.Message}"), JsonOptions);
         }
     }
 

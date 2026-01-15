@@ -8,6 +8,7 @@ using StardewValley.Buildings;
 using StardewValley.Locations;
 using StardewValley.Objects;
 using System.Collections.Concurrent;
+using xTile.Dimensions;
 
 namespace StardewAI.GameBridge;
 
@@ -57,6 +58,7 @@ public class ModEntry : Mod
         _httpServer.CheckPath = CheckPathFromHttp;
         _httpServer.CheckPassable = CheckPassableFromHttp;
         _httpServer.CheckPassableArea = CheckPassableAreaFromHttp;
+        _httpServer.CheckTillableArea = CheckTillableAreaFromHttp;
         _httpServer.GetSkills = () => _cachedSkills;
 
         // Game world data callbacks
@@ -251,6 +253,60 @@ public class ModEntry : Mod
                     X = x,
                     Y = y,
                     Passable = passable,
+                    Blocker = blocker
+                });
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Check tillability for an area around a center point</summary>
+    private TillableAreaResult CheckTillableAreaFromHttp(int centerX, int centerY, int radius)
+    {
+        var result = new TillableAreaResult
+        {
+            CenterX = centerX,
+            CenterY = centerY,
+            Radius = radius,
+            Tiles = new List<TillableResult>()
+        };
+
+        if (!Context.IsWorldReady || Game1.currentLocation == null)
+        {
+            return result;
+        }
+
+        var location = Game1.currentLocation;
+
+        for (int dy = -radius; dy <= radius; dy++)
+        {
+            for (int dx = -radius; dx <= radius; dx++)
+            {
+                int x = centerX + dx;
+                int y = centerY + dy;
+
+                // Check both conditions for tillability:
+                // 1. Tile has "Diggable" property on Back layer
+                // 2. Tile is passable (not building/water/etc)
+                bool hasDiggable = location.doesTileHaveProperty(x, y, "Diggable", "Back") != null;
+                bool isPassable = location.isTilePassable(new xTile.Dimensions.Location(x, y), Game1.viewport);
+                bool canTill = hasDiggable && isPassable;
+
+                string blocker = null;
+                if (!canTill)
+                {
+                    if (!hasDiggable)
+                        blocker = "no_diggable";
+                    else if (!isPassable)
+                        blocker = GetBlockerName(location, x, y) ?? "blocked";
+                }
+
+                result.Tiles.Add(new TillableResult
+                {
+                    X = x,
+                    Y = y,
+                    CanTill = canTill,
                     Blocker = blocker
                 });
             }

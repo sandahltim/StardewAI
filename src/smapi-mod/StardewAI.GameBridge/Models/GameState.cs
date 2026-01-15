@@ -248,6 +248,24 @@ public class PassableAreaResult
     public List<PassableResult> Tiles { get; set; } = new();
 }
 
+/// <summary>Result of tile tillability check</summary>
+public class TillableResult
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public bool CanTill { get; set; }
+    public string Blocker { get; set; }  // Why not tillable: "building", "water", "no_diggable", etc.
+}
+
+/// <summary>Result of area tillability scan</summary>
+public class TillableAreaResult
+{
+    public int CenterX { get; set; }
+    public int CenterY { get; set; }
+    public int Radius { get; set; }
+    public List<TillableResult> Tiles { get; set; } = new();
+}
+
 /// <summary>Player skill levels and professions</summary>
 public class SkillsState
 {
