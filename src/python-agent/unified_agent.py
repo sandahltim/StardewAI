@@ -3387,32 +3387,71 @@ class StardewAgent:
                         logging.warning(f"🚿 Batch water failed at ({adjacent_crop['x']}, {adjacent_crop['y']})")
                         break
             else:
-                # Move towards nearest unwatered crop with obstacle avoidance
+                # Session 118: Move to ADJACENT position (not ON crop) using move_to
                 nearest = min(unwatered, key=lambda c: abs(c.get("x", 0) - player_x) + abs(c.get("y", 0) - player_y))
                 target_x, target_y = nearest.get("x", 0), nearest.get("y", 0)
                 
-                # Get surroundings to check for obstacles
+                # Choose adjacent position: prefer south (facing north to water)
+                # Try: south, north, east, west of crop
+                adjacent_positions = [
+                    (target_x, target_y + 1, "north"),  # Stand south, face north
+                    (target_x, target_y - 1, "south"),  # Stand north, face south
+                    (target_x + 1, target_y, "west"),   # Stand east, face west
+                    (target_x - 1, target_y, "east"),   # Stand west, face east
+                ]
+                
+                # Find best adjacent position (closest to player)
+                best_pos = None
+                best_dir = None
+                best_dist = float('inf')
+                for adj_x, adj_y, face_dir in adjacent_positions:
+                    dist = abs(adj_x - player_x) + abs(adj_y - player_y)
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_pos = (adj_x, adj_y)
+                        best_dir = face_dir
+                
+                if best_pos:
+                    adj_x, adj_y = best_pos
+                    logging.debug(f"🚿 Moving to ({adj_x},{adj_y}) to water crop at ({target_x},{target_y})")
+                    
+                    move_result = self.controller.execute(Action("move_to", {"x": adj_x, "y": adj_y}, f"move adjacent to crop"))
+                    await asyncio.sleep(0.3)  # Wait for move to complete
+                    
+                    # Check if move failed - might be blocked
+                    if not move_result or (isinstance(move_result, dict) and not move_result.get("success", True)):
+                        logging.info(f"⏭️ Can't reach crop at ({target_x},{target_y}), skipping")
+                        skipped_crops.add((target_x, target_y))
+                        continue
+                    
+                    # Verify we're adjacent (within 1 tile)
+                    self._refresh_state_snapshot()
+                    if self.last_state:
+                        new_player = self.last_state.get("player", {})
+                        new_x = new_player.get("tileX", 0)
+                        new_y = new_player.get("tileY", 0)
+                        dist_to_crop = abs(new_x - target_x) + abs(new_y - target_y)
+                        if dist_to_crop > 1:
+                            logging.info(f"⏭️ Couldn't get adjacent to crop at ({target_x},{target_y}), skipping")
+                            skipped_crops.add((target_x, target_y))
+                            continue
+                    continue  # Loop will check for adjacent crop on next iteration
+                
+                # Fallback: step-by-step movement (should rarely happen)
                 surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
                 dirs_info = surroundings.get("directions", {}) if surroundings else {}
                 
-                # Calculate preferred directions (primary + alternate)
                 dx = target_x - player_x
                 dy = target_y - player_y
                 
-                # Build priority list: primary direction, then alternates
                 move_options = []
                 if abs(dx) >= abs(dy):
                     move_options.append("east" if dx > 0 else "west")
                     move_options.append("south" if dy > 0 else "north")
-                    move_options.append("north" if dy > 0 else "south")  # Opposite vertical
-                    move_options.append("west" if dx > 0 else "east")   # Opposite horizontal
                 else:
                     move_options.append("south" if dy > 0 else "north")
                     move_options.append("east" if dx > 0 else "west")
-                    move_options.append("west" if dx > 0 else "east")   # Opposite horizontal
-                    move_options.append("north" if dy > 0 else "south") # Opposite vertical
                 
-                # Find first clear direction
                 move_dir = None
                 for opt in move_options:
                     dir_info = dirs_info.get(opt, {})
