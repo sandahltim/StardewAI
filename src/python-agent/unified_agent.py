@@ -3376,7 +3376,12 @@ class StardewAgent:
                 logging.info(f"🚿 Water can empty after {batch_count} crops, refilling (attempt {self._refill_attempts})...")
                 refill_skill = self.skills_dict.get("go_refill_watering_can")
                 if refill_skill:
-                    skill_state = dict(self.last_state)
+                    # Session 120: Include surroundings so pathfind_to nearest_water works
+                    self._refresh_state_snapshot()  # Get fresh state
+                    surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else {}
+                    skill_state = dict(self.last_state) if self.last_state else {}
+                    skill_state["surroundings"] = surroundings  # Critical for nearest_water
+                    logging.info(f"🚿 Surroundings nearestWater: {surroundings.get('nearestWater', 'NOT FOUND')}")
                     result = await self.skill_executor.execute(refill_skill, {}, skill_state)
                     if result.success:
                         await asyncio.sleep(0.5)  # Wait for state to update

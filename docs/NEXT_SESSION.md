@@ -1,57 +1,37 @@
-# Session 120: Verify Batch-Only Farming
+# Session 121: Continue Testing
 
-**Last Updated:** 2026-01-15 Session 119 by Claude
-**Status:** Ready to test - major simplification
+**Last Updated:** 2026-01-15 Session 120 by Claude
+**Status:** Ready to test batch water refill fix
 
 ---
 
-## Session 119 Summary
+## Session 120 Summary
 
-### Architecture Simplification
+### Batch Water Refill Fix
 
-**Cell farming DISABLED** - Batch mode is now the ONLY path for farming.
+**Problem:** When watering can emptied during batch water, the code would call `go_refill_watering_can` skill and continue the loop. If the skill reported "success" but didn't actually refill (pathfinding failed, no water nearby), the loop would repeat forever.
 
-Cell farming was legacy code (Session 62+) that processed farm cells one at a time using VLM guidance. It caused:
-- Phantom failures from VLM directing invalid actions
-- Inefficient cell-by-cell processing
-- Getting stuck at map edges
-
-**Now:** `auto_farm_chores` batch mode handles ALL farming reliably.
-
-### Fixes Implemented
-
-#### 1. Pre-checks Block Invalid VLM Commands
-Added pre-validation to block actions BEFORE execution:
-- `plant_seed`: Block if tile not tilled OR already has crop
-- `till_soil`: Block if tile not tillable (water, cliff) OR already tilled
-- `clear_*`: Block if no clearable object in target direction
-
-#### 2. Task Type Inference Expanded
-Added missing task types so queue doesn't show "unknown":
-- `go_mining`, `explore`, `go_fishing`, `forage`, `go_to_bed`
-
-#### 3. Edge-Stuck Detection Improved
-- Added `plant_seed`, `till_soil` to stuck-prone actions
-- BLOCKED messages count toward stuck threshold
-- Lower threshold (2 vs 3) when surrounded by obstacles
+**Fix:**
+- Track refill attempts, max 3 before giving up
+- VERIFY `wateringCanWater` actually increased after refill
+- Reset attempt counter on success or when giving up
 
 ---
 
 ## Commits This Session
 
 ```
-12e0f24 Session 119: Fix VLM phantom failures and edge-stuck detection
-19c2e51 Session 119: Disable cell farming - batch mode only
+3ed4d94 Session 120: Fix batch water infinite loop on empty can
 ```
 
 ---
 
-## Session 120 Priorities
+## Session 121 Priorities
 
-1. **TEST:** Run full day cycle - batch farm chores should complete cleanly
-2. **VERIFY:** No cell farming triggers (look for absence of "Cell-by-cell farming" in logs)
-3. **VERIFY:** Pre-checks blocking invalid VLM commands (look for "🛡️ BLOCKED:" messages)
-4. **TEST:** After farming, explore/mine tasks should execute (not "unknown")
+1. **TEST:** Run full day with batch water - verify refill works and doesn't loop
+2. **VERIFY:** Look for "Refilled water can to X" messages (should show actual water level)
+3. **VERIFY:** If refill fails 3x, should see "Refill failed X times, stopping batch water"
+4. **TEST:** Full day cycle - farm chores complete, then mine/explore tasks execute
 
 ---
 
