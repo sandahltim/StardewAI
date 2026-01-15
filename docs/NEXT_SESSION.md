@@ -7,20 +7,26 @@
 
 ## Session 120 Summary
 
-### Batch Water Refill Fix
+### Batch Water Refill Fix (Two Issues)
 
-**Problem:** When watering can emptied during batch water, the code would call `go_refill_watering_can` skill and continue the loop. If the skill reported "success" but didn't actually refill (pathfinding failed, no water nearby), the loop would repeat forever.
+**Issue 1:** When watering can emptied, batch water would call `go_refill_watering_can` and loop forever if skill "succeeded" but didn't actually refill.
 
-**Fix:**
+**Fix 1:**
 - Track refill attempts, max 3 before giving up
 - VERIFY `wateringCanWater` actually increased after refill
-- Reset attempt counter on success or when giving up
+
+**Issue 2 (Root Cause):** The `go_refill_watering_can` skill uses `pathfind_to: nearest_water`, but surroundings data wasn't being passed to the skill executor. It looked for `state["surroundings"]["nearestWater"]` which was empty.
+
+**Fix 2:**
+- Include surroundings from SMAPI in skill_state before executing refill skill
+- Added debug log: "Surroundings nearestWater: {x, y, distance, direction}"
 
 ---
 
 ## Commits This Session
 
 ```
+2b5a7ce Session 120: Fix batch water refill - include surroundings data
 3ed4d94 Session 120: Fix batch water infinite loop on empty can
 ```
 
