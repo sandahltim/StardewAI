@@ -1846,7 +1846,11 @@ class ModBridgeController:
                 })
 
             elif action_type == "select_item_type":
-                item_type = action.params.get("type", action.params.get("item_type", ""))
+                # Accept "value", "type", or "item_type" as param key
+                item_type = action.params.get("value", action.params.get("type", action.params.get("item_type", "")))
+                if not item_type:
+                    logging.error(f"select_item_type: no item type specified in params: {action.params}")
+                    return False
                 return self._send_action({
                     "action": "select_item_type",
                     "itemType": item_type
@@ -3046,6 +3050,7 @@ class StardewAgent:
         max_batch = 200  # Safety limit
         max_moves_to_crop = 50  # Max moves to reach a single crop
         skipped_crops = set()  # Crops we couldn't reach (behind buildings, etc.)
+        watered_this_batch = set()  # Track crops we've watered (SMAPI cache is stale for ~250ms)
         
         while batch_count < max_batch:
             # Force state refresh (bypass 0.5s throttle for batch operations)
@@ -3102,9 +3107,10 @@ class StardewAgent:
                         continue
                 break
             
-            # Find unwatered crops (excluding ones we've skipped)
-            unwatered = [c for c in crops if not c.get("isWatered", False) 
-                         and (c.get("x"), c.get("y")) not in skipped_crops]
+            # Find unwatered crops (excluding skipped AND ones we watered this batch - SMAPI cache is stale)
+            unwatered = [c for c in crops if not c.get("isWatered", False)
+                         and (c.get("x"), c.get("y")) not in skipped_crops
+                         and (c.get("x"), c.get("y")) not in watered_this_batch]
             if not unwatered:
                 skipped_count = len(skipped_crops)
                 if skipped_count > 0:
@@ -3142,6 +3148,8 @@ class StardewAgent:
                     result = await self.skill_executor.execute(skill, params, skill_state)
                     if result.success:
                         batch_count += 1
+                        # Track this crop as watered (SMAPI cache won't update for ~250ms)
+                        watered_this_batch.add((adjacent_crop['x'], adjacent_crop['y']))
                         if batch_count % 10 == 0:
                             logging.info(f"🚿 Batch progress: {batch_count} crops, {len(unwatered)-1} remaining")
                         await asyncio.sleep(0.03)  # Minimal delay - water action is instant
@@ -3399,6 +3407,18 @@ class StardewAgent:
             logging.warning("🏠 No state available for batch chores")
             return results
 
+        # Dismiss any open menus first (they block warps!)
+        menu = self.last_state.get("menu")
+        if menu:
+            logging.info(f"🏠 Dismissing open menu: {menu}")
+            self.controller.execute(Action("dismiss_menu", {}, "close menu"))
+            await asyncio.sleep(0.2)
+            self._refresh_state_snapshot()
+
+        if not self.last_state:
+            logging.warning("🏠 No state available for batch chores")
+            return results
+
         # --- PHASE 0: BUY SEEDS IF NEEDED ---
         inventory = self.last_state.get("inventory", [])
         has_seeds = any(i and "seed" in i.get("name", "").lower() for i in inventory)
@@ -3461,16 +3481,31 @@ class StardewAgent:
                 logging.info(f"🛒 No seeds and not enough money ({money}g)")
 
         location = self.last_state.get("location", {}) if self.last_state else {}
-        
-        # Check we're on farm
+
+        # Check we're on farm (with retry limit to prevent infinite loop)
         loc_name = location.get("name", "")
-        if loc_name != "Farm":
-            logging.info(f"🏠 Not on Farm (at {loc_name}), warping...")
+        warp_attempts = 0
+        while loc_name != "Farm" and warp_attempts < 5:
+            warp_attempts += 1
+            logging.info(f"🏠 Not on Farm (at {loc_name}), warping... (attempt {warp_attempts}/5)")
+
+            # Check for blocking menu
+            menu = self.last_state.get("menu") if self.last_state else None
+            if menu:
+                logging.info(f"🏠 Menu blocking warp: {menu}, dismissing...")
+                self.controller.execute(Action("dismiss_menu", {}, "close menu"))
+                await asyncio.sleep(0.2)
+
             self.controller.execute(Action("warp", {"location": "Farm"}, "warp to Farm"))
-            await asyncio.sleep(0.15)  # Warp is instant
+            await asyncio.sleep(0.3)  # Give warp time to complete
             self._refresh_state_snapshot()
             location = self.last_state.get("location", {}) if self.last_state else {}
-        
+            loc_name = location.get("name", "")
+
+        if loc_name != "Farm":
+            logging.error(f"🏠 Failed to warp to Farm after {warp_attempts} attempts!")
+            return results
+
         # CRITICAL: Use get_farm() for ALL crops (no distance limit)
         # location.crops only has crops within 15 tiles of player!
         farm_data = None
@@ -3557,16 +3592,32 @@ class StardewAgent:
         
         logging.info(f"🌱 Combined till+plant+water: {count} tiles")
         
-        # Ensure we're on the farm
+        # Ensure we're on the farm (with menu dismissal and retry)
         self._refresh_state_snapshot()
         location = self.last_state.get("location", {}) if self.last_state else {}
         loc_name = location.get("name", "")
-        if loc_name != "Farm":
-            logging.info(f"🌱 Not on Farm (at {loc_name}), warping...")
+        warp_attempts = 0
+        while loc_name != "Farm" and warp_attempts < 5:
+            warp_attempts += 1
+            logging.info(f"🌱 Not on Farm (at {loc_name}), warping... (attempt {warp_attempts}/5)")
+
+            # Check for blocking menu
+            menu = self.last_state.get("menu") if self.last_state else None
+            if menu:
+                logging.info(f"🌱 Menu blocking warp: {menu}, dismissing...")
+                self.controller.execute(Action("dismiss_menu", {}, "close menu"))
+                await asyncio.sleep(0.2)
+
             self.controller.execute(Action("warp", {"location": "Farm"}, "warp to Farm"))
             await asyncio.sleep(0.3)
             self._refresh_state_snapshot()
-        
+            location = self.last_state.get("location", {}) if self.last_state else {}
+            loc_name = location.get("name", "")
+
+        if loc_name != "Farm":
+            logging.error(f"🌱 Failed to warp to Farm after {warp_attempts} attempts!")
+            return (0, 0)
+
         # Get farm state
         farm_state = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
         if not farm_state:
@@ -3639,12 +3690,26 @@ class StardewAgent:
             # Stand south of target
             stand_x, stand_y = x, y + 1
             move_result = self.controller.execute(Action("move_to", {"x": stand_x, "y": stand_y}, f"move to ({x},{y})"))
-            
+
             if not move_result:
-                logging.debug(f"🌱 Can't reach ({stand_x},{stand_y}), skipping")
+                logging.warning(f"🌱 move_to ({stand_x},{stand_y}) returned None, skipping")
                 continue
-            
-            await asyncio.sleep(0.1)  # Wait for move to complete
+
+            # Check if move_result indicates failure
+            if isinstance(move_result, dict) and not move_result.get("success", True):
+                logging.warning(f"🌱 move_to failed: {move_result.get('error', 'unknown')}")
+                continue
+
+            await asyncio.sleep(0.3)  # Wait for move to complete (was 0.1 - too fast)
+
+            # Verify we actually moved
+            self._refresh_state_snapshot()
+            if self.last_state:
+                player = self.last_state.get("player", {})
+                actual_x, actual_y = player.get("tileX", 0), player.get("tileY", 0)
+                if abs(actual_x - stand_x) > 1 or abs(actual_y - stand_y) > 1:
+                    logging.warning(f"🌱 Move failed: wanted ({stand_x},{stand_y}), at ({actual_x},{actual_y})")
+                    continue
             
             # 1. Clear if needed (grass or object)
             if (x, y) in grass_positions:
@@ -3664,22 +3729,29 @@ class StardewAgent:
                 await asyncio.sleep(0.4)  # Tool animation
             
             # 2. Till - MUST complete before planting
+            logging.info(f"🔨 Tilling ({x},{y}) - equip hoe, face north, use_tool")
             self.controller.execute(Action("select_item_type", {"value": "Hoe"}, "equip hoe"))
+            await asyncio.sleep(0.1)  # Wait for item selection
+            self.controller.execute(Action("face", {"direction": "north"}, "face north"))
+            await asyncio.sleep(0.05)
             self.controller.execute(Action("use_tool", {"direction": "north"}, "till"))
-            await asyncio.sleep(0.4)  # Tool animation - hoe swing must complete
+            await asyncio.sleep(0.5)  # Tool animation - hoe swing must complete (increased)
             tilled += 1
-            
+
             # 3. Plant - on the now-tilled tile
+            logging.info(f"🌱 Planting at ({x},{y}) - slot {seed_slot}")
             self.controller.execute(Action("select_slot", {"slot": seed_slot}, "select seeds"))
+            await asyncio.sleep(0.1)  # Wait for item selection
             self.controller.execute(Action("use_tool", {"direction": "north"}, "plant"))
-            await asyncio.sleep(0.2)  # Planting is faster
+            await asyncio.sleep(0.3)  # Planting animation (increased)
             planted += 1
-            
+
             # 4. Water
             self.controller.execute(Action("select_item_type", {"value": "Watering Can"}, "equip can"))
+            await asyncio.sleep(0.1)
             self.controller.execute(Action("use_tool", {"direction": "north"}, "water"))
             await asyncio.sleep(0.3)  # Watering animation
-            
+
             if tilled % 5 == 0:
                 logging.info(f"🌱 Progress: {tilled}/{count} tilled, {planted} planted")
         
