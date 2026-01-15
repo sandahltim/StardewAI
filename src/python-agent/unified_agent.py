@@ -3056,8 +3056,14 @@ class StardewAgent:
             
             player = self.last_state.get("player", {})
             location = self.last_state.get("location", {})
-            crops = location.get("crops", [])
             location_name = location.get("name", "")
+            
+            # Use get_farm() for ALL crops (location.crops only has 15-tile range)
+            farm_data = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
+            if farm_data:
+                crops = farm_data.get("crops", [])
+            else:
+                crops = location.get("crops", [])
             
             # Check energy constraint
             energy = player.get("energy", 0)
@@ -3455,8 +3461,7 @@ class StardewAgent:
                 logging.info(f"🛒 No seeds and not enough money ({money}g)")
 
         location = self.last_state.get("location", {}) if self.last_state else {}
-        crops = location.get("crops", [])
-
+        
         # Check we're on farm
         loc_name = location.get("name", "")
         if loc_name != "Farm":
@@ -3465,7 +3470,27 @@ class StardewAgent:
             await asyncio.sleep(0.15)  # Warp is instant
             self._refresh_state_snapshot()
             location = self.last_state.get("location", {}) if self.last_state else {}
+        
+        # CRITICAL: Use get_farm() for ALL crops (no distance limit)
+        # location.crops only has crops within 15 tiles of player!
+        farm_data = None
+        if hasattr(self.controller, 'get_farm'):
+            farm_data = self.controller.get_farm()
+        if farm_data:
+            crops = farm_data.get("crops", [])
+            logging.info(f"🏠 Farm has {len(crops)} total crops")
+        else:
+            # Fallback to location crops (limited range)
             crops = location.get("crops", [])
+            logging.warning(f"🏠 Using location crops (fallback): {len(crops)}")
+
+        # Helper to refresh crops from farm data
+        def _refresh_farm_crops():
+            if hasattr(self.controller, 'get_farm'):
+                fd = self.controller.get_farm()
+                if fd:
+                    return fd.get("crops", [])
+            return self.last_state.get("location", {}).get("crops", []) if self.last_state else []
 
         # --- PHASE 1: WATER (critical - crops die without water!) ---
         unwatered = [c for c in crops if not c.get("isWatered", False) and not c.get("isReadyForHarvest", False)]
@@ -3474,7 +3499,7 @@ class StardewAgent:
             await self._batch_water_remaining()
             results["watered"] = len(unwatered)  # Approximate
             self._refresh_state_snapshot()
-            crops = self.last_state.get("location", {}).get("crops", []) if self.last_state else []
+            crops = _refresh_farm_crops()
 
         # --- PHASE 2: HARVEST ---
         harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
@@ -3491,7 +3516,7 @@ class StardewAgent:
                 results["harvested"] += 1
             logging.info(f"🌾 Harvested {results['harvested']} crops")
             self._refresh_state_snapshot()
-            crops = self.last_state.get("location", {}).get("crops", []) if self.last_state else []
+            crops = _refresh_farm_crops()
 
         # --- PHASE 3: TILL & PLANT (combined for efficiency) ---
         # Check for seeds

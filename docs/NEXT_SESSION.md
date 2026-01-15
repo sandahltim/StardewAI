@@ -1,85 +1,60 @@
 # Session 107+: Complete Farming → Mining
 
-**Last Updated:** 2026-01-14 Session 112 by Claude
+**Last Updated:** 2026-01-14 Session 113 by Claude
 **Goal:** Finish ALL farming basics so we can move to mining and the cool shit
 
 ---
 
-## Session 112 Accomplishments
+## Session 113 Accomplishments
 
-### Batch Farm Chores Fixes (Critical Pathfinding Issues)
+### Critical Fix: Batch Chores Using Wrong Crop Data
 
-**Problem Identified:** Grid search found positions 55+ tiles from player, all move_to failed.
+**Problem:** Batch said "nothing to do (farm is tidy)" but VLM saw unwatered crops!
 
-| Fix | Description |
-|-----|-------------|
-| **Proximity-based grid search** | Search only within 15 tiles of player position |
-| **Combined till+plant+water** | New `_batch_till_and_plant()` does all 3 while standing adjacent |
-| **Warp-to-farm check** | Ensures player is on Farm before batch operations |
-| **Grass clearing from SMAPI** | Added `GrassPositions` to FarmState model |
+**Root Cause:**
+- `location.get("crops", [])` only returns crops within **15 tiles** of player
+- When player warps to farm spawn point, actual crops may be 50+ tiles away
+- Result: Empty crop list → "nothing to do"
 
-### SMAPI Changes
-| File | Change |
-|------|--------|
-| `Models/GameState.cs` | Added `GrassPositions` to FarmState |
-| `GameStateReader.cs` | Populate grass positions from terrainFeatures |
+**Solution:** Use `get_farm()` which returns **ALL crops** on farm regardless of distance.
 
-### Python Changes
-| Component | Change |
-|-----------|--------|
-| `_batch_till_and_plant()` | NEW - Combined operation: move → clear → till → plant → water |
-| `_find_best_grid_start()` | Now accepts `player_pos`, searches 15-tile radius |
-| `_batch_till_grid()` | Updated to use `grassPositions`, track grass clearing |
+| Function | Before | After |
+|----------|--------|-------|
+| `_batch_farm_chores()` | `location.get("crops", [])` | `get_farm().get("crops", [])` |
+| `_batch_water_remaining()` | `location.get("crops", [])` | `get_farm().get("crops", [])` |
 
-### Root Cause Analysis
+### New Log Output
 ```
-Log: player at (9, 9), Grid start: (54, 16)
-Distance: 55+ tiles → All move_to fail "No path found"
+🏠 Farm has 15 total crops        # NEW - confirms crop detection
+💧 Phase 1: Watering 3 crops      # Actually finds unwatered crops
 ```
-
-Player was in FarmHouse/off-farm coordinates. Grid search found "optimal" position far away. Solution: Search NEAR player + warp to farm first.
 
 ---
 
-## Session 113 Priorities
+## Session 114 Priorities
 
 ### 1. REBUILD SMAPI MOD (Required!)
 ```bash
 cd /home/tim/StardewAI/src/smapi-mod/StardewAI.GameBridge && dotnet build
 ```
-New `GrassPositions` field won't work until rebuilt.
+`GrassPositions` field from Session 112 still needs rebuild.
 
-### 2. Test Combined Till+Plant+Water
-The new `_batch_till_and_plant()` should:
-- Warp to Farm if not there
-- Search within 15 tiles of player
-- Clear grass/objects first
-- Till → Plant → Water in one standing position
-- Log progress every 5 tiles
-
-**Expected Logs:**
-```
-🌱 Combined till+plant+water: 15 tiles
-🌱 Not on Farm (at FarmHouse), warping...
-🔨 Search area near player: (50-80 x 10-40)
-🌱 Grid start: (65, 25) near player at (65, 20)
-🌱 Processing 15 positions
-🌱 Progress: 5/15 tilled, 5 planted
-🌱 Complete: 15 tilled, 15 planted & watered
-```
-
-### 3. If Still Failing
-Check:
-1. Is player position being read correctly after warp?
-2. Are positions within 15-tile radius actually clear?
-3. Is pathfinding working for nearby positions?
-
-Debug command:
+### 2. Test Batch Chores End-to-End
 ```bash
-grep -E "player at|Grid start|Search area|move_to failed" logs/agent.log | tail -30
+source venv/bin/activate
+python src/python-agent/unified_agent.py --goal "Farm the crops"
 ```
 
-### 4. Mining Testing (if farming works)
+**Watch for:**
+```
+🚀 BATCH MODE: Task farm_chores_X uses skill_override=auto_farm_chores
+🏠 Farm has N total crops        # Should show actual crop count
+💧 Phase 1: Watering X crops     # Should water all unwatered
+🔨 Phase 3: Till & Plant Y tiles # Should till and plant
+🏠 BATCH CHORES COMPLETE: harvested=0, watered=3, tilled=10, planted=10
+```
+
+### 3. If Batch Works → Mining
 - Test `go_to_mines` skill
 - Test `enter_mine_level_1`
 - Test combat with `swing_weapon`
@@ -89,29 +64,30 @@ grep -E "player at|Grid start|Search area|move_to failed" logs/agent.log | tail 
 ## Known Issues
 
 ### Inventory Full
-Screenshot showed "Inventory Full" message. This blocks picking up items but shouldn't block planting. If agent keeps failing, may need inventory management first.
+Screenshot showed "Inventory Full" message. May need inventory management before planting.
 
 ### VLM Fallback
-When batch fails (0 planted), VLM takes over and does scattered tilling/planting. This is inefficient. Need batch to succeed or provide better fallback.
+When batch returns 0 actions, VLM takes over with scattered operations. Batch should now work properly.
 
 ---
 
-## Files Modified This Session
+## Session 112 Summary (Previous)
 
-### Commits
-```
-c2b684d Session 112: Fix batch till+plant pathfinding issues
-cacf67d Session 112: Add grass clearing before tilling
-1fb5393 Session 112: Dynamic grid positioning + conditional mining task
-```
+**Fixed:** Proximity-based grid search (15 tiles), combined till+plant+water, grass clearing
 
-### Key Files
-| File | Changes |
-|------|---------|
-| `unified_agent.py` | `_batch_till_and_plant()`, proximity search, warp check |
-| `daily_planner.py` | Mining task generation |
-| `GameState.cs` | `GrassPositions` field |
-| `GameStateReader.cs` | Grass position population |
+**Issues Found:** Batch said "nothing to do" when crops existed far from player
+
+---
+
+## Session 113 Summary
+
+**Fixed:** Batch chores now use `get_farm()` for full crop visibility instead of distance-limited `location.crops`
+
+**Key Insight:** SMAPI has two crop sources:
+- `get_state().location.crops` → 15 tile radius only
+- `get_farm().crops` → ALL crops on farm
+
+**Handoff:** Batch farm chores should now properly detect all crops on farm — Claude
 
 ---
 
@@ -129,23 +105,5 @@ cd src/smapi-mod/StardewAI.GameBridge && dotnet build && cd ../../..
 python src/python-agent/unified_agent.py --goal "Farm the crops"
 
 # Check batch logs
-tail -f logs/agent.log | grep -E "Combined|Grid|plant|till|move_to"
+tail -f logs/agent.log | grep -E "BATCH|Farm has|Phase|COMPLETE"
 ```
-
----
-
-## Session 111 Summary (Previous)
-
-**Built:** Mining system (SMAPI actions + skills) + Batch farm chores architecture
-
-**Issues Found:** Grid search found positions far from player, pathfinding failed
-
----
-
-## Session 112 Summary
-
-**Fixed:** Proximity-based grid search (15 tiles), combined till+plant+water operation, grass clearing support
-
-**Remaining:** Test with rebuilt SMAPI mod, verify batch actually works end-to-end
-
-**Handoff:** Batch farm chores should work after SMAPI rebuild — Claude
