@@ -5138,44 +5138,13 @@ class StardewAgent:
                 logging.debug(f"🎯 _try_start_daily_task: waiting for daily plan (day {current_day})")
                 return False
 
-        # Check if cell farming should take over for plant_seeds
-        # This bypasses the separate clear_debris, till_soil, plant_seeds prereqs
-        # BUT only if we already have seeds - otherwise let prereq queue handle buy_seeds first
-        if HAS_CELL_FARMING and not self.cell_coordinator:
-            resolved_queue = self.daily_planner.resolved_queue
-            for rt in resolved_queue:
-                task_type = rt.task_type if hasattr(rt, 'task_type') else rt.get('task_type', '')
-                is_prereq = rt.is_prereq if hasattr(rt, 'is_prereq') else rt.get('is_prereq', False)
-                # Look for main plant_seeds task (not prereqs)
-                if task_type == "plant_seeds" and not is_prereq:
-                    # Get game state for cell farming
-                    state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
-                    if state:
-                        data = state.get("data") or state
-
-                        # Check if we have seeds BEFORE starting cell farming
-                        # If no seeds, skip cell farming and let prereq queue run (buy_seeds)
-                        inventory = data.get("inventory", [])
-                        has_seeds = any(
-                            item and "seed" in item.get("name", "").lower()
-                            for item in inventory
-                        )
-                        if not has_seeds:
-                            logging.info("🌱 Skipping cell farming - no seeds, running buy_seeds prereqs first")
-                            break  # Exit loop, let normal prereq handling continue
-
-                        player = data.get("player") or {}
-                        tile_x = player.get("tileX")
-                        tile_y = player.get("tileY")
-                        player_pos = (tile_x, tile_y) if tile_x is not None else (0, 0)
-                        task_id = rt.original_task_id if hasattr(rt, 'original_task_id') else rt.get('original_task_id', '')
-
-                        # Start cell farming - this handles clear/till/plant/water per cell
-                        if self._start_cell_farming(state, player_pos, task_id, "Cell-by-cell farming"):
-                            # Remove plant_seeds prereqs from queue (clear_debris, till_soil)
-                            self._remove_plant_prereqs_from_queue()
-                            return True
-                    break  # Only check first plant_seeds task
+        # Session 119: DISABLED cell farming entirely - batch mode (auto_farm_chores) is preferred
+        # Cell farming was legacy code that caused VLM phantom failures and was less efficient
+        # The daily planner now creates "Farm chores" tasks with skill_override=auto_farm_chores
+        # which triggers _batch_farm_chores() for reliable batch execution
+        #
+        # if HAS_CELL_FARMING and not self.cell_coordinator:
+        #     ... (removed - see git history for original code)
 
         # Get current game state for target generation
         state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
@@ -5251,17 +5220,11 @@ class StardewAgent:
             params_info = f" params={task_params}" if task_params else ""
             logging.info(f"🎯 Starting resolved task: {task_type} ({'prereq' if is_prereq else 'main'}){params_info}")
 
-            # Special case: Use cell-by-cell farming for plant_seeds
-            if task_type == "plant_seeds" and HAS_CELL_FARMING and not is_prereq:
-                started = self._start_cell_farming(state, player_pos, task_id, description)
-                if started:
-                    # Mark task as in progress
-                    try:
-                        self.daily_planner.start_task(task_id)
-                    except Exception:
-                        pass
-                    return True
-                # Fall through to normal path if cell farming couldn't start
+            # Session 119: DISABLED cell farming - batch mode (auto_farm_chores) handles planting
+            # Cell farming was a legacy fallback that caused VLM phantom failures
+            # if task_type == "plant_seeds" and HAS_CELL_FARMING and not is_prereq:
+            #     started = self._start_cell_farming(state, player_pos, task_id, description)
+            #     ...
 
             has_targets = self.task_executor.set_task(
                 task_id=task_id,
