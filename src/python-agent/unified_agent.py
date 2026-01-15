@@ -28,6 +28,9 @@ import yaml
 from mss import mss
 from PIL import Image
 
+# Session 120: Unified SMAPI client for complete game data access
+from smapi_client import SMAPIClient, get_client as get_smapi_client
+
 SRC_DIR = Path(__file__).resolve().parents[1]
 if str(SRC_DIR) not in sys.path:
     sys.path.append(str(SRC_DIR))
@@ -910,11 +913,17 @@ class UnifiedVLM:
 # =============================================================================
 
 class ModBridgeController:
-    """Controller that uses SMAPI mod HTTP API for precise game control."""
+    """Controller that uses SMAPI mod HTTP API for precise game control.
+    
+    Session 120: Now uses unified SMAPIClient for complete game data access.
+    All endpoints are available: /state, /farm, /npcs, /animals, /machines, etc.
+    """
 
     def __init__(self, base_url: str = "http://localhost:8790"):
         self.base_url = base_url
         self.enabled = True
+        # Session 120: Unified SMAPI client for all game data
+        self.smapi = SMAPIClient(base_url)
         self._check_connection()
 
     def _check_connection(self) -> bool:
@@ -993,6 +1002,193 @@ class ModBridgeController:
         except Exception as e:
             logging.warning(f"Failed to get tillable area: {e}")
             return None
+
+    # =========================================================================
+    # Session 120: Complete SMAPI endpoint access via unified client
+    # =========================================================================
+
+    def get_skills(self) -> Optional[Dict[str, Any]]:
+        """Get player skill levels (farming, mining, fishing, etc.)."""
+        skills = self.smapi.get_skills()
+        if skills:
+            return {
+                "farming": {"level": skills.farming.level, "xp": skills.farming.xp},
+                "mining": {"level": skills.mining.level, "xp": skills.mining.xp},
+                "fishing": {"level": skills.fishing.level, "xp": skills.fishing.xp},
+                "foraging": {"level": skills.foraging.level, "xp": skills.foraging.xp},
+                "combat": {"level": skills.combat.level, "xp": skills.combat.xp},
+            }
+        return None
+
+    def get_npcs(self) -> Optional[List[Dict[str, Any]]]:
+        """Get all NPCs with location, friendship, birthday info."""
+        npcs = self.smapi.get_npcs()
+        if npcs:
+            return [
+                {
+                    "name": n.name,
+                    "location": n.location,
+                    "tileX": n.tile_x,
+                    "tileY": n.tile_y,
+                    "friendship": n.friendship_hearts,
+                    "isBirthdayToday": n.is_birthday_today,
+                    "giftedToday": n.gifted_today,
+                }
+                for n in npcs.npcs
+            ]
+        return None
+
+    def get_animals(self) -> Optional[Dict[str, Any]]:
+        """Get farm animals and buildings."""
+        animals = self.smapi.get_animals()
+        if animals:
+            return {
+                "animals": [
+                    {
+                        "name": a.name,
+                        "type": a.type,
+                        "happiness": a.happiness,
+                        "wasPetToday": a.was_pet_today,
+                        "producedToday": a.produced_today,
+                    }
+                    for a in animals.animals
+                ],
+                "buildings": [
+                    {
+                        "type": b.type,
+                        "animalCount": b.animal_count,
+                        "maxAnimals": b.max_animals,
+                        "doorOpen": b.door_open,
+                    }
+                    for b in animals.buildings
+                ],
+            }
+        return None
+
+    def get_machines(self) -> Optional[List[Dict[str, Any]]]:
+        """Get all processing machines with status."""
+        machines = self.smapi.get_machines()
+        if machines:
+            return [
+                {
+                    "name": m.name,
+                    "location": m.location,
+                    "tileX": m.tile_x,
+                    "tileY": m.tile_y,
+                    "isProcessing": m.is_processing,
+                    "readyForHarvest": m.ready_for_harvest,
+                    "needsInput": m.needs_input,
+                    "minutesUntilReady": m.minutes_until_ready,
+                }
+                for m in machines.machines
+            ]
+        return None
+
+    def get_calendar(self) -> Optional[Dict[str, Any]]:
+        """Get calendar with events and birthdays."""
+        cal = self.smapi.get_calendar()
+        if cal:
+            return {
+                "season": cal.season,
+                "day": cal.day,
+                "year": cal.year,
+                "dayOfWeek": cal.day_of_week,
+                "daysUntilSeasonEnd": cal.days_until_season_end,
+                "todayEvent": cal.today_event,
+                "upcomingEvents": [
+                    {"day": e.day, "name": e.name, "type": e.type}
+                    for e in cal.upcoming_events
+                ],
+                "upcomingBirthdays": [
+                    {"day": b.day, "name": b.name}
+                    for b in cal.upcoming_birthdays
+                ],
+            }
+        return None
+
+    def get_fishing(self) -> Optional[Dict[str, Any]]:
+        """Get fishing info for current location."""
+        fishing = self.smapi.get_fishing()
+        if fishing:
+            return {
+                "location": fishing.location,
+                "weather": fishing.weather,
+                "availableFish": [
+                    {"name": f.name, "difficulty": f.difficulty, "basePrice": f.base_price}
+                    for f in fishing.available_fish
+                ],
+            }
+        return None
+
+    def get_mining(self) -> Optional[Dict[str, Any]]:
+        """Get mine floor info."""
+        mining = self.smapi.get_mining()
+        if mining:
+            return {
+                "location": mining.location,
+                "floor": mining.floor,
+                "floorType": mining.floor_type,
+                "ladderFound": mining.ladder_found,
+                "rocks": [
+                    {"x": r.tile_x, "y": r.tile_y, "type": r.type}
+                    for r in mining.rocks
+                ],
+                "monsters": [
+                    {"name": m.name, "x": m.tile_x, "y": m.tile_y, "health": m.health}
+                    for m in mining.monsters
+                ],
+            }
+        return None
+
+    def get_storage(self) -> Optional[Dict[str, Any]]:
+        """Get all storage containers."""
+        storage = self.smapi.get_storage()
+        if storage:
+            return {
+                "chests": [
+                    {"location": c.location, "x": c.tile_x, "y": c.tile_y, "items": len(c.items)}
+                    for c in storage.chests
+                ],
+                "siloHay": storage.silo_hay,
+                "siloCapacity": storage.silo_capacity,
+            }
+        return None
+
+    def get_world_state(self) -> Optional[Dict[str, Any]]:
+        """Get COMPLETE world state - all endpoints combined.
+        
+        Use this when planning needs full game context.
+        """
+        world = self.smapi.get_world_state()
+        if not world:
+            return None
+        
+        return {
+            "player": {
+                "name": world.game.player.name,
+                "tileX": world.game.player.tile_x,
+                "tileY": world.game.player.tile_y,
+                "energy": world.game.player.energy,
+                "maxEnergy": world.game.player.max_energy,
+                "money": world.game.player.money,
+                "wateringCanWater": world.game.player.watering_can_water,
+            },
+            "time": {
+                "hour": world.game.time.hour,
+                "season": world.game.time.season,
+                "day": world.game.time.day,
+                "weather": world.game.time.weather,
+            },
+            "location": world.game.location.name,
+            "farmCrops": len(world.farm.crops) if world.farm else 0,
+            "farmCropsUnwatered": len([c for c in world.farm.crops if not c.is_watered]) if world.farm else 0,
+            "farmCropsReady": len([c for c in world.farm.crops if c.is_ready_for_harvest]) if world.farm else 0,
+            "npcsCount": len(world.npcs.npcs) if world.npcs else 0,
+            "birthdaysToday": [n.name for n in world.npcs.npcs if n.is_birthday_today] if world.npcs else [],
+            "animalsCount": len(world.animals.animals) if world.animals else 0,
+            "machinesReady": len([m for m in world.machines.machines if m.ready_for_harvest]) if world.machines else 0,
+            "daysUntilSeasonEnd": world.calendar.days_until_season_end if world.calendar else 0,
+        }
 
     def format_surroundings(self) -> str:
         """Format surroundings as text for VLM prompt with facing direction emphasis."""
