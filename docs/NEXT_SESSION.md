@@ -7,26 +7,43 @@
 
 ## Session 113 Accomplishments
 
-### Critical Fix: Batch Chores Using Wrong Crop Data
+### Fix 1: Batch Chores Using Wrong Crop Data
 
 **Problem:** Batch said "nothing to do (farm is tidy)" but VLM saw unwatered crops!
 
-**Root Cause:**
-- `location.get("crops", [])` only returns crops within **15 tiles** of player
-- When player warps to farm spawn point, actual crops may be 50+ tiles away
-- Result: Empty crop list → "nothing to do"
+**Root Cause:** `location.get("crops", [])` only returns crops within 15 tiles of player.
 
-**Solution:** Use `get_farm()` which returns **ALL crops** on farm regardless of distance.
+**Solution:** Use `get_farm()` which returns ALL crops on farm regardless of distance.
 
-| Function | Before | After |
-|----------|--------|-------|
-| `_batch_farm_chores()` | `location.get("crops", [])` | `get_farm().get("crops", [])` |
-| `_batch_water_remaining()` | `location.get("crops", [])` | `get_farm().get("crops", [])` |
+### Fix 2: Batch Till+Plant Timing Too Fast
+
+**Problem:** Actions fired at 0.05s intervals - tool animations need ~0.4s to complete.
+
+**Solution:**
+- Added explicit `direction: "north"` to all `use_tool` calls
+- Increased delays: 0.4s for hoe, 0.2s for plant, 0.3s for water
+
+### Fix 3: ResourceClumps Not Avoided
+
+**Problem:** Batch tried to till tiles occupied by large stumps/boulders (need upgraded tools).
+
+**Solution:** Read `resourceClumps` from farm data, block all tiles they occupy (width x height).
+
+| Obstacle | Handling |
+|----------|----------|
+| Grass/weeds/stones/twigs | Clear with scythe/pickaxe/axe |
+| Large stumps | Skip (need copper axe) |
+| Large logs | Skip (need steel axe) |
+| Boulders | Skip (need steel pickaxe) |
 
 ### New Log Output
 ```
-🏠 Farm has 15 total crops        # NEW - confirms crop detection
-💧 Phase 1: Watering 3 crops      # Actually finds unwatered crops
+🏠 Farm has 15 total crops
+🌱 Avoiding 12 tiles blocked by stumps/boulders
+💧 Phase 1: Watering 3 crops
+🔨 Phase 3: Till & Plant 15 tiles
+🌱 Progress: 5/15 tilled, 5 planted
+🏠 BATCH CHORES COMPLETE: harvested=0, watered=3, tilled=15, planted=15
 ```
 
 ---
@@ -45,19 +62,20 @@ source venv/bin/activate
 python src/python-agent/unified_agent.py --goal "Farm the crops"
 ```
 
-**Watch for:**
-```
-🚀 BATCH MODE: Task farm_chores_X uses skill_override=auto_farm_chores
-🏠 Farm has N total crops        # Should show actual crop count
-💧 Phase 1: Watering X crops     # Should water all unwatered
-🔨 Phase 3: Till & Plant Y tiles # Should till and plant
-🏠 BATCH CHORES COMPLETE: harvested=0, watered=3, tilled=10, planted=10
-```
-
 ### 3. If Batch Works → Mining
 - Test `go_to_mines` skill
 - Test `enter_mine_level_1`
 - Test combat with `swing_weapon`
+
+---
+
+## Commits This Session
+
+```
+08e0c39 Session 113: Skip ResourceClumps in batch till+plant
+4011bea Session 113: Fix batch till+plant timing and direction params
+f731648 Session 113: Fix batch chores using wrong crop data source
+```
 
 ---
 
@@ -66,31 +84,16 @@ python src/python-agent/unified_agent.py --goal "Farm the crops"
 ### Inventory Full
 Screenshot showed "Inventory Full" message. May need inventory management before planting.
 
-### VLM Fallback
-When batch returns 0 actions, VLM takes over with scattered operations. Batch should now work properly.
-
----
-
-## Session 112 Summary (Previous)
-
-**Fixed:** Proximity-based grid search (15 tiles), combined till+plant+water, grass clearing
-
-**Issues Found:** Batch said "nothing to do" when crops existed far from player
-
 ---
 
 ## Session 113 Summary
 
-**Fix 1:** Batch chores now use `get_farm()` for full crop visibility instead of distance-limited `location.crops`
+**3 Critical Fixes:**
+1. Use `get_farm().crops` instead of `location.crops` (15-tile limit)
+2. Add `direction` param + proper delays (0.4s) to tool actions
+3. Skip ResourceClumps (stumps/boulders) that need upgraded tools
 
-**Fix 2:** Batch till+plant timing was too fast (0.05s) - tool animations need ~0.4s. Added explicit `direction` param to all `use_tool` calls.
-
-**Key Issues Found:**
-- `get_state().location.crops` → 15 tile radius only (use `get_farm()` instead)
-- `use_tool` calls need explicit `direction` param, not relying on prior `face` action
-- Tool animations need 0.3-0.4s to complete, not 0.05s
-
-**Handoff:** Batch till+plant should now actually till before planting — Claude
+**Handoff:** Batch till+plant should now work correctly — Claude
 
 ---
 
@@ -108,5 +111,5 @@ cd src/smapi-mod/StardewAI.GameBridge && dotnet build && cd ../../..
 python src/python-agent/unified_agent.py --goal "Farm the crops"
 
 # Check batch logs
-tail -f logs/agent.log | grep -E "BATCH|Farm has|Phase|COMPLETE"
+tail -f logs/agent.log | grep -E "BATCH|Farm has|Phase|Avoiding|COMPLETE"
 ```
