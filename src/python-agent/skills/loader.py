@@ -6,7 +6,7 @@ from typing import Dict
 
 import yaml
 
-from .models import Skill, SkillAction, SkillPrecondition
+from .models import Skill, SkillAction, SkillPlanning, SkillPrecondition
 
 
 ALLOWED_CATEGORIES = {
@@ -18,6 +18,8 @@ ALLOWED_CATEGORIES = {
     "navigation",
     "economy",
     "time_management",
+    "placement",
+    "storage",
 }
 
 
@@ -88,6 +90,16 @@ class SkillLoader:
                     actions.append(SkillAction(action_type=action_type, params=params))
                 elif isinstance(action, str):
                     actions.append(SkillAction(action_type=action, params={}))
+            # Parse planning config if present
+            planning = None
+            if raw.get("requires_planning") and raw.get("planning"):
+                planning_raw = raw["planning"]
+                planning = SkillPlanning(
+                    planner=planning_raw.get("planner", ""),
+                    function=planning_raw.get("function", ""),
+                    args=planning_raw.get("args", {}),
+                )
+
             skill = Skill(
                 name=name,
                 description=raw.get("description", ""),
@@ -95,6 +107,8 @@ class SkillLoader:
                 preconditions=preconditions,
                 actions=actions,
                 on_failure=raw.get("on_failure") or {},
+                requires_planning=bool(raw.get("requires_planning")),
+                planning=planning,
             )
             skills[name] = skill
         return skills

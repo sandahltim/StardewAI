@@ -18,6 +18,14 @@ class SkillAction:
 
 
 @dataclass
+class SkillPlanning:
+    """Planning configuration for skills that require dynamic positioning."""
+    planner: str  # Module name, e.g. "farm_planner"
+    function: str  # Function to call, e.g. "get_placement_sequence"
+    args: Dict[str, Any] = field(default_factory=dict)  # Static args to pass
+
+
+@dataclass
 class Skill:
     name: str
     description: str
@@ -25,6 +33,8 @@ class Skill:
     preconditions: List[SkillPrecondition] = field(default_factory=list)
     actions: List[SkillAction] = field(default_factory=list)
     on_failure: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    requires_planning: bool = False
+    planning: Optional[SkillPlanning] = None
 
 
 @dataclass

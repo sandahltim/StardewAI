@@ -98,6 +98,13 @@ except ImportError:
     PlotManager = None
     HAS_PLANNING = False
 
+try:
+    from planning.crop_advisor import get_recommended_crop
+    HAS_CROP_ADVISOR = True
+except ImportError:
+    get_recommended_crop = None
+    HAS_CROP_ADVISOR = False
+
 # Cell-by-cell farming (Session 62+)
 try:
     from planning.farm_surveyor import FarmSurveyor, CellFarmingPlan, get_farm_surveyor
@@ -132,6 +139,70 @@ except ImportError:
     vg = None
 
 HAS_INPUT = HAS_GAMEPAD or HAS_PYAUTOGUI
+
+# =============================================================================
+# Tool-Aware Obstacle System (centralized module)
+# =============================================================================
+try:
+    from planning.obstacle_manager import (
+        can_clear_obstacle,
+        get_tool_level,
+        should_path_around,
+        classify_blocker,
+        get_blocking_info,
+        get_upgrade_tracker,
+        OBSTACLE_REQUIREMENTS,
+        IMPASSABLE_OBSTACLES,
+        BASIC_CLEARABLE,
+    )
+    HAS_OBSTACLE_MANAGER = True
+except ImportError:
+    HAS_OBSTACLE_MANAGER = False
+    # Fallback stubs if module not available
+    def can_clear_obstacle(inv, obs): return (False, "module not loaded", None)
+    def get_tool_level(inv, tool): return -1
+    def should_path_around(blocker, inv, allow_slow=False): return True
+    def classify_blocker(blocker, inv): return "unknown"
+    def get_blocking_info(blocker, inv): return {"blocker": blocker, "can_clear": False}
+    def get_upgrade_tracker(): return None
+    OBSTACLE_REQUIREMENTS = {}
+    IMPASSABLE_OBSTACLES = set()
+    BASIC_CLEARABLE = set()
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+def get_recommended_seed_skill(state: Optional[Dict[str, Any]]) -> Tuple[str, str]:
+    """Get dynamically recommended seed purchase skill based on crop advisor.
+    
+    Returns:
+        Tuple of (skill_name, reason) e.g. ("buy_kale_seeds", "Kale (6.67g/day profit)")
+        Falls back to buy_parsnip_seeds if no recommendation available.
+    """
+    if not HAS_CROP_ADVISOR or not get_recommended_crop:
+        return ("buy_parsnip_seeds", "Parsnip (fallback - no crop advisor)")
+    
+    if not state:
+        return ("buy_parsnip_seeds", "Parsnip (fallback - no state)")
+    
+    time_data = state.get("time", {})
+    season = time_data.get("season", "spring")
+    day = time_data.get("day", 1)
+    money = state.get("player", {}).get("money", 0)
+    
+    try:
+        rec = get_recommended_crop(season, day, money)
+        if rec:
+            # Convert crop name to skill: "Kale" -> "buy_kale_seeds"
+            skill_name = f"buy_{rec.name.lower()}_seeds"
+            reason = f"{rec.name} ({rec.profit_per_day:.2f}g/day profit)"
+            return (skill_name, reason)
+    except Exception as e:
+        logging.warning(f"Crop advisor error: {e}")
+    
+    return ("buy_parsnip_seeds", "Parsnip (fallback)")
 
 
 # =============================================================================
@@ -981,10 +1052,14 @@ class ModBridgeController:
 
             # PRIORITY CHECK: Empty watering can + unwatered crops = REFILL FIRST
             # This prevents conflicting guidance (crop directions vs refill message)
+            # BUT: Skip this hint if we're at a shop/building for a task (buying seeds, etc.)
             water_left = state.get("player", {}).get("wateringCanWater", 0) if state else 0
             unwatered_crops = [c for c in crops if not c.get("isWatered", False)]
+            current_location = state.get("location", {}).get("name", "") if state else ""
+            task_locations = ["SeedShop", "Blacksmith", "FishShop", "Hospital", "JojaMart", "Saloon"]
+            at_task_location = current_location in task_locations
 
-            if water_left <= 0 and unwatered_crops:
+            if water_left <= 0 and unwatered_crops and not at_task_location:
                 # CAN IS EMPTY AND CROPS NEED WATER - REFILL IS THE ONLY PRIORITY
                 # Check if we're already AT the water (water is immediate blocker, 0-1 tiles)
                 directions = normalize_directions_map(data.get("directions", {}))
@@ -1001,15 +1076,32 @@ class ModBridgeController:
                     if "Watering" in current_tool:
                         front_info = f">>> ⚠️ AT WATER! DO: refill_watering_can direction={water_adjacent} <<<"
                     else:
-                        front_info = f">>> ⚠️ AT WATER! select_slot 2, then refill_watering_can direction={water_adjacent} <<<"
+                        front_info = f">>> ⚠️ AT WATER! Use refill_watering_can with target_direction={water_adjacent} <<<"
                 else:
                     nearest_water = data.get("nearestWater")
                     if nearest_water:
                         water_dir = normalize_direction(nearest_water.get("direction", "nearby"))
                         water_dist = nearest_water.get("distance", "?")
-                        front_info = f">>> ⚠️ WATERING CAN EMPTY! Move {water_dist} tiles {water_dir} to water, then refill_watering_can <<<"
+                        front_info = f">>> ⚠️ WATERING CAN EMPTY! DO: go_refill_watering_can (water is {water_dist} tiles {water_dir}) <<<"
                     else:
-                        front_info = ">>> ⚠️ WATERING CAN EMPTY! Find water (pond/river), then refill_watering_can <<<"
+                        front_info = ">>> ⚠️ WATERING CAN EMPTY! DO: go_refill_watering_can <<<"
+            elif at_task_location:
+                # At a shop/building - give location-specific guidance
+                money = state.get("player", {}).get("money", 0) if state else 0
+                inventory = state.get("inventory", []) if state else []
+                has_seeds = any(i and "seed" in i.get("name", "").lower() for i in inventory)
+                if current_location == "SeedShop":
+                    if not has_seeds and money >= 20:
+                        seed_skill, seed_reason = get_recommended_seed_skill(state)
+                        front_info = f">>> 🛒 AT PIERRE'S! DO: {seed_skill} - {seed_reason} (have {money}g) <<<"
+                    elif has_seeds:
+                        front_info = ">>> 🛒 AT PIERRE'S with seeds! DO: warp_to_farm to plant <<<"
+                    else:
+                        front_info = f">>> 🛒 AT PIERRE'S but only {money}g - need more money for seeds <<<"
+                elif current_location == "Blacksmith":
+                    front_info = ">>> 🔨 AT BLACKSMITH! Check tool upgrades or break geodes <<<"
+                else:
+                    front_info = f">>> 📍 At {current_location} - complete your task here <<<"
             elif crop_here:
                 # Standing ON a crop tile - handle all crop states
                 crop_name = crop_here.get("cropName", "crop")
@@ -1067,7 +1159,7 @@ class ModBridgeController:
                 # CROP PROTECTION: Warn if holding wrong tool
                 dangerous_tools = ["Scythe", "Hoe", "Pickaxe", "Axe"]
                 if any(tool.lower() in current_tool.lower() for tool in dangerous_tools):
-                    front_info = f">>> ⚠️ CROP HERE! DO NOT use {current_tool}! Select WATERING CAN (slot 2) first! <<<"
+                    front_info = f">>> ⚠️ CROP HERE! DO NOT use {current_tool}! Use water_crop skill! <<<"
                 else:
                     # Check watering can water level
                     water_left = state.get("player", {}).get("wateringCanWater", 0) if state else 0
@@ -1079,13 +1171,13 @@ class ModBridgeController:
                         if nearest_water:
                             water_dir = normalize_direction(nearest_water.get("direction", "nearby"))
                             water_dist = nearest_water.get("distance", "?")
-                            front_info = f">>> WATERING CAN EMPTY! Move {water_dist} tiles {water_dir} to water, then refill_watering_can <<<"
+                            front_info = f">>> WATERING CAN EMPTY! DO: go_refill_watering_can (water is {water_dist} tiles {water_dir}) <<<"
                         else:
-                            front_info = ">>> WATERING CAN EMPTY! Find water (pond/river), then refill_watering_can <<<"
+                            front_info = ">>> WATERING CAN EMPTY! DO: go_refill_watering_can <<<"
                     elif "Watering" in current_tool:
                         front_info = f">>> TILE: PLANTED - You have {current_tool} ({water_left}/{water_max}), use_tool to WATER! <<<"
                     else:
-                        front_info = f">>> TILE: PLANTED - select_slot 2 for WATERING CAN ({water_left}/{water_max}), then use_tool! <<<"
+                        front_info = f">>> TILE: PLANTED - Use water_crop skill! (can: {water_left}/{water_max}) <<<"
             elif tile_state == "watered":
                 # Check if this is wet EMPTY soil (canPlant=true) vs planted+watered (canPlant=false)
                 if can_plant:
@@ -1206,7 +1298,7 @@ class ModBridgeController:
                             if "Hoe" in current_tool:
                                 front_info = f">>> TILE: CLEAR DIRT - You have {current_tool}, use_tool to TILL! <<<"
                             else:
-                                front_info = ">>> TILE: CLEAR DIRT - select_slot 1 for HOE, then use_tool to TILL! <<<"
+                                front_info = ">>> TILE: CLEAR DIRT - Use till_soil skill to prepare for planting! <<<"
                         else:
                             # No seeds - use done farming hint (will suggest shipping/clearing)
                             front_info = self._get_done_farming_hint(state, data)
@@ -1503,13 +1595,14 @@ class ModBridgeController:
 
         # Suggest buying seeds if: no seeds, has money, Pierre's open (9-17, not Wed), not too late
         if not has_seeds and money >= 20 and hour >= 9 and hour < 17 and day_of_week != "Wed":
-            return f">>> 🌱 NO SEEDS! Go to Pierre's to buy more! DO: go_to_pierre, then buy_parsnip_seeds (you have {money}g) <<<"
+            seed_skill, seed_reason = get_recommended_seed_skill(state)
+            return f">>> 🌱 NO SEEDS! Go to Pierre's! DO: go_to_pierre, then {seed_skill} - {seed_reason} (you have {money}g) <<<"
 
         # Check for nearby debris in surroundings
         nearby_debris = []
         if surroundings:
             for direction, info in normalize_directions_map(surroundings.get("directions", {})).items():
-                blocker = info.get("blockerName", "")
+                blocker = info.get("blocker", "")
                 if blocker in ["Stone", "Weeds", "Twig", "Wood", "Log", "Stump", "Boulder"]:
                     dist = info.get("tilesUntilBlocked", 5)
                     nearby_debris.append((direction, blocker, dist))
@@ -1522,12 +1615,12 @@ class ModBridgeController:
         if nearby_debris and energy_pct > 40:
             closest = min(nearby_debris, key=lambda x: x[2])
             direction, debris_type, dist = closest
-            tool = "SCYTHE" if debris_type in ["Weeds", "Grass"] else "PICKAXE" if debris_type in ["Stone", "Boulder"] else "AXE"
-            tool_slot = {"SCYTHE": 4, "PICKAXE": 3, "AXE": 0}.get(tool, 4)
+            # Map debris to clear skill
+            skill = "clear_weeds" if debris_type in ["Weeds", "Grass"] else "clear_stone" if debris_type in ["Stone", "Boulder"] else "clear_wood"
             if dist == 1:
-                return f">>> ✅ WATERING DONE! NOW CLEAR DEBRIS: {debris_type} 1 tile {direction.upper()}. DO: select_slot {tool_slot}, face {direction}, use_tool <<<"
+                return f">>> ✅ WATERING DONE! CLEAR DEBRIS: {debris_type} {direction.upper()}. Use {skill} with target_direction={direction} <<<"
             else:
-                return f">>> ✅ WATERING DONE! NOW CLEAR DEBRIS: {debris_type} {dist} tiles {direction.upper()}. DO: move {direction}, select_slot {tool_slot}, use_tool <<<"
+                return f">>> ✅ WATERING DONE! CLEAR DEBRIS: {debris_type} {dist} tiles {direction.upper()}. Move closer, then use {skill} <<<"
 
         # Default - find debris on farm
         objects = state.get("location", {}).get("objects", []) if state else []
@@ -1540,8 +1633,8 @@ class ModBridgeController:
             dy = closest["y"] - player_y
             dist = abs(dx) + abs(dy)
             debris_name = closest["name"]
-            tool = "SCYTHE" if debris_name == "Weeds" else "PICKAXE" if debris_name == "Stone" else "AXE"
-            tool_slot = {"SCYTHE": 4, "PICKAXE": 3, "AXE": 0}.get(tool, 4)
+            # Map debris to clear skill
+            skill = "clear_weeds" if debris_name == "Weeds" else "clear_stone" if debris_name == "Stone" else "clear_wood"
             dirs = []
             if dy < 0:
                 dirs.append(f"{abs(dy)} NORTH")
@@ -1552,7 +1645,7 @@ class ModBridgeController:
             elif dx > 0:
                 dirs.append(f"{abs(dx)} EAST")
             direction_str = " then ".join(dirs) if dirs else "nearby"
-            return f">>> ✅ WATERING DONE! NOW CLEAR DEBRIS: {debris_name} {direction_str}. DO: move there, select_slot {tool_slot}, use_tool <<<"
+            return f">>> ✅ WATERING DONE! CLEAR DEBRIS: {debris_name} {direction_str}. Move there, then use {skill} <<<"
 
         return ">>> ✅ ALL FARMING DONE! Use action 'go_to_bed' to end day. <<<"
 
@@ -1787,11 +1880,32 @@ class ModBridgeController:
             elif action_type == "buy":
                 item = action.params.get("item", "")
                 quantity = action.params.get("quantity", 1)
+                
+                # Dynamic quantity: "max" or "auto" calculates based on money
+                if quantity in ("max", "auto"):
+                    # Seed prices (lowercase item name -> price)
+                    seed_prices = {
+                        "parsnip seeds": 20, "cauliflower seeds": 80,
+                        "potato seeds": 50, "kale seeds": 70, "garlic seeds": 40,
+                        "bean starter": 60, "melon seeds": 80, "tomato seeds": 50,
+                        "blueberry seeds": 80, "pepper seeds": 40, "radish seeds": 40,
+                        "pumpkin seeds": 100, "cranberry seeds": 240, "grape starter": 60,
+                        "wheat seeds": 10, "corn seeds": 150,
+                    }
+                    price = seed_prices.get(item.lower(), 50)  # Default 50g if unknown
+                    money = self.get_state().get("player", {}).get("money", 0) if self.get_state() else 0
+                    # Calculate max affordable, cap at 20 to leave money for other things
+                    max_qty = min(money // price, 20) if price > 0 else 1
+                    quantity = max(1, max_qty)  # At least 1
+                    logging.info(f"💰 Buy {item}: {money}g / {price}g = {quantity} seeds")
+                
                 return self._send_action({
                     "action": "buy",
                     "item": item,
                     "quantity": quantity
                 })
+            elif action_type == "buy_backpack":
+                return self._send_action({"action": "buy_backpack"})
 
             # Fallback for unknown actions
             logging.warning(f"Unknown action for ModBridge: {action_type}")
@@ -2561,38 +2675,43 @@ class StardewAgent:
         location_data = self.last_state.get("location", {})
         crops = location_data.get("crops", [])
 
-        # Skill-specific captures
+        # CRITICAL: Refresh surroundings BEFORE capture to get current tile state
+        if skill_name in ["plant_seed", "till_soil", "clear_weeds", "clear_stone", "clear_wood"]:
+            if hasattr(self.controller, "get_surroundings"):
+                self.last_surroundings = self.controller.get_surroundings()
+
+        # Skill-specific captures using NEW API structure: directions.{dir}.adjacentTile
         if skill_name == "plant_seed":
             snapshot["crop_count"] = len(crops)
-            # Check if target tile is tilled
             if self.last_surroundings:
-                tiles = self.last_surroundings.get("adjacentTiles", {})
-                tile = tiles.get(target_dir, {})
-                snapshot["target_tilled"] = tile.get("isTilled", False)
-                snapshot["target_has_crop"] = tile.get("hasCrop", False)
+                dirs = self.last_surroundings.get("directions", {})
+                dir_info = dirs.get(target_dir, {})
+                adj_tile = dir_info.get("adjacentTile", {})
+                snapshot["target_tilled"] = adj_tile.get("isTilled", False)
+                snapshot["target_has_crop"] = adj_tile.get("hasCrop", False)
 
         elif skill_name == "water_crop":
-            # Find crop at target
             target_crop = next((c for c in crops if c.get("x") == target_x and c.get("y") == target_y), None)
             snapshot["target_crop_watered"] = target_crop.get("isWatered", False) if target_crop else None
 
         elif skill_name == "till_soil":
             if self.last_surroundings:
-                tiles = self.last_surroundings.get("adjacentTiles", {})
-                tile = tiles.get(target_dir, {})
-                snapshot["target_tilled"] = tile.get("isTilled", False)
+                dirs = self.last_surroundings.get("directions", {})
+                dir_info = dirs.get(target_dir, {})
+                adj_tile = dir_info.get("adjacentTile", {})
+                snapshot["target_tilled"] = adj_tile.get("isTilled", False)
 
         elif skill_name == "harvest_crop":
             snapshot["crop_count"] = len(crops)
-            # Track inventory count for harvested items
             inventory = player.get("inventory", [])
             snapshot["inventory_count"] = sum(1 for item in inventory if item)
 
         elif skill_name in ["clear_weeds", "clear_stone", "clear_wood"]:
             if self.last_surroundings:
-                tiles = self.last_surroundings.get("adjacentTiles", {})
-                tile = tiles.get(target_dir, {})
-                snapshot["target_blocker"] = tile.get("blockerType")
+                dirs = self.last_surroundings.get("directions", {})
+                dir_info = dirs.get(target_dir, {})
+                adj_tile = dir_info.get("adjacentTile", {})
+                snapshot["target_blocker"] = adj_tile.get("blockerType") or dir_info.get("blocker")
 
         return snapshot
 
@@ -2603,7 +2722,7 @@ class StardewAgent:
         Returns True if state changed as expected, False if phantom failure detected.
         """
         # Force state refresh
-        self.last_state_poll = 0  # Reset to force immediate refresh
+        self.last_state_poll = 0
         self._refresh_state_snapshot()
 
         if not self.last_state:
@@ -2614,40 +2733,65 @@ class StardewAgent:
         crops = location_data.get("crops", [])
         target = before.get("target", (0, 0))
         target_x, target_y = target
+        target_dir = params.get("target_direction", "south")
 
-        # Skill-specific verification
+        # Refresh surroundings for tile-based verification
+        if hasattr(self.controller, "get_surroundings"):
+            self.last_surroundings = self.controller.get_surroundings()
+
+        # Skill-specific verification using NEW API: directions.{dir}.adjacentTile
         if skill_name == "plant_seed":
+            # PRIMARY CHECK: adjacentTile.hasCrop (most reliable)
+            # location.crops is unreliable when player isn't near crops
+            if self.last_surroundings:
+                dirs = self.last_surroundings.get("directions", {})
+                dir_info = dirs.get(target_dir, {})
+                adj_tile = dir_info.get("adjacentTile", {})
+                now_has_crop = adj_tile.get("hasCrop", False)
+                was_has_crop = before.get("target_has_crop", False)
+
+                if now_has_crop:
+                    # Tile has a crop now - either we planted it or it was already there
+                    if not was_has_crop:
+                        return True  # We planted it!
+                    else:
+                        # Was already planted - this is weird but not a phantom failure
+                        logging.debug(f"plant_seed: tile already had crop (target_dir={target_dir})")
+                        return True
+                else:
+                    # Tile doesn't have crop - check if planting was even valid
+                    if not adj_tile.get("canPlant", False) and not adj_tile.get("isTilled", False):
+                        logging.warning(f"👻 PHANTOM: plant_seed - tile not plantable (tilled={adj_tile.get('isTilled')}, canPlant={adj_tile.get('canPlant')})")
+                    else:
+                        logging.warning(f"👻 PHANTOM: plant_seed - crop not planted on {target_dir} tile")
+                    return False
+            # Fallback to crop count if surroundings not available
             new_crop_count = len(crops)
             old_count = before.get("crop_count", 0)
-            if new_crop_count <= old_count:
-                # Check if target tile wasn't tilled (common failure reason)
-                reason = "tile not tilled?" if not before.get("target_tilled") else "unknown"
-                logging.warning(f"👻 PHANTOM: plant_seed reported success but crop count unchanged ({old_count} → {new_crop_count}). Reason: {reason}")
-                return False
-            return True
+            if new_crop_count > old_count:
+                return True
+            logging.warning(f"👻 PHANTOM: plant_seed - no surroundings, crop count {old_count}→{new_crop_count}")
+            return False
 
         elif skill_name == "water_crop":
             target_crop = next((c for c in crops if c.get("x") == target_x and c.get("y") == target_y), None)
             if target_crop:
-                # If crop is ready to harvest, watering was wrong action - not a failure, just skip
                 if target_crop.get("isReadyForHarvest", False):
-                    logging.info(f"🌾 Crop at ({target_x}, {target_y}) is ready for harvest - should harvest, not water")
-                    return True  # Not a phantom failure, just wrong target
+                    return True  # Wrong action but not a failure
                 if not target_crop.get("isWatered", False) and before.get("target_crop_watered") == False:
-                    logging.warning(f"👻 PHANTOM: water_crop reported success but crop at ({target_x}, {target_y}) still not watered")
+                    logging.warning(f"👻 PHANTOM: water_crop at ({target_x},{target_y}) still not watered")
                     return False
             return True
 
         elif skill_name == "till_soil":
-            # Refresh surroundings for tile state
-            if hasattr(self.controller, "get_surroundings"):
-                self.last_surroundings = self.controller.get_surroundings()
             if self.last_surroundings:
-                target_dir = params.get("target_direction", "south")
-                tiles = self.last_surroundings.get("adjacentTiles", {})
-                tile = tiles.get(target_dir, {})
-                if not tile.get("isTilled", False) and not before.get("target_tilled", False):
-                    logging.warning(f"👻 PHANTOM: till_soil reported success but tile {target_dir} still not tilled")
+                dirs = self.last_surroundings.get("directions", {})
+                dir_info = dirs.get(target_dir, {})
+                adj_tile = dir_info.get("adjacentTile", {})
+                now_tilled = adj_tile.get("isTilled", False)
+                was_tilled = before.get("target_tilled", False)
+                if not now_tilled and not was_tilled:
+                    logging.warning(f"👻 PHANTOM: till_soil {target_dir} - tile still not tilled")
                     return False
             return True
 
@@ -2655,26 +2799,22 @@ class StardewAgent:
             new_crop_count = len(crops)
             old_count = before.get("crop_count", 0)
             if new_crop_count >= old_count:
-                logging.warning(f"👻 PHANTOM: harvest_crop reported success but crop count unchanged ({old_count} → {new_crop_count})")
+                logging.warning(f"👻 PHANTOM: harvest_crop - count {old_count}→{new_crop_count}")
                 return False
             return True
 
         elif skill_name in ["clear_weeds", "clear_stone", "clear_wood"]:
-            # Refresh surroundings for tile state (critical - must get fresh data!)
-            if hasattr(self.controller, "get_surroundings"):
-                self.last_surroundings = self.controller.get_surroundings()
             if self.last_surroundings:
-                target_dir = params.get("target_direction", "south")
-                tiles = self.last_surroundings.get("adjacentTiles", {})
-                tile = tiles.get(target_dir, {})
+                dirs = self.last_surroundings.get("directions", {})
+                dir_info = dirs.get(target_dir, {})
+                adj_tile = dir_info.get("adjacentTile", {})
                 old_blocker = before.get("target_blocker")
-                new_blocker = tile.get("blockerType")
+                new_blocker = adj_tile.get("blockerType") or dir_info.get("blocker")
                 if old_blocker and new_blocker == old_blocker:
-                    logging.warning(f"👻 PHANTOM: {skill_name} reported success but {old_blocker} still at {target_dir}")
+                    logging.warning(f"👻 PHANTOM: {skill_name} - {old_blocker} still at {target_dir}")
                     return False
             return True
 
-        # For skills we don't specifically verify, assume success
         return True
 
     async def execute_skill(self, skill_name: str, params: Dict[str, Any]) -> bool:
@@ -2780,9 +2920,33 @@ class StardewAgent:
             if surroundings:
                 skill_state["surroundings"] = surroundings.get("data", surroundings)
 
+        # Add farm data for skills that require planning (auto_place_* skills)
+        if skill.requires_planning and hasattr(self.controller, "get_farm"):
+            farm_data = self.controller.get_farm()
+            if farm_data:
+                skill_state["farm"] = farm_data
+
+        # BATCH OPERATIONS: Some skills trigger special batch handlers
+        if skill_name == "auto_plant_seeds":
+            planted = await self._batch_plant_seeds(params.get("seed_type"))
+            if planted > 0:
+                logging.info(f"✅ auto_plant_seeds: planted {planted} seeds")
+                return True
+            else:
+                logging.warning("❌ auto_plant_seeds: no seeds planted")
+                return False
+
         try:
             result = await self.skill_executor.execute(skill, params, skill_state)
             if result.success:
+                # STATE-CHANGE DETECTION: Wait for game state to settle before verification
+                # Tool swing animation completes, then SMAPI needs time to poll updated state
+                # Tile-modifying skills need longer delay for SMAPI to see updated tile state
+                if skill_name in ("till_soil", "plant_seed", "clear_weeds", "clear_stone", "clear_wood"):
+                    await asyncio.sleep(0.8)  # Tile state takes longer to propagate
+                else:
+                    await asyncio.sleep(0.3)
+
                 # STATE-CHANGE DETECTION: Verify actual state change
                 actual_success = self._verify_state_change(skill_name, state_before, params)
 
@@ -2790,6 +2954,11 @@ class StardewAgent:
                     # Reset phantom failure counter on real success
                     self._phantom_failures[skill_name] = 0
                     logging.info(f"✅ Skill {skill_name} completed: {result.actions_taken}")
+                    
+                    # BATCH WATERING: After successful water_crop, continue watering without VLM
+                    if skill_name == "water_crop":
+                        await self._batch_water_remaining()
+                    
                     return True
                 else:
                     # Phantom failure detected - action reported success but state didn't change
@@ -2826,6 +2995,338 @@ class StardewAgent:
     def is_skill(self, action_type: str) -> bool:
         """Check if an action type is a skill name."""
         return action_type in self.skills_dict
+
+    async def _batch_water_remaining(self) -> None:
+        """Continue watering all remaining crops without returning to VLM.
+        
+        Called after first successful water_crop to batch water everything.
+        Auto-refills when can empties. Stops on: all watered, energy low, or errors.
+        """
+        batch_count = 0
+        refill_count = 0
+        max_batch = 200  # Safety limit
+        max_moves_to_crop = 50  # Max moves to reach a single crop
+        skipped_crops = set()  # Crops we couldn't reach (behind buildings, etc.)
+        
+        while batch_count < max_batch:
+            # Force state refresh (bypass 0.5s throttle for batch operations)
+            self.last_state_poll = 0
+            self._refresh_state_snapshot()
+            if not self.last_state:
+                break
+            
+            player = self.last_state.get("player", {})
+            location = self.last_state.get("location", {})
+            crops = location.get("crops", [])
+            location_name = location.get("name", "")
+            
+            # Check energy constraint
+            energy = player.get("energy", 0)
+            if energy < 5:
+                logging.info(f"⚡ Batch water stopped: low energy ({energy}) after {batch_count} crops")
+                break
+            
+            # Check water can - refill if empty
+            water_left = player.get("wateringCanWater", 0)
+            if water_left <= 0:
+                logging.info(f"🚿 Water can empty after {batch_count} crops, refilling...")
+                refill_skill = self.skills_dict.get("go_refill_watering_can")
+                if refill_skill:
+                    skill_state = dict(self.last_state)
+                    result = await self.skill_executor.execute(refill_skill, {}, skill_state)
+                    if result.success:
+                        refill_count += 1
+                        logging.info(f"✅ Refilled water can (refill #{refill_count})")
+                        await asyncio.sleep(0.3)
+                        continue  # Continue watering
+                    else:
+                        logging.warning(f"❌ Failed to refill water can, stopping")
+                        break
+                else:
+                    logging.warning("🚿 No go_refill_watering_can skill, stopping")
+                    break
+            
+            # If not on Farm, return to farm
+            if location_name != "Farm":
+                logging.info(f"📍 Not on farm ({location_name}), returning...")
+                warp_skill = self.skills_dict.get("warp_to_farm")
+                if warp_skill:
+                    result = await self.skill_executor.execute(warp_skill, {}, dict(self.last_state))
+                    if result.success:
+                        await asyncio.sleep(0.5)
+                        continue
+                break
+            
+            # Find unwatered crops (excluding ones we've skipped)
+            unwatered = [c for c in crops if not c.get("isWatered", False) 
+                         and (c.get("x"), c.get("y")) not in skipped_crops]
+            if not unwatered:
+                skipped_count = len(skipped_crops)
+                if skipped_count > 0:
+                    logging.info(f"✅ Batch water complete: {batch_count} crops watered, {skipped_count} unreachable, {refill_count} refills")
+                else:
+                    logging.info(f"✅ Batch water complete: {batch_count} crops watered, {refill_count} refills (total crops: {len(crops)})")
+                break
+            
+            # Log progress periodically
+            if batch_count == 0:
+                logging.info(f"🚿 Starting batch water: {len(unwatered)} unwatered of {len(crops)} crops")
+            
+            player_x = player.get("tileX", 0)
+            player_y = player.get("tileY", 0)
+            
+            # Check adjacent tiles first
+            directions = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
+            adjacent_crop = None
+            water_dir = None
+            
+            for dir_name, (dx, dy) in directions.items():
+                tx, ty = player_x + dx, player_y + dy
+                crop = next((c for c in unwatered if c.get("x") == tx and c.get("y") == ty), None)
+                if crop:
+                    adjacent_crop = crop
+                    water_dir = dir_name
+                    break
+            
+            if adjacent_crop:
+                # Water adjacent crop directly
+                params = {"target_direction": water_dir}
+                skill = self.skills_dict.get("water_crop")
+                if skill:
+                    skill_state = dict(self.last_state)
+                    result = await self.skill_executor.execute(skill, params, skill_state)
+                    if result.success:
+                        batch_count += 1
+                        if batch_count % 10 == 0:
+                            logging.info(f"🚿 Batch progress: {batch_count} crops, {len(unwatered)-1} remaining")
+                        await asyncio.sleep(0.15)  # Brief delay between waters
+                        continue
+                    else:
+                        logging.warning(f"🚿 Batch water failed at ({adjacent_crop['x']}, {adjacent_crop['y']})")
+                        break
+            else:
+                # Move towards nearest unwatered crop with obstacle avoidance
+                nearest = min(unwatered, key=lambda c: abs(c.get("x", 0) - player_x) + abs(c.get("y", 0) - player_y))
+                target_x, target_y = nearest.get("x", 0), nearest.get("y", 0)
+                
+                # Get surroundings to check for obstacles
+                surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
+                dirs_info = surroundings.get("directions", {}) if surroundings else {}
+                
+                # Calculate preferred directions (primary + alternate)
+                dx = target_x - player_x
+                dy = target_y - player_y
+                
+                # Build priority list: primary direction, then alternates
+                move_options = []
+                if abs(dx) >= abs(dy):
+                    move_options.append("east" if dx > 0 else "west")
+                    move_options.append("south" if dy > 0 else "north")
+                    move_options.append("north" if dy > 0 else "south")  # Opposite vertical
+                    move_options.append("west" if dx > 0 else "east")   # Opposite horizontal
+                else:
+                    move_options.append("south" if dy > 0 else "north")
+                    move_options.append("east" if dx > 0 else "west")
+                    move_options.append("west" if dx > 0 else "east")   # Opposite horizontal
+                    move_options.append("north" if dy > 0 else "south") # Opposite vertical
+                
+                # Find first clear direction
+                move_dir = None
+                for opt in move_options:
+                    dir_info = dirs_info.get(opt, {})
+                    is_clear = dir_info.get("clear", True)
+                    tiles_until = dir_info.get("tilesUntilBlocked", 99)
+                    if is_clear or tiles_until > 0:
+                        move_dir = opt
+                        break
+                
+                if not move_dir:
+                    # All directions blocked - try to clear debris in preferred direction
+                    primary_dir = move_options[0] if move_options else "south"
+                    dir_info = dirs_info.get(primary_dir, {})
+                    blocker = dir_info.get("blocker") or ""  # Handle None
+                    
+                    # Track stuck attempts per position
+                    stuck_key = (player_x, player_y, blocker)
+                    if not hasattr(self, '_batch_stuck_counts'):
+                        self._batch_stuck_counts = {}
+                    self._batch_stuck_counts[stuck_key] = self._batch_stuck_counts.get(stuck_key, 0) + 1
+                    
+                    # Give up after 3 attempts at same obstacle
+                    if self._batch_stuck_counts[stuck_key] > 3:
+                        logging.warning(f"🚿 Giving up on crop near ({player_x}, {player_y}) - {blocker} won't clear")
+                        # Add target crop to skip list
+                        skipped_crops.add((target_x, target_y))
+                        # Move away from obstacle if possible
+                        for escape_dir in ["south", "north", "east", "west"]:
+                            escape_info = dirs_info.get(escape_dir, {})
+                            if escape_info.get("clear", False) or escape_info.get("tilesUntilBlocked", 0) > 0:
+                                escape_action = Action("move", {"direction": escape_dir, "duration": 0.3}, f"escape {escape_dir}")
+                                if hasattr(self.controller, "execute"):
+                                    self.controller.execute(escape_action)
+                                    await asyncio.sleep(0.3)
+                                break
+                        continue
+                    
+                    # No blocker but still stuck = building/impassable terrain
+                    if not blocker:
+                        logging.info(f"⏭️ Blocked by building/terrain at ({player_x}, {player_y}), skipping crop")
+                        skipped_crops.add((target_x, target_y))
+                        await asyncio.sleep(0.2)
+                        continue
+
+                    # TOOL-AWARE OBSTACLE CHECK: Can we clear this with current tools?
+                    inventory = self.last_state.get("inventory", []) if self.last_state else []
+                    can_clear, reason, clear_skill_name = can_clear_obstacle(inventory, blocker)
+
+                    if not can_clear:
+                        logging.info(f"⏭️ Skipping {blocker} ({reason})")
+                        skipped_crops.add((target_x, target_y))
+                        # Track for tool upgrade suggestions
+                        tracker = get_upgrade_tracker()
+                        if tracker:
+                            upgrade_suggestion = tracker.record_blocked(blocker, inventory)
+                            if upgrade_suggestion:
+                                logging.warning(f"🔧 TOOL UPGRADE SUGGESTED: {upgrade_suggestion}")
+                        await asyncio.sleep(0.2)
+                        continue
+
+                    if clear_skill_name and clear_skill_name in self.skills_dict:
+                        logging.info(f"🧹 Clearing {blocker} blocking {primary_dir}")
+                        clear_skill = self.skills_dict[clear_skill_name]
+                        skill_state = dict(self.last_state)
+                        skill_state["surroundings"] = surroundings
+                        result = await self.skill_executor.execute(clear_skill, {"direction": primary_dir}, skill_state)
+                        await asyncio.sleep(0.3)
+                        continue  # Retry movement after clearing
+                    else:
+                        logging.warning(f"🚿 Can't clear {blocker} at ({player_x}, {player_y})")
+                        await asyncio.sleep(0.3)
+                        continue
+                
+                # Execute move via controller
+                move_action = Action("move", {"direction": move_dir, "duration": 0.2}, f"move {move_dir}")
+                if hasattr(self.controller, "execute"):
+                    self.controller.execute(move_action)
+                    await asyncio.sleep(0.25)
+                else:
+                    logging.warning("🚿 No controller.execute for movement")
+                    break
+        
+        if batch_count > 0:
+            logging.info(f"🚿 Batch watering done: {batch_count} crops, {refill_count} refills")
+
+    async def _batch_plant_seeds(self, seed_type: str = None) -> int:
+        """Batch plant seeds at optimal positions using farm planner.
+
+        Uses get_planting_sequence() for row-by-row orderly planting.
+        Plants and waters each position. Returns number planted.
+
+        Args:
+            seed_type: Specific seed to plant (None = any seeds)
+
+        Returns:
+            Number of seeds successfully planted
+        """
+        from planning.farm_planner import get_planting_sequence
+
+        planted_count = 0
+        max_attempts = 100  # Safety limit
+
+        # Get initial state and count seeds
+        self._refresh_state_snapshot()
+        if not self.last_state:
+            logging.warning("🌱 Batch plant: no state available")
+            return 0
+
+        inventory = self.last_state.get("inventory", [])
+        seed_items = [i for i in inventory if i and "seed" in i.get("name", "").lower()]
+        if seed_type:
+            seed_items = [i for i in seed_items if seed_type.lower() in i.get("name", "").lower()]
+
+        if not seed_items:
+            logging.info(f"🌱 No seeds in inventory{' matching ' + seed_type if seed_type else ''}")
+            return 0
+
+        total_seeds = sum(i.get("stack", 1) for i in seed_items)
+        seed_slot = seed_items[0].get("slot", 0)
+        logging.info(f"🌱 Starting batch plant: {total_seeds} seeds available")
+
+        # Get farm state for planner
+        farm_state = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
+        if not farm_state:
+            logging.warning("🌱 Batch plant: no farm state")
+            return 0
+
+        player = self.last_state.get("player", {})
+        player_pos = (player.get("tileX", 0), player.get("tileY", 0))
+
+        # Get planting sequence from farm planner
+        sequence = get_planting_sequence(farm_state, player_pos, total_seeds)
+        positions = sequence.get("positions", [])
+
+        if not positions:
+            logging.info("🌱 No tilled positions available for planting")
+            return 0
+
+        logging.info(f"🌱 Planner: {len(positions)} positions to plant (row-by-row)")
+
+        for i, pos in enumerate(positions):
+            if planted_count >= max_attempts:
+                break
+
+            target_x, target_y = pos["x"], pos["y"]
+
+            # Navigate to adjacent position
+            # Stand south of target to face north and plant
+            stand_x, stand_y = target_x, target_y + 1
+
+            # Move to position
+            move_result = self.controller.execute(Action(
+                "move_to", {"x": stand_x, "y": stand_y}, f"move to ({stand_x},{stand_y})"
+            ))
+            if not move_result:
+                logging.debug(f"🌱 Couldn't reach ({stand_x},{stand_y}), skipping")
+                continue
+
+            await asyncio.sleep(0.3)  # Wait for movement
+
+            # Select seeds
+            self.controller.execute(Action("select_slot", {"slot": seed_slot}, "select seeds"))
+            await asyncio.sleep(0.1)
+
+            # Face north and plant
+            self.controller.execute(Action("face", {"direction": "north"}, "face north"))
+            await asyncio.sleep(0.1)
+
+            self.controller.execute(Action("use_tool", {}, "plant seed"))
+            await asyncio.sleep(0.2)
+
+            # Water immediately
+            water_skill = self.skills_dict.get("water_crop")
+            if water_skill:
+                skill_state = dict(self.last_state) if self.last_state else {}
+                await self.skill_executor.execute(water_skill, {"target_direction": "north"}, skill_state)
+                await asyncio.sleep(0.15)
+
+            planted_count += 1
+
+            if planted_count % 5 == 0:
+                logging.info(f"🌱 Planted {planted_count}/{len(positions)}")
+
+            # Refresh state for next iteration
+            self._refresh_state_snapshot()
+
+            # Check if we ran out of seeds
+            inventory = self.last_state.get("inventory", []) if self.last_state else []
+            remaining = sum(i.get("stack", 1) for i in inventory
+                          if i and "seed" in i.get("name", "").lower())
+            if remaining <= 0:
+                logging.info(f"🌱 Out of seeds after planting {planted_count}")
+                break
+
+        logging.info(f"🌱 Batch planting complete: {planted_count} seeds planted and watered")
+        return planted_count
 
     def _filter_adjacent_crop_moves(self, actions: List[Action]) -> List[Action]:
         """
@@ -3363,7 +3864,7 @@ class StardewAgent:
         # Check each direction for adjacent debris (tilesUntilBlocked == 1)
         for direction in ["north", "east", "south", "west"]:
             dir_info = directions.get(direction, {})
-            blocker = dir_info.get("blocker")  # API uses "blocker" not "blockedBy"
+            blocker = dir_info.get("blocker") or ""  # API uses "blocker" not "blockedBy"
             tiles_until = dir_info.get("tilesUntilBlocked", 99)
 
             if blocker and blocker in DEBRIS_TOOLS and tiles_until == 0:
@@ -3393,7 +3894,7 @@ class StardewAgent:
         # No adjacent debris - find direction with debris further away and move toward it
         for direction in ["north", "east", "south", "west"]:
             dir_info = directions.get(direction, {})
-            blocker = dir_info.get("blocker")
+            blocker = dir_info.get("blocker") or ""
             tiles_until = dir_info.get("tilesUntilBlocked", 99)
 
             if blocker and blocker in DEBRIS_TOOLS and tiles_until >= 1:
@@ -3779,20 +4280,41 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
         if menu or event or dialogue_up or paused:
             what = menu or event or ("dialogue" if dialogue_up else "pause")
 
-            # Special case: DialogueBox after go_to_bed should be CONFIRMED (sleep confirmation)
-            # Check if we recently tried to go to bed
-            recent_bed_action = any(
-                "bed" in a.lower() or "sleep" in a.lower()
-                for a in self.recent_actions[-3:]
-            )
+            # DIALOGUEBOX FIRST: Handle Yes/No questions (pet adoption, sleep, etc.)
+            # This takes priority because events often show DialogueBox for choices
+            if menu == "DialogueBox":
+                recent_bed_action = any(
+                    "bed" in a.lower() or "sleep" in a.lower()
+                    for a in self.recent_actions[-3:]
+                )
+                if recent_bed_action:
+                    logging.info(f"🛏️ SLEEP DIALOG: Confirming sleep (Yes)")
+                elif event:
+                    logging.info(f"🐕 EVENT DIALOG: {event} - answering Yes")
+                else:
+                    logging.info(f"📋 DIALOG BOX: Confirming (selecting Yes/first option)")
+                return [Action("confirm_dialog", {}, "Confirm dialog")]
 
-            if menu == "DialogueBox" and recent_bed_action:
-                logging.info(f"🛏️ SLEEP DIALOG: Confirming sleep (Yes)")
-                return [Action("confirm_dialog", {}, "Confirm sleep")]
+            # EVENTS: Advance through them naturally (don't skip!)
+            # Events include cutscenes, character introductions, etc.
+            if event:
+                logging.info(f"🎬 EVENT: {event} - advancing (not skipping)")
+                return [Action("confirm_dialog", {}, f"Advance event: {event}")]
 
-            logging.info(f"🚫 POPUP OVERRIDE: {what} active → dismiss_menu first")
-            # Return dismiss_menu as the only action - we'll resume normal actions next tick
-            return [Action("dismiss_menu", {}, f"Dismiss {what}")]
+            # DIALOGUE: Advance through dialogue (confirm/click through)
+            if dialogue_up:
+                logging.info(f"💬 DIALOGUE: Advancing dialogue")
+                return [Action("confirm_dialog", {}, "Advance dialogue")]
+
+            # OTHER MENUS: Dismiss them (inventory, shop when done, etc.)
+            if menu:
+                logging.info(f"🚫 MENU: {menu} active → dismiss_menu")
+                return [Action("dismiss_menu", {}, f"Dismiss {menu}")]
+
+            # PAUSED: Just unpause
+            if paused:
+                logging.info(f"⏸️ PAUSED: Unpausing")
+                return [Action("dismiss_menu", {}, "Unpause")]
 
         return actions
 
@@ -3944,7 +4466,7 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
     def _fix_no_seeds(self, actions: List[Action]) -> List[Action]:
         """
         Override: If we have no seeds and Pierre's is open, force go_to_pierre.
-        If already at Pierre's, force buy_parsnip_seeds.
+        If already at Pierre's, force buying optimal seeds from crop advisor.
         This prevents the agent from endlessly farming or clearing when it should buy seeds.
         """
         if not actions:
@@ -3967,8 +4489,9 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             if not has_seeds:
                 money = state.get("player", {}).get("money", 0)
                 if money >= 20:
-                    logging.info(f"🛒 OVERRIDE: In SeedShop with no seeds → buy_parsnip_seeds (have {money}g)")
-                    return [Action("buy_parsnip_seeds", {}, f"Buy seeds at Pierre's ({money}g available)")]
+                    seed_skill, seed_reason = get_recommended_seed_skill(state)
+                    logging.info(f"🛒 OVERRIDE: In SeedShop with no seeds → {seed_skill} - {seed_reason} (have {money}g)")
+                    return [Action(seed_skill, {}, f"Buy {seed_reason} at Pierre's ({money}g available)")]
             return actions  # Has seeds or can't afford, proceed normally
 
         # Not at Pierre's - check if we should force navigation there
@@ -4668,9 +5191,9 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             if nearest_water:
                 water_dir = nearest_water.get("direction", "nearby")
                 water_dist = nearest_water.get("distance", "?")
-                hints.append(f"⚠️ WATERING CAN EMPTY! Water {water_dist} tiles {water_dir} - refill first!")
+                hints.append(f"⚠️ WATERING CAN EMPTY! Use go_refill_watering_can (water {water_dist} tiles {water_dir})")
             else:
-                hints.append("⚠️ WATERING CAN EMPTY! Find water to refill!")
+                hints.append("⚠️ WATERING CAN EMPTY! Use go_refill_watering_can")
         
         # --- PRIORITY 2: Current Tile Action ---
         current_tile = data.get("currentTile", {})
@@ -4708,12 +5231,12 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             # Crop protection warning
             dangerous = ["Scythe", "Hoe", "Pickaxe", "Axe"]
             if any(t.lower() in current_tool.lower() for t in dangerous):
-                hints.append(f"⚠️ CROP HERE! Don't use {current_tool}! Select Watering Can (slot 2)")
+                hints.append(f"⚠️ CROP HERE! Don't use {current_tool}! Use water_crop skill")
             elif water_left > 0:
                 if "Watering" in current_tool:
                     hints.append(f"💧 PLANTED - use_tool to water! ({water_left}/{water_max})")
                 else:
-                    hints.append(f"💧 PLANTED - select_slot 2 (Watering Can), use_tool")
+                    hints.append(f"💧 PLANTED - Use water_crop skill ({water_left}/{water_max})")
         elif tile_state == "watered":
             if can_plant and seed_slot is not None:
                 hints.append(f"🌱 WET SOIL - select_slot {seed_slot}, use_tool to plant")
@@ -4732,7 +5255,7 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             elif "Hoe" in current_tool:
                 hints.append("📍 CLEAR + Hoe ready - use_tool to till")
             else:
-                hints.append("📍 CLEAR - select_slot 1 (Hoe), use_tool to till")
+                hints.append("📍 CLEAR - Use till_soil skill to prepare ground")
         
         # --- PRIORITY 3: Crop Status (if not already handled) ---
         if unwatered and water_left > 0 and tile_state not in ["planted"]:
@@ -5079,6 +5602,13 @@ Recent: {recent}"""
                         if blocker_key not in self._skip_blockers:
                             self._skip_blockers.add(blocker_key)
                             logging.warning(f"⚠️ Marking {blocker} at ({target_x},{target_y}) as impassable")
+                            # Track for tool upgrade suggestions
+                            inventory = self.last_state.get("inventory", []) if self.last_state else []
+                            tracker = get_upgrade_tracker()
+                            if tracker:
+                                upgrade_suggestion = tracker.record_blocked(blocker, inventory)
+                                if upgrade_suggestion:
+                                    logging.warning(f"🔧 TOOL UPGRADE SUGGESTED: {upgrade_suggestion}")
 
                         # Record lesson for future VLM context
                         if self.lesson_memory:

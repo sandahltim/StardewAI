@@ -2,24 +2,122 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 from string import Formatter
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from .models import ExecutionResult, Skill
+from .models import ExecutionResult, Skill, SkillPlanning
 
 
 class SkillExecutor:
     def __init__(self, action_executor: Any):
         self.action_executor = action_executor
 
+    def _call_planner(
+        self, planning: SkillPlanning, state: Dict
+    ) -> Tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
+        """Call the planner module to get placement sequence.
+
+        Returns:
+            (success, plan_result, error_message)
+        """
+        try:
+            # Import planner module dynamically
+            module = importlib.import_module(f"planning.{planning.planner}")
+            func = getattr(module, planning.function)
+
+            # Get player position from state
+            player = state.get("player", {})
+            player_pos = (player.get("tileX", 0), player.get("tileY", 0))
+
+            # Get farm state if needed
+            farm_state = state.get("farm", state)
+
+            # Call planner function with args
+            result = func(farm_state, planning.args.get("item_type", ""), player_pos)
+
+            if result is None:
+                return False, None, "Planner returned no placement needed"
+
+            logging.info(f"   📍 Planner result: {result}")
+            return True, result, None
+
+        except ImportError as e:
+            return False, None, f"Failed to import planner: {e}"
+        except AttributeError as e:
+            return False, None, f"Planner function not found: {e}"
+        except Exception as e:
+            return False, None, f"Planner error: {e}"
+
+    def _apply_planned_values(
+        self, actions: List, plan_result: Dict[str, Any]
+    ) -> List:
+        """Apply planned values to action params.
+
+        Transforms actions that use {planned_*} placeholders with actual values
+        from the planner result.
+        """
+        from copy import deepcopy
+        from .models import SkillAction
+
+        modified = []
+        for action in actions:
+            action_copy = SkillAction(
+                action_type=action.action_type,
+                params=deepcopy(action.params)
+            )
+
+            # Handle move_to with planned position
+            if action.action_type == "move_to":
+                value = action.params.get("value", "")
+                if "{planned_target_pos}" in str(value):
+                    target_pos = plan_result.get("target_pos", (0, 0))
+                    # target_pos is a tuple (x, y) from farm_planner
+                    # SMAPIController.execute expects flat x, y params
+                    if isinstance(target_pos, (list, tuple)) and len(target_pos) >= 2:
+                        action_copy.params = {"x": target_pos[0], "y": target_pos[1]}
+                    elif isinstance(target_pos, dict):
+                        action_copy.params = {
+                            "x": target_pos.get("x", 0),
+                            "y": target_pos.get("y", 0)
+                        }
+
+            # Handle face/place_item with planned direction
+            elif action.action_type in ("face", "place_item"):
+                for key, value in action.params.items():
+                    if "{planned_direction}" in str(value):
+                        direction = plan_result.get("place_direction", "south")
+                        action_copy.params[key] = direction
+
+            modified.append(action_copy)
+
+        return modified
+
     async def execute(self, skill: Skill, params: dict, state: Dict) -> ExecutionResult:
         actions_taken: List[str] = []
         logging.debug(f"   ⚙️ Skill executor: {skill.name} with {len(skill.actions)} actions")
-        for i, action in enumerate(skill.actions):
+
+        # Handle planning-required skills
+        actions_to_execute = skill.actions
+        if skill.requires_planning and skill.planning:
+            logging.info(f"   📐 Skill requires planning, calling {skill.planning.planner}.{skill.planning.function}")
+            success, plan_result, error = self._call_planner(skill.planning, state)
+            if not success:
+                recovery = self._get_recovery(skill, "no_plan")
+                return ExecutionResult(
+                    success=False,
+                    actions_taken=actions_taken,
+                    error=error or "Planning failed",
+                    recovery_skill=recovery,
+                )
+            # Apply planned values to actions
+            actions_to_execute = self._apply_planned_values(skill.actions, plan_result)
+
+        for i, action in enumerate(actions_to_execute):
             action_type = action.action_type
             resolved = self._resolve_params(action.params, params)
-            logging.info(f"      [{i+1}/{len(skill.actions)}] {action_type}: {resolved}")
+            logging.info(f"      [{i+1}/{len(actions_to_execute)}] {action_type}: {resolved}")
             success = await self._dispatch(action_type, resolved, state)
             actions_taken.append(f"{action_type} {resolved}".strip())
             if not success:

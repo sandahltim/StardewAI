@@ -414,8 +414,34 @@ def get_farm_layout_plan(farm_state: Dict[str, Any] = None) -> Dict[str, Any]:
     result["status"] = "ok"
     result["existing_scarecrows"] = len(existing_scarecrows)
 
-    logger.info(f"Farm layout plan: {len(scarecrows)} scarecrows, {len(chests)} chests, "
-               f"coverage {result['coverage']['percentage']}%")
+    # Fix coverage to include EXISTING scarecrows, not just planned ones
+    # Calculate crops already protected by existing scarecrows
+    already_protected = set()
+    for sc_pos in existing_scarecrows:
+        for crop in crop_positions:
+            dist = abs(crop[0] - sc_pos[0]) + abs(crop[1] - sc_pos[1])
+            if dist <= SCARECROW_RADIUS:
+                already_protected.add(crop)
+
+    # Add newly planned coverage
+    newly_protected = set()
+    for sc in scarecrows:
+        newly_protected.update(sc.covered_positions & crop_positions)
+
+    total_protected = already_protected | newly_protected
+    total_crops = len(crop_positions)
+    percentage = (len(total_protected) / total_crops * 100) if total_crops > 0 else 0
+
+    result["coverage"] = {
+        "protected_crops": len(total_protected),
+        "total_crops": total_crops,
+        "percentage": round(percentage, 1),
+        "scarecrows_needed": len(scarecrows),  # Still shows how many MORE are needed
+        "already_protected": len(already_protected),  # Bonus: show what existing covers
+    }
+
+    logger.info(f"Farm layout plan: {len(existing_scarecrows)} existing + {len(scarecrows)} planned scarecrows, "
+               f"{len(chests)} chests, coverage {result['coverage']['percentage']}%")
 
     return result
 
@@ -559,6 +585,68 @@ def get_planting_layout(
         available.sort(key=lambda p: (p[1], p[0]))
 
     return available[:num_seeds]
+
+
+def get_planting_sequence(
+    farm_state: Dict[str, Any],
+    player_pos: Tuple[int, int],
+    seed_count: int = 15
+) -> Dict[str, Any]:
+    """
+    Get full planting sequence for batch planting.
+
+    Returns positions sorted for efficient row-by-row planting,
+    with info about what each position needs (till, plant, water).
+
+    Args:
+        farm_state: Current farm state from /farm
+        player_pos: Current player position
+        seed_count: Number of seeds available to plant
+
+    Returns:
+        Dict with:
+        - positions: List of {x, y, needs_till, needs_plant, needs_water}
+        - total: Number of positions
+        - summary: Human-readable summary
+    """
+    data = farm_state.get("data") or farm_state
+
+    # Get existing crops
+    crops = data.get("crops", [])
+    crop_positions = {(c["x"], c["y"]) for c in crops if c.get("x") and c.get("y")}
+
+    # Get tilled tiles
+    tilled = data.get("tilledTiles", [])
+    tilled_positions = set()
+    for tile in tilled:
+        x, y = tile.get("x"), tile.get("y")
+        if x is not None and y is not None:
+            tilled_positions.add((x, y))
+
+    # Find plantable positions (tilled but no crop)
+    plantable = []
+    for pos in tilled_positions:
+        if pos not in crop_positions:
+            plantable.append({
+                "x": pos[0],
+                "y": pos[1],
+                "needs_till": False,
+                "needs_plant": True,
+                "needs_water": True
+            })
+
+    # Sort row-by-row for efficient walking
+    plantable.sort(key=lambda p: (p["y"], p["x"]))
+
+    # Limit to seed count
+    positions = plantable[:seed_count]
+
+    return {
+        "positions": positions,
+        "total": len(positions),
+        "summary": f"{len(positions)} positions ready for planting (row-by-row order)",
+        "player_start": player_pos
+    }
 
 
 # =============================================================================

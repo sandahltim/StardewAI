@@ -16,7 +16,7 @@ water_crop:
         item: Watering Can
 
   actions:
-    - select_slot: 2  # Watering Can
+    - select_item_type: Watering Can
     - face: "{target_direction}"
     - use_tool
 
@@ -44,7 +44,7 @@ refill_watering_can:
 
   actions:
     # Auto-equip watering can (slot 2) before refilling
-    - select_slot: 2
+    - select_item_type: Watering Can
     - wait: 0.2
     - face: "{target_direction}"
     - wait: 0.1
@@ -58,6 +58,55 @@ refill_watering_can:
       message: "Not adjacent to water"
       recovery_skill: navigate_to_water
 
+go_refill_watering_can:
+  description: "Navigate to water and refill watering can (use when can is EMPTY)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Watering Can
+
+  actions:
+    # Step 1: Navigate directly TO water (will stop at edge since can't walk on water)
+    - pathfind_to:
+        target: nearest_water
+        stop_adjacent: false
+    - wait: 0.3
+    # Step 2: Equip watering can
+    - select_item_type: Watering Can
+    - wait: 0.2
+    # Step 3: Try each direction to find water and refill
+    # South (most common - ponds usually south of farmable area)
+    - face: south
+    - wait: 0.1
+    - use_tool
+    - wait: 0.3
+    # East
+    - face: east
+    - wait: 0.1
+    - use_tool
+    - wait: 0.3
+    # West
+    - face: west
+    - wait: 0.1
+    - use_tool
+    - wait: 0.3
+    # North
+    - face: north
+    - wait: 0.1
+    - use_tool
+
+  on_success:
+    message: "Refilled watering can at water source"
+
+  on_failure:
+    no_water:
+      message: "No water source found nearby"
+    path_blocked:
+      message: "Cannot reach water"
+
 equip_watering_can:
   description: "Select the watering can from toolbar"
   category: farming
@@ -69,7 +118,7 @@ equip_watering_can:
         item: Watering Can
 
   actions:
-    - select_slot: 2  # Watering Can is typically slot 2
+    - select_item_type: Watering Can
 
   on_success:
     message: "Equipped Watering Can"
@@ -112,6 +161,41 @@ harvest_crop:
 # PLANTING
 # =============================================================================
 
+auto_plant_seeds:
+  description: "Plant all seeds at optimal positions in row-by-row order (uses farm planner). Waters each seed after planting."
+  category: farming
+  energy_cost: 0
+  requires_planning: true
+  is_batch_operation: true  # Signals this triggers batch handler
+
+  preconditions:
+    required:
+      - type: at_location
+        location: Farm
+      - type: has_item_category
+        category: seeds
+
+  planning:
+    planner: farm_planner
+    function: get_planting_sequence
+    args: {}
+
+  # Actions are handled by _batch_plant_seeds() in agent
+  # This skill definition enables it to show up in skill list
+  actions:
+    - wait: 0.1  # Placeholder - actual work done by batch handler
+
+  on_success:
+    message: "Planted and watered all seeds in orderly rows"
+
+  on_failure:
+    no_seeds:
+      message: "No seeds in inventory"
+      recovery_skill: buy_seeds
+    no_tilled:
+      message: "No tilled soil available - need to till first"
+      recovery_skill: till_soil
+
 plant_seed:
   description: "Plant seeds on tilled soil (auto-selects seeds from inventory)"
   category: farming
@@ -153,10 +237,10 @@ equip_seeds:
         category: seeds
 
   actions:
-    - select_slot: "{seed_slot}"
+    - select_item_type: seed  # Auto-find seeds in inventory
 
   on_success:
-    message: "Equipped {seed_name}"
+    message: "Equipped seeds"
 
   on_failure:
     no_seeds:
@@ -177,7 +261,7 @@ till_soil:
         item: Hoe
 
   actions:
-    - select_slot: 1  # Hoe
+    - select_item_type: Hoe
     - face: "{target_direction}"  # VLM must specify: north/south/east/west
     - use_tool
     - wait: 0.3  # Give game time to update tile state
@@ -202,7 +286,7 @@ equip_hoe:
         item: Hoe
 
   actions:
-    - select_slot: 1  # Hoe is typically slot 1
+    - select_item_type: Hoe
 
   on_success:
     message: "Equipped Hoe"
@@ -222,7 +306,7 @@ clear_weeds:
         item: Scythe
 
   actions:
-    - select_slot: 4  # Scythe
+    - select_item_type: Scythe
     - face: "{target_direction}"
     - use_tool
 
@@ -245,7 +329,7 @@ equip_scythe:
         item: Scythe
 
   actions:
-    - select_slot: 4  # Scythe is typically slot 4
+    - select_item_type: Scythe
 
   on_success:
     message: "Equipped Scythe"
@@ -261,7 +345,7 @@ clear_stone:
         item: Pickaxe
 
   actions:
-    - select_slot: 3  # Pickaxe
+    - select_item_type: Pickaxe
     - face: "{target_direction}"
     - use_tool
 
@@ -284,7 +368,7 @@ equip_pickaxe:
         item: Pickaxe
 
   actions:
-    - select_slot: 3  # Pickaxe is typically slot 3
+    - select_item_type: Pickaxe
 
   on_success:
     message: "Equipped Pickaxe"
@@ -300,7 +384,7 @@ clear_wood:
         item: Axe
 
   actions:
-    - select_slot: 0  # Axe
+    - select_item_type: Axe
     - face: "{target_direction}"
     - use_tool
 
@@ -323,7 +407,7 @@ equip_axe:
         item: Axe
 
   actions:
-    - select_slot: 0  # Axe is typically slot 0
+    - select_item_type: Axe
 
   on_success:
     message: "Equipped Axe"
@@ -470,7 +554,7 @@ buy_seeds:
       message: "Pierre's is closed (Wed or outside 9AM-5PM)"
 
 buy_parsnip_seeds:
-  description: "Buy 5 parsnip seeds (100g total, 4 days to grow, spring crop)"
+  description: "Buy parsnip seeds (20g each, 4 days to grow, spring crop)"
   category: farming
   energy_cost: 0
 
@@ -479,15 +563,15 @@ buy_parsnip_seeds:
       - type: at_location
         location: SeedShop
       - type: has_money
-        amount: 100
+        amount: 20
 
   actions:
     - buy:
         item: "parsnip seeds"
-        quantity: 5
+        quantity: max
 
   on_success:
-    message: "Bought 5 parsnip seeds (100g)"
+    message: "Bought parsnip seeds"
 
 buy_cauliflower_seeds:
   description: "Buy cauliflower seeds (80g each, 12 days, spring crop, high value)"
@@ -504,13 +588,13 @@ buy_cauliflower_seeds:
   actions:
     - buy:
         item: "cauliflower seeds"
-        quantity: 1
+        quantity: max
 
   on_success:
-    message: "Bought 1 cauliflower seed (80g)"
+    message: "Bought cauliflower seeds"
 
 buy_potato_seeds:
-  description: "Buy 2 potato seeds (100g total, 6 days, spring crop, chance of bonus)"
+  description: "Buy potato seeds (50g each, 6 days, spring crop, chance of bonus)"
   category: farming
   energy_cost: 0
 
@@ -519,15 +603,135 @@ buy_potato_seeds:
       - type: at_location
         location: SeedShop
       - type: has_money
-        amount: 100
+        amount: 50
 
   actions:
     - buy:
         item: "potato seeds"
-        quantity: 2
+        quantity: max
 
   on_success:
-    message: "Bought 2 potato seeds (100g)"
+    message: "Bought potato seeds"
+
+buy_kale_seeds:
+  description: "Buy kale seeds (70g each, 6 days, spring crop, high profit)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: at_location
+        location: SeedShop
+      - type: has_money
+        amount: 70
+
+  actions:
+    - buy:
+        item: "kale seeds"
+        quantity: max
+
+  on_success:
+    message: "Bought kale seeds"
+
+buy_garlic_seeds:
+  description: "Buy garlic seeds (40g each, 4 days, spring crop, fast growth)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: at_location
+        location: SeedShop
+      - type: has_money
+        amount: 40
+
+  actions:
+    - buy:
+        item: "garlic seeds"
+        quantity: max
+
+  on_success:
+    message: "Bought garlic seeds"
+
+buy_green_bean_starter:
+  description: "Buy bean starter (60g each, 10 days, regrows every 3 days)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: at_location
+        location: SeedShop
+      - type: has_money
+        amount: 60
+
+  actions:
+    - buy:
+        item: "bean starter"
+        quantity: 1
+
+  on_success:
+    message: "Bought 1 bean starter (60g)"
+
+buy_tulip_bulb:
+  description: "Buy tulip bulb (20g each, 6 days, spring flower, low profit)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: at_location
+        location: SeedShop
+      - type: has_money
+        amount: 20
+
+  actions:
+    - buy:
+        item: "tulip bulb"
+        quantity: 1
+
+  on_success:
+    message: "Bought 1 tulip bulb (20g)"
+
+buy_jazz_seeds:
+  description: "Buy jazz seeds (30g each, 7 days, spring flower)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: at_location
+        location: SeedShop
+      - type: has_money
+        amount: 30
+
+  actions:
+    - buy:
+        item: "jazz seeds"
+        quantity: 1
+
+  on_success:
+    message: "Bought 1 jazz seed (30g)"
+
+buy_rice_shoot:
+  description: "Buy rice shoot (40g each, 8 days, spring crop, grows near water)"
+  category: farming
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: at_location
+        location: SeedShop
+      - type: has_money
+        amount: 40
+
+  actions:
+    - buy:
+        item: "rice shoot"
+        quantity: 1
+
+  on_success:
+    message: "Bought 1 rice shoot (40g)"
 
 # =============================================================================
 # COMPOSITE SKILLS (higher-level workflows)

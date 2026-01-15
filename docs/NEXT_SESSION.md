@@ -833,4 +833,54 @@ dotnet build
 
 ---
 
-*Session 108 Handoff: Farm planner working, scarecrow placed at optimal position — Claude*
+## Session 109 Accomplishments
+
+### Smart Placement Integration Complete
+| Component | Change |
+|-----------|--------|
+| `skills/models.py` | Added `SkillPlanning` dataclass, `requires_planning` field |
+| `skills/loader.py` | Parses planning config, added "placement"/"storage" categories |
+| `skills/executor.py` | Added `_call_planner()` and `_apply_planned_values()` |
+| `unified_agent.py` | Farm data fetching for planning skills, batch plant handler |
+| `planning/farm_planner.py` | Fixed coverage to include existing scarecrows, added `get_planting_sequence()` |
+
+### New Capabilities
+1. **Skills with `requires_planning: true`** now dynamically call farm planner
+2. **Coverage stats fixed** - Shows existing + planned protection
+3. **`auto_plant_seeds` skill** - Row-by-row orderly planting with auto-water
+
+### Planning-Enabled Skills (3 total)
+| Skill | Purpose |
+|-------|---------|
+| `auto_place_scarecrow` | Navigate to optimal position, place scarecrow |
+| `auto_place_chest` | Strategic placement near shipping/farmhouse |
+| `auto_plant_seeds` | Orderly row-by-row planting + watering |
+
+### Batch Planting Features
+- Uses `get_planting_sequence()` for row-by-row order
+- Navigates to each position
+- Plants seed, then waters immediately
+- Stops when out of seeds
+- Logs progress every 5 plants
+
+---
+
+## Session 110 Priorities
+
+### 1. Test auto_plant_seeds Live
+- Get seeds (buy or harvest parsnips)
+- Till some soil
+- Run `auto_plant_seeds` skill
+- Verify row-by-row ordering
+
+### 2. Test Remaining Placement Skills
+- Need Coal for scarecrows
+- Test `auto_place_chest` if have wood
+
+### 3. Mining Preparation
+- Add `upgrade_tool` SMAPI action (need copper pickaxe)
+- Mining skills groundwork
+
+---
+
+*Session 109 Handoff: Smart placement integration complete, orderly planting skill added — Claude*

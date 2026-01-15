@@ -1136,3 +1136,35 @@ SMAPI API should expose all game knowledge the agent needs from the start. Pathf
 ```
 
 *Updated Session 100 — Claude (PM)*
+
+---
+
+## Session 109 Highlights
+
+**Smart Placement Integration**
+
+Skills with `requires_planning: true` now call farm planner automatically:
+
+| Skill | Planner Function | Result |
+|-------|-----------------|--------|
+| `auto_place_scarecrow` | `get_placement_sequence("scarecrow")` | Navigate to optimal pos, place |
+| `auto_place_chest` | `get_placement_sequence("chest")` | Strategic location |
+| `auto_plant_seeds` | `get_planting_sequence()` | Row-by-row planting |
+
+**Key Files Changed:**
+```
+skills/models.py      → Added SkillPlanning dataclass
+skills/loader.py      → Parse planning config
+skills/executor.py    → _call_planner(), _apply_planned_values()
+unified_agent.py      → Batch plant handler, farm data fetch
+planning/farm_planner.py → get_planting_sequence(), fixed coverage
+skills/definitions/farming.yaml → auto_plant_seeds skill
+```
+
+**Orderly Planting Flow:**
+1. Get tilled positions from farm state
+2. Sort row-by-row (y, then x)
+3. For each: navigate → plant → water
+4. Logs progress every 5 plants
+
+*Updated Session 109 — Claude (PM)*
