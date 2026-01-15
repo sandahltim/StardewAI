@@ -3016,7 +3016,14 @@ class StardewAgent:
             return False
 
         elif skill_name == "water_crop":
-            target_crop = next((c for c in crops if c.get("x") == target_x and c.get("y") == target_y), None)
+            # Session 118: Use fresh farm data for water verification (state cache is stale)
+            farm_data = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
+            if farm_data:
+                fresh_crops = farm_data.get("crops", [])
+                target_crop = next((c for c in fresh_crops if c.get("x") == target_x and c.get("y") == target_y), None)
+            else:
+                target_crop = next((c for c in crops if c.get("x") == target_x and c.get("y") == target_y), None)
+            
             if target_crop:
                 if target_crop.get("isReadyForHarvest", False):
                     return True  # Wrong action but not a failure
