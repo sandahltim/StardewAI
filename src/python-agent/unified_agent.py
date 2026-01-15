@@ -3493,25 +3493,19 @@ class StardewAgent:
             self._refresh_state_snapshot()
             crops = self.last_state.get("location", {}).get("crops", []) if self.last_state else []
 
-        # --- PHASE 3: TILL & PLANT ---
+        # --- PHASE 3: TILL & PLANT (combined for efficiency) ---
         # Check for seeds
         inventory = self.last_state.get("inventory", []) if self.last_state else []
         seed_items = [i for i in inventory if i and "seed" in i.get("name", "").lower()]
         seed_count = sum(i.get("stack", 1) for i in seed_items)
+        seed_slot = seed_items[0].get("slot", 0) if seed_items else None
 
-        if seed_count > 0:
-            # Always till a fresh grid - don't trust existing scattered tiles
-            logging.info(f"🔨 Phase 3a: Tilling {seed_count} tiles for planting")
-            tilled_count, tilled_positions = await self._batch_till_grid(seed_count)
-            results["tilled"] = tilled_count
-
-            if tilled_positions:
-                # Now plant at the positions we just tilled
-                logging.info("🌱 Phase 3b: Planting seeds")
-                planted = await self._batch_plant_seeds(tilled_positions=tilled_positions)
-                results["planted"] = planted
-            else:
-                logging.warning("🌱 No tilled positions to plant at")
+        if seed_count > 0 and seed_slot is not None:
+            # Combined till+plant - plant immediately after each till while still adjacent
+            logging.info(f"🔨 Phase 3: Till & Plant {seed_count} tiles")
+            tilled, planted = await self._batch_till_and_plant(seed_count, seed_slot)
+            results["tilled"] = tilled
+            results["planted"] = planted
 
         logging.info("🏠 ═══════════════════════════════════════")
         logging.info(f"🏠 BATCH CHORES COMPLETE: harvested={results['harvested']}, watered={results['watered']}, tilled={results['tilled']}, planted={results['planted']}")
@@ -3519,8 +3513,143 @@ class StardewAgent:
 
         return results
 
+    async def _batch_till_and_plant(self, count: int, seed_slot: int) -> tuple:
+        """Combined till+plant+water operation for maximum efficiency.
+        
+        For each position: move → clear (if needed) → till → plant → water
+        All done while standing adjacent, avoiding pathfinding issues.
+        
+        Args:
+            count: Number of tiles to process
+            seed_slot: Inventory slot containing seeds
+            
+        Returns:
+            Tuple of (tilled_count, planted_count)
+        """
+        GRID_WIDTH = 5
+        tilled = 0
+        planted = 0
+        
+        logging.info(f"🌱 Combined till+plant+water: {count} tiles")
+        
+        # Ensure we're on the farm
+        self._refresh_state_snapshot()
+        location = self.last_state.get("location", {}) if self.last_state else {}
+        loc_name = location.get("name", "")
+        if loc_name != "Farm":
+            logging.info(f"🌱 Not on Farm (at {loc_name}), warping...")
+            self.controller.execute(Action("warp", {"location": "Farm"}, "warp to Farm"))
+            await asyncio.sleep(0.3)
+            self._refresh_state_snapshot()
+        
+        # Get farm state
+        farm_state = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
+        if not farm_state:
+            logging.warning("🌱 No farm state")
+            return (0, 0)
+            
+        data = farm_state.get("data") or farm_state
+        
+        # Get blocked positions
+        existing_tilled = {(t.get("x"), t.get("y")) for t in data.get("tilledTiles", [])}
+        existing_crops = {(c.get("x"), c.get("y")) for c in data.get("crops", [])}
+        permanent_blocked = existing_tilled | existing_crops
+        
+        objects_list = data.get("objects", [])
+        objects_by_pos = {(o.get("x"), o.get("y")): o for o in objects_list}
+        grass_positions = {(g.get("x"), g.get("y")) for g in data.get("grassPositions", [])}
+        debris = {(d.get("x"), d.get("y")) for d in data.get("debris", [])}
+        
+        all_blocked = permanent_blocked | debris | set(objects_by_pos.keys()) | grass_positions
+        
+        # Get player position for proximity
+        player_pos = None
+        if self.last_state:
+            player = self.last_state.get("player", {})
+            px, py = player.get("tileX"), player.get("tileY")
+            if px is not None and py is not None:
+                player_pos = (px, py)
+        
+        # Find best grid start near player
+        start_x, start_y = self._find_best_grid_start(all_blocked, count, GRID_WIDTH, data, player_pos)
+        logging.info(f"🌱 Grid start: ({start_x}, {start_y}) near player at {player_pos}")
+        
+        # Generate grid positions
+        grid_positions = []
+        for row in range(count // GRID_WIDTH + 2):
+            for col in range(GRID_WIDTH):
+                if len(grid_positions) >= count:
+                    break
+                x = start_x + col
+                y = start_y + row
+                if (x, y) not in permanent_blocked and (x, y) not in debris:
+                    grid_positions.append((x, y))
+            if len(grid_positions) >= count:
+                break
+        
+        if not grid_positions:
+            logging.warning("🌱 No grid positions available")
+            return (0, 0)
+        
+        logging.info(f"🌱 Processing {len(grid_positions)} positions")
+        
+        for x, y in grid_positions:
+            if tilled >= count:
+                break
+            
+            # Stand south of target
+            stand_x, stand_y = x, y + 1
+            move_result = self.controller.execute(Action("move_to", {"x": stand_x, "y": stand_y}, f"move to ({x},{y})"))
+            
+            if not move_result:
+                logging.debug(f"🌱 Can't reach ({stand_x},{stand_y}), skipping")
+                continue
+            
+            await asyncio.sleep(0.05)
+            self.controller.execute(Action("face", {"direction": "north"}, "face north"))
+            
+            # 1. Clear if needed (grass or object)
+            if (x, y) in grass_positions:
+                self.controller.execute(Action("select_item_type", {"value": "Scythe"}, "equip scythe"))
+                self.controller.execute(Action("use_tool", {}, "clear grass"))
+                await asyncio.sleep(0.05)
+            elif (x, y) in objects_by_pos:
+                obj = objects_by_pos.get((x, y), {})
+                obj_name = obj.get("name", "").lower()
+                if "stone" in obj_name or "rock" in obj_name:
+                    self.controller.execute(Action("select_item_type", {"value": "Pickaxe"}, "equip pickaxe"))
+                elif "twig" in obj_name or "wood" in obj_name:
+                    self.controller.execute(Action("select_item_type", {"value": "Axe"}, "equip axe"))
+                else:
+                    self.controller.execute(Action("select_item_type", {"value": "Scythe"}, "equip scythe"))
+                self.controller.execute(Action("use_tool", {}, "clear"))
+                await asyncio.sleep(0.05)
+            
+            # 2. Till
+            self.controller.execute(Action("select_item_type", {"value": "Hoe"}, "equip hoe"))
+            self.controller.execute(Action("use_tool", {}, "till"))
+            await asyncio.sleep(0.05)
+            tilled += 1
+            
+            # 3. Plant
+            self.controller.execute(Action("select_slot", {"slot": seed_slot}, "select seeds"))
+            self.controller.execute(Action("use_tool", {}, "plant"))
+            await asyncio.sleep(0.05)
+            planted += 1
+            
+            # 4. Water
+            self.controller.execute(Action("select_item_type", {"value": "Watering Can"}, "equip can"))
+            self.controller.execute(Action("use_tool", {}, "water"))
+            await asyncio.sleep(0.05)
+            
+            if tilled % 5 == 0:
+                logging.info(f"🌱 Progress: {tilled}/{count} tilled, {planted} planted")
+        
+        logging.info(f"🌱 Complete: {tilled} tilled, {planted} planted & watered")
+        return (tilled, planted)
+
     async def _batch_till_grid(self, count: int) -> tuple:
-        """Till a contiguous grid of soil tiles.
+        """Till a contiguous grid of soil tiles (legacy - use _batch_till_and_plant instead).
 
         CLEARS obstacles (grass, weeds, stones, twigs) first, then tills.
         DYNAMICALLY finds the best farming area from farm state.
@@ -3565,8 +3694,16 @@ class StardewAgent:
         # For grid search, consider all blocked (even clearable like grass)
         all_blocked = permanent_blocked | debris | set(objects_by_pos.keys()) | grass_positions
 
-        # DYNAMIC: Find best starting position for a grid
-        start_x, start_y = self._find_best_grid_start(all_blocked, count, GRID_WIDTH, data)
+        # Get player position for proximity-based grid search
+        player_pos = None
+        if self.last_state:
+            player = self.last_state.get("player", {})
+            px, py = player.get("tileX"), player.get("tileY")
+            if px is not None and py is not None:
+                player_pos = (px, py)
+        
+        # DYNAMIC: Find best starting position near player
+        start_x, start_y = self._find_best_grid_start(all_blocked, count, GRID_WIDTH, data, player_pos)
         logging.info(f"🔨 Dynamic grid start: ({start_x}, {start_y})")
 
         # Generate grid positions (may include clearable objects/grass)
@@ -3659,10 +3796,10 @@ class StardewAgent:
         logging.info(f"🔨 Batch tilling complete: {tilled} tiles at positions {tilled_positions[:3]}...")
         return (tilled, tilled_positions)
 
-    def _find_best_grid_start(self, blocked: set, count: int, grid_width: int, farm_data: dict = None) -> tuple:
+    def _find_best_grid_start(self, blocked: set, count: int, grid_width: int, farm_data: dict = None, player_pos: tuple = None) -> tuple:
         """Find the best starting position for a farming grid.
 
-        DYNAMICALLY determines bounds based on farm type and dimensions.
+        PRIORITIZES positions near the player for reachability.
         Scans to find the position with the most contiguous clear tiles.
 
         Args:
@@ -3670,6 +3807,7 @@ class StardewAgent:
             count: Number of tiles needed
             grid_width: Width of the grid pattern
             farm_data: Farm state data with name, mapWidth, mapHeight
+            player_pos: (x, y) tuple of player position for proximity scoring
 
         Returns:
             Tuple of (start_x, start_y) for best grid position
@@ -3720,9 +3858,21 @@ class StardewAgent:
 
         grid_height = (count + grid_width - 1) // grid_width
 
-        # Scan potential starting positions (step by 2 for efficiency)
-        for start_y in range(MIN_Y, MAX_Y - grid_height + 1, 2):
-            for start_x in range(MIN_X, MAX_X - grid_width + 1, 2):
+        # If player position known, search in a smaller area NEAR the player
+        if player_pos:
+            search_radius = 15  # Only search within 15 tiles of player
+            search_min_x = max(MIN_X, player_pos[0] - search_radius)
+            search_max_x = min(MAX_X, player_pos[0] + search_radius)
+            search_min_y = max(MIN_Y, player_pos[1] - search_radius)
+            search_max_y = min(MAX_Y, player_pos[1] + search_radius)
+            logging.info(f"🔨 Search area near player: ({search_min_x}-{search_max_x} x {search_min_y}-{search_max_y})")
+        else:
+            search_min_x, search_max_x = MIN_X, MAX_X
+            search_min_y, search_max_y = MIN_Y, MAX_Y
+
+        # Scan potential starting positions
+        for start_y in range(search_min_y, search_max_y - grid_height + 1, 2):
+            for start_x in range(search_min_x, search_max_x - grid_width + 1, 2):
                 # Count how many tiles in this grid are clear
                 clear_count = 0
                 for row in range(grid_height):
@@ -3732,14 +3882,26 @@ class StardewAgent:
                         if (x, y) not in blocked:
                             clear_count += 1
 
-                # Score: clear tiles + bonus for being further south (away from buildings)
-                score = clear_count + (start_y - MIN_Y) * 0.1
+                # Score: clear tiles + STRONG bonus for proximity to player
+                score = clear_count
+                
+                if player_pos:
+                    # Distance from player to grid center
+                    grid_center_x = start_x + grid_width // 2
+                    grid_center_y = start_y + grid_height // 2
+                    distance = abs(grid_center_x - player_pos[0]) + abs(grid_center_y - player_pos[1])
+                    # Heavily penalize far positions (proximity is critical for pathfinding)
+                    proximity_bonus = max(0, 50 - distance * 2)  # Max 50 bonus at distance 0
+                    score += proximity_bonus
+                else:
+                    # No player pos - prefer south (away from buildings)
+                    score += (start_y - MIN_Y) * 0.1
 
                 if score > best_score:
                     best_score = score
                     best_pos = (start_x, start_y)
 
-        logging.info(f"🔨 Grid search: best={best_pos} with score={best_score:.1f}")
+        logging.info(f"🔨 Grid search: best={best_pos} with score={best_score:.1f} (player at {player_pos})")
         return best_pos
 
     def _filter_adjacent_crop_moves(self, actions: List[Action]) -> List[Action]:
