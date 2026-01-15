@@ -1,121 +1,91 @@
-# Session 119: Verification Testing
+# Session 120: Verify Batch-Only Farming
 
-**Last Updated:** 2026-01-15 Session 118 by Claude
-**Status:** Game restart required, then test
+**Last Updated:** 2026-01-15 Session 119 by Claude
+**Status:** Ready to test - major simplification
 
 ---
 
-## Session 118 Summary
+## Session 119 Summary
+
+### Architecture Simplification
+
+**Cell farming DISABLED** - Batch mode is now the ONLY path for farming.
+
+Cell farming was legacy code (Session 62+) that processed farm cells one at a time using VLM guidance. It caused:
+- Phantom failures from VLM directing invalid actions
+- Inefficient cell-by-cell processing
+- Getting stuck at map edges
+
+**Now:** `auto_farm_chores` batch mode handles ALL farming reliably.
 
 ### Fixes Implemented
 
-#### 1. Tillable Validation (CRITICAL)
-**Problem:** Agent tried to till/plant on farmhouse lawn - non-farmable tiles.
+#### 1. Pre-checks Block Invalid VLM Commands
+Added pre-validation to block actions BEFORE execution:
+- `plant_seed`: Block if tile not tilled OR already has crop
+- `till_soil`: Block if tile not tillable (water, cliff) OR already tilled
+- `clear_*`: Block if no clearable object in target direction
 
-**Solution:** Added `/tillable-area` endpoint to SMAPI mod that checks:
-- Tile has "Diggable" map property (farmland only)
-- Tile is passable (not blocked)
+#### 2. Task Type Inference Expanded
+Added missing task types so queue doesn't show "unknown":
+- `go_mining`, `explore`, `go_fishing`, `forage`, `go_to_bed`
 
-**Files:**
-- `src/smapi-mod/StardewAI.GameBridge/Models/GameState.cs` - TillableResult model
-- `src/smapi-mod/StardewAI.GameBridge/HttpServer.cs` - `/tillable-area` route
-- `src/smapi-mod/StardewAI.GameBridge/ModEntry.cs` - Implementation
-- `src/python-agent/unified_agent.py` - `get_tillable_area()` + grid filtering
-
-#### 2. Water Positioning Fix
-**Problem:** Agent stepped toward crop one tile at a time, sometimes ending ON the crop.
-
-**Solution:** Use `move_to` to target specific adjacent position (south preferred).
-
-#### 3. Phantom Failure Prevention
-**Problem:** VLM directed till/plant to tiles already in target state, causing phantom failures.
-
-**Solution:** Added pre-checks to block:
-- `till_soil` if target already tilled
-- `plant_seed` if target already has crop
-
-#### 4. Cache Staleness Fix (CRITICAL)
-**Problem:** SMAPI state cache updated every 250ms. Actions verified before cache refreshed → phantom failures.
-
-**Solution:**
-- Reduced `StateUpdateInterval` from 15 to 5 ticks (~80ms)
-- Water verification now uses fresh `/farm` data
+#### 3. Edge-Stuck Detection Improved
+- Added `plant_seed`, `till_soil` to stuck-prone actions
+- BLOCKED messages count toward stuck threshold
+- Lower threshold (2 vs 3) when surrounded by obstacles
 
 ---
 
 ## Commits This Session
 
 ```
-40fd545 Session 117+118: Add tillable validation to prevent farming on non-farmland
-6244c77 Session 118: Fix water positioning to use move_to for adjacent position
-67aa88c Session 118: Update handoff docs with fixes summary
-88ab24e Session 118: Block redundant till/plant actions to prevent phantom failures
-a8f45fa Session 118: Use fresh farm data for water verification
-ae54fd7 Session 118: Reduce SMAPI state cache interval from 250ms to 80ms
+12e0f24 Session 119: Fix VLM phantom failures and edge-stuck detection
+19c2e51 Session 119: Disable cell farming - batch mode only
 ```
 
 ---
 
-## GAME RESTART REQUIRED
+## Session 120 Priorities
 
-The SMAPI mod was updated with:
-1. `/tillable-area` endpoint
-2. Faster state cache (5 ticks instead of 15)
-
-**Restart the game to load the updated mod.**
-
----
-
-## Session 119 Priorities
-
-1. **TEST:** Verify cache fix eliminates phantom failures
-2. **TEST:** Run full farm chores cycle - should complete without falling to debris clearing
-3. **VERIFY:** Tillable validation prevents farmhouse planting
-4. **MONITOR:** Check CPU usage with faster state updates (should be fine)
+1. **TEST:** Run full day cycle - batch farm chores should complete cleanly
+2. **VERIFY:** No cell farming triggers (look for absence of "Cell-by-cell farming" in logs)
+3. **VERIFY:** Pre-checks blocking invalid VLM commands (look for "🛡️ BLOCKED:" messages)
+4. **TEST:** After farming, explore/mine tasks should execute (not "unknown")
 
 ---
 
 ## Quick Test Commands
 
 ```bash
-# After game restart, verify new cache interval is active
-# (State should feel more responsive)
+# Run agent
+python src/python-agent/unified_agent.py --goal "Do farm chores and explore" 2>&1 | tee /tmp/session120_test.log
 
-# Test tillable area
-curl -s "http://localhost:8790/tillable-area?centerX=60&centerY=14&radius=8" | jq '{tillable: ([.data.tiles[] | select(.canTill == true)] | length)}'
+# Check for cell farming (should NOT appear)
+grep -i "cell.*farm" /tmp/session120_test.log
 
-# Check farm state
-curl -s http://localhost:8790/farm | jq '{crops: (.data.crops | length), unwatered: ([.data.crops[] | select(.isWatered == false)] | length)}'
+# Check for batch mode (should appear)
+grep "BATCH" /tmp/session120_test.log
 
-# Run agent with farm chores
-python src/python-agent/unified_agent.py --goal "Water and plant crops"
+# Check for pre-check blocks
+grep "BLOCKED" /tmp/session120_test.log
 ```
-
----
-
-## Known Issues to Watch
-
-1. **VLM directing wrong actions** - The VLM sometimes tells agent to till/plant tiles that are already done. Pre-checks now block these, but VLM should learn from BLOCKED messages.
-
-2. **Batch vs VLM mode** - `auto_farm_chores` skill uses efficient batch operations. VLM mode is slower and more error-prone. Prefer batch mode for farming.
 
 ---
 
 ## Architecture Notes
 
-**State Cache Flow:**
+**Farm Chores Flow (simplified):**
 ```
-Game State → SMAPI Mod (cache every 5 ticks) → HTTP API → Python Agent
-```
-
-**Verification Flow:**
-```
-Action → Wait 80ms → Query /farm (fresh) → Compare with before snapshot
+Daily Plan → "Farm chores" task with skill_override=auto_farm_chores
+          → _batch_farm_chores()
+          → harvest, water, till, plant in efficient batch
+          → Task complete → Next task from queue
 ```
 
-**Tillable Check Flow:**
+**Pre-check Flow:**
 ```
-Grid start position → /tillable-area query → Filter non-tillable → Process remaining
+VLM outputs action → Pre-check validates → BLOCKED if invalid → Skip action
 ```
 
 ---
