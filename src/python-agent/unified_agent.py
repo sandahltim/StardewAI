@@ -3321,7 +3321,7 @@ class StardewAgent:
                     if result.success:
                         # Track locally immediately (SMAPI cache is stale for ~250ms)
                         watered_this_batch.add((adjacent_crop['x'], adjacent_crop['y']))
-                        await asyncio.sleep(0.3)  # Wait for cache refresh before verification
+                        await asyncio.sleep(0.5)  # Wait for SMAPI cache refresh (250ms) + buffer
                         
                         # VERIFY: Check if crop is actually watered (Session 115 fix + Session 116 tracking)
                         crop_x, crop_y = adjacent_crop['x'], adjacent_crop['y']
@@ -3738,18 +3738,30 @@ class StardewAgent:
             crops = _refresh_farm_crops()
 
         # --- PHASE 3: TILL & PLANT (combined for efficiency) ---
-        # Check for seeds
+        # Check for seeds - process EACH seed type separately (Session 116 fix)
         inventory = self.last_state.get("inventory", []) if self.last_state else []
         seed_items = [i for i in inventory if i and "seed" in i.get("name", "").lower()]
-        seed_count = sum(i.get("stack", 1) for i in seed_items)
-        seed_slot = seed_items[0].get("slot", 0) if seed_items else None
-
-        if seed_count > 0 and seed_slot is not None:
-            # Combined till+plant - plant immediately after each till while still adjacent
-            logging.info(f"🔨 Phase 3: Till & Plant {seed_count} tiles")
-            tilled, planted = await self._batch_till_and_plant(seed_count, seed_slot)
-            results["tilled"] = tilled
-            results["planted"] = planted
+        
+        total_tilled = 0
+        total_planted = 0
+        
+        for seed_item in seed_items:
+            seed_slot = seed_item.get("slot", 0)
+            seed_count = seed_item.get("stack", 1)
+            seed_name = seed_item.get("name", "seeds")
+            
+            if seed_count > 0:
+                logging.info(f"🔨 Phase 3: Till & Plant {seed_count} {seed_name} from slot {seed_slot}")
+                tilled, planted = await self._batch_till_and_plant(seed_count, seed_slot)
+                total_tilled += tilled
+                total_planted += planted
+                
+                # Refresh inventory for next seed type
+                self._refresh_state_snapshot()
+                inventory = self.last_state.get("inventory", []) if self.last_state else []
+        
+        results["tilled"] = total_tilled
+        results["planted"] = total_planted
 
         logging.info("🏠 ═══════════════════════════════════════")
         logging.info(f"🏠 BATCH CHORES COMPLETE: harvested={results['harvested']}, watered={results['watered']}, tilled={results['tilled']}, planted={results['planted']}")
@@ -3952,7 +3964,7 @@ class StardewAgent:
             self.controller.execute(Action("select_item_type", {"value": "Watering Can"}, "equip can"))
             await asyncio.sleep(0.1)
             self.controller.execute(Action("use_tool", {"direction": "north"}, "water"))
-            await asyncio.sleep(0.3)  # Watering animation
+            await asyncio.sleep(0.5)  # Watering animation + cache refresh
             
             # VERIFY: Check if crop is watered (Session 115 fix + Session 116 tracking)
             water_verified = self.controller.verify_watered(x, y)
