@@ -1,117 +1,95 @@
-# Session 117: Test Batch Farm Chores with Full Verification
+# Session 117: Test Multi-Seed Planting & Verification
 
 **Last Updated:** 2026-01-15 Session 116 by Claude
-**Priority:** TESTING - Run agent batch operations and verify tracking works
+**Priority:** TESTING - Verify bug fixes work
 
 ---
 
 ## Session 116 Summary
 
-### COMPLETED: Verification Backend Tracking
+### Completed: Verification Backend + Bug Fixes
 
-**What was added:**
+**1. Verification Tracking System**
+- `verify_player_at(x, y)` - Check player position before actions
+- `reset_verification_tracking()` / `record_verification()` / `persist_verification_tracking()`
+- All batch methods wired to tracking
+- UI endpoint `/api/verification-status` serves real data
 
-1. **`verify_player_at(x, y, tolerance=1)`** - Checks player is at expected position before actions
-2. **Tracking state** - `reset_verification_tracking()`, `record_verification()`, `persist_verification_tracking()`
-3. **All batch methods wired:**
-   - `_batch_till_and_plant()` - Full tracking + player position check
-   - `_batch_till_grid()` - Full tracking
-   - `_batch_water_remaining()` - Full tracking
+**2. Bug Fixes Applied**
 
-**Output file:** `logs/verification_status.json`
-**UI endpoint:** `GET /api/verification-status`
+| Bug | Root Cause | Fix |
+|-----|------------|-----|
+| Mixed Seeds not planted | Only used first seed slot | Iterate through EACH seed type separately |
+| Water verification fails | 0.3s wait < SMAPI cache refresh | Increased to 0.5s |
 
 ---
 
-## Code Changes Made in Session 116
+## Code Changes (Session 116)
 
-### 1. New Verification Helpers (lines ~2060-2130)
+### Fix 1: Multi-Seed Planting (lines ~3740-3760)
 
+**Before:**
 ```python
-def verify_player_at(self, x: int, y: int, tolerance: int = 1) -> bool:
-    """Verify player is at or adjacent to expected position."""
-
-def reset_verification_tracking(self):
-    """Reset tracking counters for a new batch operation."""
-
-def record_verification(self, action_type: str, x: int, y: int, success: bool, reason: str = ""):
-    """Record a verification result."""
-
-def persist_verification_tracking(self):
-    """Save tracking to logs/verification_status.json for UI consumption."""
+seed_items = [all seeds]
+seed_count = sum(all stacks)  # 14 + 2 = 16
+seed_slot = seed_items[0].slot  # Only first slot!
+_batch_till_and_plant(16, seed_slot)  # Fails after first type exhausted
 ```
 
-### 2. Updated Batch Methods
+**After:**
+```python
+for seed_item in seed_items:
+    seed_slot = seed_item.slot
+    seed_count = seed_item.stack
+    _batch_till_and_plant(seed_count, seed_slot)  # Each type planted
+```
 
-- `_batch_till_and_plant()` - Added player position verification, tracking calls
-- `_batch_till_grid()` - Added tracking calls
-- `_batch_water_remaining()` - Added tracking calls
+### Fix 2: Water Timing (lines 3324, 3967)
+
+Changed `asyncio.sleep(0.3)` to `asyncio.sleep(0.5)` for watering verification.
 
 ---
 
-## Testing Protocol
+## Testing Checklist
 
-### Step 1: Verify UI Shows Data
+### Test 1: Multi-Seed Planting
 
-```bash
-# Check endpoint returns data
-curl -s http://localhost:9001/api/verification-status | jq
+1. Give player multiple seed types (e.g., Parsnip Seeds + Mixed Seeds)
+2. Run agent: `python src/python-agent/unified_agent.py --goal "Plant seeds"`
+3. Verify ALL seed types get planted, not just first
 
-# Should see:
-# {
-#   "status": "active",
-#   "tilled": {"attempted": N, "verified": N},
-#   "planted": {"attempted": N, "verified": N},
-#   "watered": {"attempted": N, "verified": N},
-#   "failures": [...],
-#   "updated_at": "..."
-# }
-```
+### Test 2: Water Verification
 
-### Step 2: Run Agent with Batch Goal
+1. Run batch watering
+2. Check verification stats: `curl localhost:9001/api/verification-status`
+3. Should see higher water verification rate (was 58%, target 90%+)
+
+### Test 3: Full Cycle
 
 ```bash
 source venv/bin/activate
-python src/python-agent/unified_agent.py --goal "Plant some parsnip seeds"
+python src/python-agent/unified_agent.py --goal "Do farm chores"
 ```
 
-### Step 3: Watch for Verification Logs
-
-```
-✓ Till verified at (x,y)
-✓ Plant verified at (x,y)
-✗ Till FAILED at (x,y) - tile not tilled!
-⚠ Water not verified at (x,y) - may need retry
-```
-
-### Step 4: Check UI Panel
-
-Open http://localhost:9001 and look for:
-- Verification Status Panel showing attempted vs verified counts
-- Failure list with coordinates and reasons
-
-### Step 5: Verify JSON File Updated
-
-```bash
-cat logs/verification_status.json
-```
+Watch for:
+- `🔨 Phase 3: Till & Plant X [seed_name] from slot Y` (multiple seed types)
+- `✓ Water verified at (x,y)` logs
+- Verification endpoint shows high success rates
 
 ---
 
-## Known Issues
+## Verification Data Format
 
-1. **Player position check** - If player can't reach target tile, till/plant/water fails. Session 116 added `verify_player_at()` to detect this.
-
-2. **SMAPI cache staleness** - 250ms delay after actions before state refreshes. We wait 0.3-0.5s after tool use before verifying.
-
----
-
-## Session 117 Goals
-
-1. Run full batch farm cycle and verify tracking shows correct data
-2. Test player position verification catches unreachable tiles
-3. If verification working: test multi-day farming cycle
-4. If issues found: document and fix
+```json
+{
+  "status": "active",
+  "tilled": {"attempted": N, "verified": N},
+  "planted": {"attempted": N, "verified": N},
+  "watered": {"attempted": N, "verified": N},
+  "failures": [{"action": "...", "x": N, "y": N, "reason": "..."}],
+  "updated_at": "ISO timestamp"
+}
+```
 
 ---
 
@@ -121,15 +99,29 @@ cat logs/verification_status.json
 cd /home/tim/StardewAI
 source venv/bin/activate
 
-# Terminal 1: UI server (if not running)
-python src/ui/app.py
+# Start UI (if not running)
+python src/ui/app.py &
 
-# Terminal 2: Start game with SMAPI mod
+# Run agent
+python src/python-agent/unified_agent.py --goal "Plant all seeds"
 
-# Terminal 3: Run agent
-python src/python-agent/unified_agent.py --goal "Plant parsnip seeds"
-
-# Watch verification panel in UI at http://localhost:9001
+# Check verification
+curl -s localhost:9001/api/verification-status | jq
 ```
+
+---
+
+## Commits This Session
+
+1. `fdc4bef` - Add verification tracking backend
+2. `a066f28` - Fix multi-seed planting and water timing
+
+---
+
+## Session 117 Goals
+
+1. Verify multi-seed planting works (all seed types planted)
+2. Verify water timing fix improves verification rate
+3. If passing: Run multi-day autonomy test
 
 -- Claude
