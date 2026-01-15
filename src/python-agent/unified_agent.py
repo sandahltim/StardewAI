@@ -3328,6 +3328,7 @@ class StardewAgent:
         batch_count = 0
         refill_count = 0
         max_batch = 200  # Safety limit
+        self._refill_attempts = 0  # Session 120: Reset refill attempt counter
         max_moves_to_crop = 50  # Max moves to reach a single crop
         skipped_crops = set()  # Crops we couldn't reach (behind buildings, etc.)
         watered_this_batch = set()  # Track crops we've watered (SMAPI cache is stale for ~250ms)
@@ -3362,21 +3363,41 @@ class StardewAgent:
             # Check water can - refill if empty
             water_left = player.get("wateringCanWater", 0)
             if water_left <= 0:
-                logging.info(f"🚿 Water can empty after {batch_count} crops, refilling...")
+                # Session 120: Track refill attempts to prevent infinite loop
+                if not hasattr(self, '_refill_attempts'):
+                    self._refill_attempts = 0
+                self._refill_attempts += 1
+                
+                if self._refill_attempts > 3:
+                    logging.warning(f"🚿 Refill failed {self._refill_attempts} times, stopping batch water")
+                    self._refill_attempts = 0  # Reset for next batch
+                    break
+                
+                logging.info(f"🚿 Water can empty after {batch_count} crops, refilling (attempt {self._refill_attempts})...")
                 refill_skill = self.skills_dict.get("go_refill_watering_can")
                 if refill_skill:
                     skill_state = dict(self.last_state)
                     result = await self.skill_executor.execute(refill_skill, {}, skill_state)
                     if result.success:
-                        refill_count += 1
-                        logging.info(f"✅ Refilled water can (refill #{refill_count})")
-                        await asyncio.sleep(0.3)
-                        continue  # Continue watering
+                        await asyncio.sleep(0.5)  # Wait for state to update
+                        self._refresh_state_snapshot()
+                        # Session 120: VERIFY water was actually refilled
+                        new_water = self.last_state.get("player", {}).get("wateringCanWater", 0) if self.last_state else 0
+                        if new_water > 0:
+                            refill_count += 1
+                            self._refill_attempts = 0  # Reset on success
+                            logging.info(f"✅ Refilled water can to {new_water} (refill #{refill_count})")
+                            continue  # Continue watering
+                        else:
+                            logging.warning(f"⚠️ Refill skill succeeded but can still empty (water={new_water})")
+                            continue  # Will hit attempt limit if keeps failing
                     else:
                         logging.warning(f"❌ Failed to refill water can, stopping")
+                        self._refill_attempts = 0
                         break
                 else:
                     logging.warning("🚿 No go_refill_watering_can skill, stopping")
+                    self._refill_attempts = 0
                     break
             
             # If not on Farm, return to farm
