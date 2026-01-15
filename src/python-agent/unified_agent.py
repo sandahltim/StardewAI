@@ -1917,6 +1917,24 @@ class ModBridgeController:
             elif action_type == "collect_upgraded_tool":
                 return self._send_action({"action": "collect_upgraded_tool"})
 
+            # Mining actions
+            elif action_type == "enter_mine_level":
+                level = action.params.get("level", 1)
+                return self._send_action({
+                    "action": "enter_mine_level",
+                    "level": level
+                })
+
+            elif action_type == "use_ladder":
+                return self._send_action({"action": "use_ladder"})
+
+            elif action_type == "swing_weapon":
+                direction = action.params.get("direction", "")
+                return self._send_action({
+                    "action": "swing_weapon",
+                    "direction": direction
+                })
+
             # Fallback for unknown actions
             logging.warning(f"Unknown action for ModBridge: {action_type}")
             return False
@@ -2937,6 +2955,16 @@ class StardewAgent:
                 skill_state["farm"] = farm_data
 
         # BATCH OPERATIONS: Some skills trigger special batch handlers
+        if skill_name == "auto_farm_chores":
+            results = await self._batch_farm_chores()
+            total = results["harvested"] + results["watered"] + results["planted"]
+            if total > 0:
+                logging.info(f"✅ auto_farm_chores: {total} actions taken")
+                return True
+            else:
+                logging.info("✅ auto_farm_chores: nothing to do (farm is tidy)")
+                return True  # Success even if nothing to do
+
         if skill_name == "auto_plant_seeds":
             planted = await self._batch_plant_seeds(params.get("seed_type"))
             if planted > 0:
@@ -3337,6 +3365,254 @@ class StardewAgent:
 
         logging.info(f"🌱 Batch planting complete: {planted_count} seeds planted and watered")
         return planted_count
+
+    async def _batch_farm_chores(self) -> dict:
+        """Execute ALL farm chores in sequence without VLM consultation.
+
+        Order: Buy Seeds (if needed) → Harvest → Water → Till → Plant
+
+        Returns dict with counts of each action taken.
+        """
+        results = {"seeds_bought": 0, "harvested": 0, "watered": 0, "tilled": 0, "planted": 0}
+
+        logging.info("🏠 ═══════════════════════════════════════")
+        logging.info("🏠 BATCH FARM CHORES - Running autonomously")
+        logging.info("🏠 ═══════════════════════════════════════")
+
+        # Refresh state
+        self._refresh_state_snapshot()
+        if not self.last_state:
+            logging.warning("🏠 No state available for batch chores")
+            return results
+
+        # --- PHASE 0: BUY SEEDS IF NEEDED ---
+        inventory = self.last_state.get("inventory", [])
+        has_seeds = any(i and "seed" in i.get("name", "").lower() for i in inventory)
+
+        if not has_seeds:
+            player = self.last_state.get("player", {})
+            money = player.get("money", 0)
+            time_data = self.last_state.get("time", {})
+            hour = time_data.get("hour", 6)
+            day_of_week = time_data.get("dayOfWeek", "Monday")
+
+            # Pierre's open: 9-17, not Wednesday
+            pierre_open = 9 <= hour < 17 and day_of_week != "Wednesday"
+
+            if pierre_open and money >= 20:  # Minimum for parsnip seeds
+                logging.info(f"🛒 Phase 0: No seeds! Going to Pierre's ({money}g available)")
+
+                # Get recommended seed
+                seed_skill, seed_reason = get_recommended_seed_skill(self.last_state)
+                logging.info(f"🛒 Crop advisor recommends: {seed_reason}")
+
+                # Go to Pierre's
+                self.controller.execute(Action("warp", {"location": "SeedShop"}, "warp to Pierre's"))
+                await asyncio.sleep(0.5)
+                self._refresh_state_snapshot()
+
+                # Buy seeds - calculate quantity based on money
+                # Get seed price from skill name (approximate)
+                seed_prices = {
+                    "buy_parsnip_seeds": 20,
+                    "buy_potato_seeds": 50,
+                    "buy_cauliflower_seeds": 80,
+                    "buy_kale_seeds": 70,
+                    "buy_garlic_seeds": 40,
+                    "buy_jazz_seeds": 30,
+                }
+                price = seed_prices.get(seed_skill, 20)
+                quantity = min(money // price, 15)  # Max 15 seeds at once
+
+                if quantity > 0:
+                    # Extract seed item name from skill
+                    seed_item = seed_skill.replace("buy_", "").replace("_", " ").title()
+                    logging.info(f"🛒 Buying {quantity} {seed_item} @ {price}g each")
+
+                    self.controller.execute(Action("buy", {
+                        "item": seed_item,
+                        "quantity": quantity
+                    }, f"buy {quantity} {seed_item}"))
+                    await asyncio.sleep(0.3)
+                    results["seeds_bought"] = quantity
+
+                # Return to farm
+                logging.info("🏠 Returning to farm...")
+                self.controller.execute(Action("warp", {"location": "Farm"}, "warp to Farm"))
+                await asyncio.sleep(0.5)
+                self._refresh_state_snapshot()
+            elif not pierre_open:
+                logging.info(f"🛒 No seeds but Pierre's closed (hour={hour}, day={day_of_week})")
+            elif money < 20:
+                logging.info(f"🛒 No seeds and not enough money ({money}g)")
+
+        location = self.last_state.get("location", {}) if self.last_state else {}
+        crops = location.get("crops", [])
+
+        # Check we're on farm
+        loc_name = location.get("name", "")
+        if loc_name != "Farm":
+            logging.info(f"🏠 Not on Farm (at {loc_name}), warping...")
+            self.controller.execute(Action("warp", {"location": "Farm"}, "warp to Farm"))
+            await asyncio.sleep(0.5)
+            self._refresh_state_snapshot()
+            location = self.last_state.get("location", {}) if self.last_state else {}
+            crops = location.get("crops", [])
+
+        # --- PHASE 1: HARVEST ---
+        harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
+        if harvestable:
+            logging.info(f"🌾 Phase 1: Harvesting {len(harvestable)} crops")
+            for crop in harvestable:
+                cx, cy = crop.get("x", 0), crop.get("y", 0)
+                # Stand south, face north
+                self.controller.execute(Action("move_to", {"x": cx, "y": cy + 1}, f"move to harvest"))
+                await asyncio.sleep(0.2)
+                self.controller.execute(Action("face", {"direction": "north"}, "face crop"))
+                self.controller.execute(Action("harvest", {"direction": "north"}, "harvest"))
+                await asyncio.sleep(0.2)
+                results["harvested"] += 1
+            logging.info(f"🌾 Harvested {results['harvested']} crops")
+            self._refresh_state_snapshot()
+            crops = self.last_state.get("location", {}).get("crops", []) if self.last_state else []
+
+        # --- PHASE 2: WATER ---
+        unwatered = [c for c in crops if not c.get("isWatered", False) and not c.get("isReadyForHarvest", False)]
+        if unwatered:
+            logging.info(f"💧 Phase 2: Watering {len(unwatered)} crops")
+            # Use existing batch water
+            await self._batch_water_remaining()
+            results["watered"] = len(unwatered)  # Approximate
+            self._refresh_state_snapshot()
+
+        # --- PHASE 3: TILL & PLANT ---
+        # Check for seeds
+        inventory = self.last_state.get("inventory", []) if self.last_state else []
+        seed_items = [i for i in inventory if i and "seed" in i.get("name", "").lower()]
+        seed_count = sum(i.get("stack", 1) for i in seed_items)
+
+        if seed_count > 0:
+            # Get tilled count from farm state
+            farm_state = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
+            tilled_tiles = farm_state.get("data", farm_state).get("tilledTiles", []) if farm_state else []
+            crop_positions = {(c.get("x"), c.get("y")) for c in crops}
+            available_tilled = [t for t in tilled_tiles if (t.get("x"), t.get("y")) not in crop_positions]
+
+            # Find contiguous tilled area - check if existing tiles are grouped
+            # If they're scattered (not a grid), we'll till a fresh grid
+            if available_tilled:
+                # Sort by position to check contiguity
+                sorted_tilled = sorted([(t.get("x"), t.get("y")) for t in available_tilled])
+                # Check if they're mostly contiguous (within 2 tiles of each other)
+                if len(sorted_tilled) >= 2:
+                    min_x = min(t[0] for t in sorted_tilled)
+                    max_x = max(t[0] for t in sorted_tilled)
+                    min_y = min(t[1] for t in sorted_tilled)
+                    max_y = max(t[1] for t in sorted_tilled)
+                    spread = (max_x - min_x) + (max_y - min_y)
+                    # If spread is too large for the count, they're scattered
+                    if spread > len(sorted_tilled) * 2:
+                        logging.info(f"🔨 Existing tilled tiles are scattered (spread={spread}), tilling fresh grid")
+                        available_tilled = []  # Ignore scattered tiles
+
+            # If not enough contiguous tilled soil, till a grid
+            if len(available_tilled) < seed_count:
+                needed = seed_count - len(available_tilled)
+                logging.info(f"🔨 Phase 3a: Tilling {needed} tiles for grid")
+                tilled = await self._batch_till_grid(needed)
+                results["tilled"] = tilled
+
+            # Now plant
+            logging.info("🌱 Phase 3b: Planting seeds")
+            planted = await self._batch_plant_seeds()
+            results["planted"] = planted
+
+        logging.info("🏠 ═══════════════════════════════════════")
+        logging.info(f"🏠 BATCH CHORES COMPLETE: harvested={results['harvested']}, watered={results['watered']}, tilled={results['tilled']}, planted={results['planted']}")
+        logging.info("🏠 ═══════════════════════════════════════")
+
+        return results
+
+    async def _batch_till_grid(self, count: int) -> int:
+        """Till a contiguous grid of soil tiles.
+
+        Creates a nice rectangular grid starting from a good farm area.
+        Uses SMAPI farm state to find clearable positions.
+
+        Args:
+            count: Number of tiles to till
+
+        Returns:
+            Number of tiles actually tilled
+        """
+        FARM_GRID_START = (60, 16)  # Good starting position on standard farm
+        GRID_WIDTH = 5  # Till in rows of 5
+
+        tilled = 0
+        max_attempts = count + 20  # Allow some failures
+
+        logging.info(f"🔨 Batch tilling {count} tiles in grid pattern")
+
+        # Get farm state to find tillable positions
+        farm_state = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
+        if not farm_state:
+            logging.warning("🔨 No farm state for tilling")
+            return 0
+
+        data = farm_state.get("data") or farm_state
+
+        # Get existing tilled and crop positions
+        existing_tilled = {(t.get("x"), t.get("y")) for t in data.get("tilledTiles", [])}
+        existing_crops = {(c.get("x"), c.get("y")) for c in data.get("crops", [])}
+        occupied = existing_tilled | existing_crops
+
+        # Find debris/objects that block
+        debris = {(d.get("x"), d.get("y")) for d in data.get("debris", [])}
+
+        # Generate grid positions
+        start_x, start_y = FARM_GRID_START
+        grid_positions = []
+
+        for row in range(count // GRID_WIDTH + 1):
+            for col in range(GRID_WIDTH):
+                if len(grid_positions) >= count:
+                    break
+                x = start_x + col
+                y = start_y + row
+                if (x, y) not in occupied and (x, y) not in debris:
+                    grid_positions.append((x, y))
+
+        if not grid_positions:
+            logging.warning("🔨 No available grid positions")
+            return 0
+
+        logging.info(f"🔨 Grid: {len(grid_positions)} positions from ({start_x},{start_y})")
+
+        # Equip hoe
+        self.controller.execute(Action("select_item_type", {"value": "Hoe"}, "equip hoe"))
+        await asyncio.sleep(0.2)
+
+        for x, y in grid_positions:
+            if tilled >= count or tilled >= max_attempts:
+                break
+
+            # Move adjacent (stand south, face north)
+            stand_x, stand_y = x, y + 1
+            self.controller.execute(Action("move_to", {"x": stand_x, "y": stand_y}, f"move to till"))
+            await asyncio.sleep(0.2)
+
+            # Face north and till
+            self.controller.execute(Action("face", {"direction": "north"}, "face north"))
+            await asyncio.sleep(0.1)
+            self.controller.execute(Action("use_tool", {}, "till"))
+            await asyncio.sleep(0.2)
+
+            tilled += 1
+            if tilled % 5 == 0:
+                logging.info(f"🔨 Tilled {tilled}/{count}")
+
+        logging.info(f"🔨 Batch tilling complete: {tilled} tiles")
+        return tilled
 
     def _filter_adjacent_crop_moves(self, actions: List[Action]) -> List[Action]:
         """

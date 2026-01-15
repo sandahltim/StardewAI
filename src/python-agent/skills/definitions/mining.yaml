@@ -1,0 +1,320 @@
+# Mining and combat skills
+
+# ============================================================
+# Navigation
+# ============================================================
+
+go_to_mines:
+  description: "Teleport to the Mine entrance"
+  category: navigation
+  energy_cost: 0
+
+  actions:
+    - warp: { location: "Mine" }
+
+  on_success:
+    message: "Arrived at Mine entrance"
+
+# ============================================================
+# Mine Level Navigation
+# ============================================================
+
+enter_mine_level_1:
+  description: "Enter mine level 1 to start mining"
+  category: mining
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Mine
+
+  actions:
+    - enter_mine_level: { level: 1 }
+
+  on_success:
+    message: "Entered mine level 1"
+
+  on_failure:
+    wrong_location:
+      message: "Not at mine entrance - go_to_mines first"
+      recovery_skill: go_to_mines
+
+enter_mine_level_5:
+  description: "Enter mine level 5 via elevator (frozen area unlocks copper)"
+  category: mining
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Mine
+
+  actions:
+    - enter_mine_level: { level: 5 }
+
+  on_success:
+    message: "Entered mine level 5"
+
+enter_mine_level_10:
+  description: "Enter mine level 10 via elevator"
+  category: mining
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Mine
+
+  actions:
+    - enter_mine_level: { level: 10 }
+
+  on_success:
+    message: "Entered mine level 10"
+
+enter_mine_level_40:
+  description: "Enter mine level 40 via elevator (frozen area starts, iron ore)"
+  category: mining
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Mine
+
+  actions:
+    - enter_mine_level: { level: 40 }
+
+  on_success:
+    message: "Entered mine level 40 (frozen area)"
+
+enter_mine_level_80:
+  description: "Enter mine level 80 via elevator (lava area starts, gold ore)"
+  category: mining
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Mine
+
+  actions:
+    - enter_mine_level: { level: 80 }
+
+  on_success:
+    message: "Entered mine level 80 (lava area)"
+
+enter_mine_level_120:
+  description: "Enter mine level 120 via elevator (bottom of regular mines)"
+  category: mining
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Mine
+
+  actions:
+    - enter_mine_level: { level: 120 }
+
+  on_success:
+    message: "Entered mine level 120 (mine bottom)"
+
+# ============================================================
+# Floor Navigation
+# ============================================================
+
+use_ladder:
+  description: "Use a ladder or shaft to descend to the next floor"
+  category: mining
+  energy_cost: 0
+
+  actions:
+    - use_ladder: {}
+
+  on_success:
+    message: "Descended to next floor"
+
+  on_failure:
+    no_ladder:
+      message: "No ladder found nearby - break more rocks"
+
+exit_mines:
+  description: "Leave the mines and return to the mine entrance"
+  category: mining
+  energy_cost: 0
+
+  actions:
+    - enter_mine_level: { level: 0 }
+
+  on_success:
+    message: "Exited to mine entrance"
+
+# ============================================================
+# Mining Actions
+# ============================================================
+
+break_rock:
+  description: "Break a rock with the pickaxe (facing direction)"
+  category: mining
+  energy_cost: 4
+
+  actions:
+    - equip_tool: { tool: "Pickaxe" }
+    - face: { direction: "{target_direction}" }
+    - use_tool: {}
+
+  on_success:
+    message: "Broke rock"
+
+  on_failure:
+    no_tool:
+      message: "Pickaxe not in inventory"
+    no_energy:
+      message: "Not enough energy to mine"
+
+mine_copper_ore:
+  description: "Mine a copper ore node (levels 1-39)"
+  category: mining
+  energy_cost: 4
+
+  actions:
+    - equip_tool: { tool: "Pickaxe" }
+    - move_to: { target: "{ore_position}" }
+    - face: { direction: "{target_direction}" }
+    - use_tool: {}
+    - use_tool: {}  # Copper takes 2 hits with basic pickaxe
+
+  on_success:
+    message: "Mined copper ore"
+
+mine_iron_ore:
+  description: "Mine an iron ore node (levels 40-79)"
+  category: mining
+  energy_cost: 6
+
+  actions:
+    - equip_tool: { tool: "Pickaxe" }
+    - move_to: { target: "{ore_position}" }
+    - face: { direction: "{target_direction}" }
+    - use_tool: {}
+    - use_tool: {}
+    - use_tool: {}  # Iron takes 3 hits with basic pickaxe
+
+  on_success:
+    message: "Mined iron ore"
+
+mine_gold_ore:
+  description: "Mine a gold ore node (levels 80-119)"
+  category: mining
+  energy_cost: 8
+
+  actions:
+    - equip_tool: { tool: "Pickaxe" }
+    - move_to: { target: "{ore_position}" }
+    - face: { direction: "{target_direction}" }
+    - use_tool: {}
+    - use_tool: {}
+    - use_tool: {}
+    - use_tool: {}  # Gold takes 4 hits with basic pickaxe
+
+  on_success:
+    message: "Mined gold ore"
+
+# ============================================================
+# Combat
+# ============================================================
+
+attack:
+  description: "Attack with equipped weapon in facing direction"
+  category: combat
+  energy_cost: 2
+
+  actions:
+    - swing_weapon: { direction: "{target_direction}" }
+
+  on_success:
+    message: "Attacked"
+
+  on_failure:
+    no_weapon:
+      message: "No weapon equipped"
+
+attack_north:
+  description: "Attack facing north"
+  category: combat
+  energy_cost: 2
+
+  actions:
+    - swing_weapon: { direction: "north" }
+
+  on_success:
+    message: "Attacked north"
+
+attack_south:
+  description: "Attack facing south"
+  category: combat
+  energy_cost: 2
+
+  actions:
+    - swing_weapon: { direction: "south" }
+
+  on_success:
+    message: "Attacked south"
+
+attack_east:
+  description: "Attack facing east"
+  category: combat
+  energy_cost: 2
+
+  actions:
+    - swing_weapon: { direction: "east" }
+
+  on_success:
+    message: "Attacked east"
+
+attack_west:
+  description: "Attack facing west"
+  category: combat
+  energy_cost: 2
+
+  actions:
+    - swing_weapon: { direction: "west" }
+
+  on_success:
+    message: "Attacked west"
+
+equip_weapon:
+  description: "Equip a weapon from inventory"
+  category: combat
+  energy_cost: 0
+
+  actions:
+    - select_item_type: { value: "Weapon" }
+
+  on_success:
+    message: "Weapon equipped"
+
+  on_failure:
+    no_weapon:
+      message: "No weapon in inventory"
+
+# ============================================================
+# Safety & Recovery
+# ============================================================
+
+eat_for_health:
+  description: "Eat food to restore health while in mines"
+  category: combat
+  energy_cost: 0
+
+  actions:
+    - select_item_type: { value: "food" }
+    - eat: {}
+
+  on_success:
+    message: "Ate food to restore health"
+
+  on_failure:
+    no_food:
+      message: "No food in inventory"

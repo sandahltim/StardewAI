@@ -196,6 +196,29 @@ auto_plant_seeds:
       message: "No tilled soil available - need to till first"
       recovery_skill: till_soil
 
+# =============================================================================
+# BATCH FARM CHORES - One command does everything
+# =============================================================================
+
+auto_farm_chores:
+  description: "Do ALL farm chores automatically: harvest ready crops, water unwatered crops, plant seeds. Runs until done without VLM input."
+  category: farming
+  energy_cost: 0
+  is_batch_operation: true  # Triggers _batch_farm_chores() handler
+
+  # No preconditions - will warp to Farm if needed
+
+  # Actions handled by _batch_farm_chores() in agent
+  actions:
+    - wait: 0.1  # Placeholder - batch handler does the work
+
+  on_success:
+    message: "Farm chores complete!"
+
+  on_failure:
+    not_on_farm:
+      message: "Could not reach farm"
+
 plant_seed:
   description: "Plant seeds on tilled soil (auto-selects seeds from inventory)"
   category: farming

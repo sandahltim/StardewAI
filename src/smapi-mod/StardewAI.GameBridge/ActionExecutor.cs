@@ -4,6 +4,7 @@ using StardewAI.GameBridge.Models;
 using StardewAI.GameBridge.Pathfinding;
 using StardewModdingAPI;
 using StardewValley;
+using StardewValley.Locations;
 using StardewValley.Menus;
 using StardewValley.Tools;
 
@@ -84,6 +85,10 @@ public class ActionExecutor
                 // Tool Upgrades
                 "upgrade_tool" => UpgradeTool(command.Tool),
                 "collect_upgraded_tool" => CollectUpgradedTool(),
+                // Mining
+                "enter_mine_level" => EnterMineLevel(command.Level),
+                "use_ladder" => UseLadder(),
+                "swing_weapon" => SwingWeapon(command.Direction),
                 _ => new ActionResult { Success = false, Error = $"Unknown action: {command.Action}", State = ActionState.Failed }
             };
         }
@@ -1323,6 +1328,205 @@ public class ActionExecutor
         {
             Success = true,
             Message = $"Collected {toolName} from Clint!",
+            State = ActionState.Complete
+        };
+    }
+
+    // ============================================
+    // MINING ACTIONS
+    // ============================================
+
+    private ActionResult EnterMineLevel(int level)
+    {
+        var player = Game1.player;
+        var location = player.currentLocation;
+
+        // Level 0 = mine entrance, levels 1-120 = regular mine, 121+ = skull cavern
+        if (level < 0)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Invalid mine level: {level}. Must be >= 0.",
+                State = ActionState.Failed
+            };
+        }
+
+        // Check if using elevator (must be at mine entrance or in mines)
+        bool atMineEntrance = location?.Name == "Mine" || location is MineShaft;
+        if (!atMineEntrance)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Not at mine entrance (current: {location?.Name ?? "unknown"}). Warp to Mine first.",
+                State = ActionState.Failed
+            };
+        }
+
+        // Check if level is unlocked (every 5 levels via elevator)
+        int deepestLevel = MineShaft.lowestLevelReached;
+        if (level > 0)
+        {
+            // Can only use elevator to levels in increments of 5 that player has reached
+            int maxElevatorLevel = (deepestLevel / 5) * 5;
+            if (level > maxElevatorLevel && level != 1)
+            {
+                return new ActionResult
+                {
+                    Success = false,
+                    Error = $"Level {level} not unlocked. Deepest reached: {deepestLevel}. Elevator goes to: {maxElevatorLevel}.",
+                    State = ActionState.Failed
+                };
+            }
+        }
+
+        // Enter the mine level
+        Game1.enterMine(level);
+
+        _monitor.Log($"Entering mine level {level}", LogLevel.Info);
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Entered mine level {level}",
+            State = ActionState.Complete
+        };
+    }
+
+    private ActionResult UseLadder()
+    {
+        var player = Game1.player;
+        var location = player.currentLocation;
+
+        // Must be in a mine
+        if (location is not MineShaft mine)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Not in a mine (current: {location?.Name ?? "unknown"})",
+                State = ActionState.Failed
+            };
+        }
+
+        // Find ladder or shaft at player's position or adjacent tiles
+        Point playerTile = player.TilePoint;
+        Point? ladderPos = null;
+        bool isShaft = false;
+
+        // Check player tile and adjacent tiles
+        Point[] checkTiles = {
+            playerTile,
+            new Point(playerTile.X, playerTile.Y - 1),
+            new Point(playerTile.X, playerTile.Y + 1),
+            new Point(playerTile.X - 1, playerTile.Y),
+            new Point(playerTile.X + 1, playerTile.Y)
+        };
+
+        foreach (var tile in checkTiles)
+        {
+            var key = new Vector2(tile.X, tile.Y);
+            if (mine.Objects.TryGetValue(key, out var obj))
+            {
+                if (obj.Name == "Ladder")
+                {
+                    ladderPos = tile;
+                    isShaft = false;
+                    break;
+                }
+                else if (obj.Name == "Shaft")
+                {
+                    ladderPos = tile;
+                    isShaft = true;
+                    break;
+                }
+            }
+        }
+
+        if (ladderPos == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No ladder or shaft found nearby. Break more rocks to spawn one.",
+                State = ActionState.Failed
+            };
+        }
+
+        // Move player to ladder tile if not already there
+        if (playerTile != ladderPos.Value)
+        {
+            player.setTileLocation(new Vector2(ladderPos.Value.X, ladderPos.Value.Y));
+        }
+
+        // Descend: shaft goes 3-8 levels, ladder goes 1
+        int currentLevel = mine.mineLevel;
+        int nextLevel = isShaft ? currentLevel + Game1.random.Next(3, 9) : currentLevel + 1;
+
+        Game1.enterMine(nextLevel);
+
+        _monitor.Log($"Used {(isShaft ? "shaft" : "ladder")} to descend to level {nextLevel}", LogLevel.Info);
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Descended to level {nextLevel} via {(isShaft ? "shaft" : "ladder")}",
+            State = ActionState.Complete
+        };
+    }
+
+    private ActionResult SwingWeapon(string direction)
+    {
+        var player = Game1.player;
+
+        // Get the current tool/weapon
+        var tool = player.CurrentTool;
+        if (tool == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No tool equipped. Select a weapon first.",
+                State = ActionState.Failed
+            };
+        }
+
+        // Check if it's a melee weapon
+        if (tool is not MeleeWeapon weapon)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Current tool ({tool.DisplayName}) is not a weapon.",
+                State = ActionState.Failed
+            };
+        }
+
+        // Set facing direction
+        if (!string.IsNullOrEmpty(direction))
+        {
+            int facing = TilePathfinder.DirectionToFacing(direction);
+            if (facing >= 0)
+            {
+                player.FacingDirection = facing;
+            }
+        }
+
+        // Perform the weapon swing
+        // Use the weapon at the player's position
+        var playerCenter = player.GetBoundingBox().Center;
+        weapon.setFarmerAnimating(player);
+
+        // DoFunction triggers the actual attack
+        weapon.DoFunction(player.currentLocation, playerCenter.X, playerCenter.Y, 1, player);
+
+        _monitor.Log($"Swung {weapon.DisplayName} facing {player.FacingDirection}", LogLevel.Debug);
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Attacked with {weapon.DisplayName}",
             State = ActionState.Complete
         };
     }

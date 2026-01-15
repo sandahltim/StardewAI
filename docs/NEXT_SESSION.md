@@ -913,24 +913,83 @@ dotnet build
 
 ---
 
-## Session 111 Priorities
+## Session 111 Accomplishments
 
-### 1. Add `collect_upgraded_tool` Action
-- Pick up finished tool from Clint after 2 days
-- Check `player.toolBeingUpgraded` and `daysLeftForToolUpgrade`
+### Mining System Complete
+| Component | Change |
+|-----------|--------|
+| `ActionExecutor.cs` | Added `EnterMineLevel()`, `UseLadder()`, `SwingWeapon()` methods (+200 lines) |
+| `ActionCommand.cs` | Added `Level` property for mine level targeting |
+| `mining.yaml` | Created 20+ mining/combat skills |
+| `unified_agent.py` | Added mining action dispatches |
 
-### 2. Test Tool Upgrade Flow
-- Go to Blacksmith
-- Upgrade pickaxe (need 2000g + 5 Copper Bars)
-- Wait 2 days, collect tool
+### SMAPI Mining Actions
+| Action | Purpose |
+|--------|---------|
+| `enter_mine_level` | Enter specific mine level (0=entrance, 1-120=regular, 121+=skull cavern) |
+| `use_ladder` | Use ladder/shaft to descend (checks adjacent tiles) |
+| `swing_weapon` | Attack with equipped MeleeWeapon |
 
-### 3. Test auto_plant_seeds Live
-- Still needs seeds + tilled soil to verify
+### Key Features
+- **Elevator validation**: Checks `MineShaft.lowestLevelReached`, only allows 5-level increments
+- **Ladder detection**: Searches player tile + 4 adjacent tiles for Ladder/Shaft objects
+- **Shaft descent**: Random 3-8 levels (vs ladder = 1 level)
+- **Combat**: Validates weapon equipped, sets facing direction, calls `DoFunction()`
 
-### 4. Mining Preparation
-- Mining skills groundwork
-- Combat basics
+### Mining Skills Added (20+)
+| Category | Skills |
+|----------|--------|
+| Navigation | `go_to_mines`, `exit_mines` |
+| Elevator | `enter_mine_level_1/5/10/40/80/120` |
+| Floor | `use_ladder` |
+| Mining | `break_rock`, `mine_copper/iron/gold_ore` |
+| Combat | `attack`, `attack_north/south/east/west`, `equip_weapon` |
+| Safety | `eat_for_health` |
+
+### Batch Farm Chores System (Major Architecture Change)
+
+**Problem:** VLM was called every tick for individual actions - too slow.
+
+**Solution:** Goal-based batch operations. VLM decides ONCE, system executes autonomously.
+
+| Component | Change |
+|-----------|--------|
+| `unified_agent.py` | Added `_batch_farm_chores()`, `_batch_till_grid()` |
+| `farming.yaml` | Added `auto_farm_chores` skill |
+| `farm_planner.py` | Added flood-fill for contiguous tile detection |
+| `daily_planner.py` | Consolidated farm tasks into single batch task |
+
+**Batch Farm Chores Flow:**
+```
+Phase 0: Buy seeds (if needed, Pierre open, have money)
+Phase 1: Harvest ready crops
+Phase 2: Water unwatered crops (auto-refill)
+Phase 3a: Till contiguous grid (if needed)
+Phase 3b: Plant seeds (row-by-row)
+```
+
+**Key Features:**
+- **Seed purchasing**: Uses crop advisor for best seed, calculates quantity from money
+- **Contiguity check**: Ignores scattered tilled tiles, creates fresh 5-wide grid
+- **Flood-fill grouping**: `get_planting_sequence()` only uses largest connected tile group
+- **Daily planner integration**: Single `farm_chores_X` task with `skill_override`
 
 ---
 
-*Session 110 Handoff: Tool upgrade system complete (SMAPI + Python skills) — Claude*
+## Session 112 Priorities
+
+### 1. Test Batch Farm Chores
+- Run `auto_farm_chores` on fresh day
+- Verify: buy seeds → till grid → plant → water
+
+### 2. Test Mining System
+- Warp to mine → enter level 1 → break rocks → find ladder → descend
+- Verify combat works (need weapon in inventory)
+
+### 3. Shipping Integration
+- Add batch shipping to `auto_farm_chores` or keep separate?
+- Verify harvested crops go to shipping bin
+
+---
+
+*Session 111 Handoff: Mining + Batch Farm Chores complete — Claude*

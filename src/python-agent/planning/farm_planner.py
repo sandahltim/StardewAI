@@ -624,16 +624,42 @@ def get_planting_sequence(
             tilled_positions.add((x, y))
 
     # Find plantable positions (tilled but no crop)
-    plantable = []
-    for pos in tilled_positions:
-        if pos not in crop_positions:
-            plantable.append({
-                "x": pos[0],
-                "y": pos[1],
-                "needs_till": False,
-                "needs_plant": True,
-                "needs_water": True
-            })
+    plantable_set = {pos for pos in tilled_positions if pos not in crop_positions}
+
+    # Find the largest contiguous group (connected tiles)
+    # This prevents planting scattered tiles
+    if plantable_set:
+        # Use flood fill to find connected groups
+        groups = []
+        remaining = set(plantable_set)
+
+        while remaining:
+            # Start a new group from any remaining position
+            start = remaining.pop()
+            group = {start}
+            queue = [start]
+
+            # Flood fill - find all connected tiles (4-directional)
+            while queue:
+                x, y = queue.pop(0)
+                for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                    neighbor = (x + dx, y + dy)
+                    if neighbor in remaining:
+                        remaining.remove(neighbor)
+                        group.add(neighbor)
+                        queue.append(neighbor)
+
+            groups.append(group)
+
+        # Use the largest contiguous group
+        largest_group = max(groups, key=len)
+        plantable_set = largest_group
+
+    # Convert to list of dicts
+    plantable = [
+        {"x": pos[0], "y": pos[1], "needs_till": False, "needs_plant": True, "needs_water": True}
+        for pos in plantable_set
+    ]
 
     # Sort row-by-row for efficient walking
     plantable.sort(key=lambda p: (p["y"], p["x"]))

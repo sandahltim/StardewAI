@@ -67,6 +67,7 @@ class DailyTask:
     target_coords: Optional[tuple] = None
     estimated_time: int = 10  # game minutes
     actual_time: int = 0
+    skill_override: Optional[str] = None  # Force use of specific skill (e.g., "auto_farm_chores")
     notes: str = ""
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     completed_at: Optional[str] = None
@@ -367,6 +368,11 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         player = data.get("player", {})
         inventory = data.get("inventory", [])  # Inventory is at data level, not player level
 
+        # Get weather for rain detection
+        time_data = data.get("time", {})
+        weather = time_data.get("weather", "sunny").lower()
+        is_rainy = weather in ("rainy", "stormy", "rain", "storm")
+
         # Use farm_state crops if available (works from FarmHouse)
         # Otherwise fall back to current location crops
         if farm_state and farm_state.get("crops"):
@@ -388,74 +394,59 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 notes=self.yesterday_notes,
             ))
 
-        # PRIORITY 2: Water crops FIRST (CRITICAL - they die without water!)
-        # This must happen BEFORE harvest/ship/plant/clear!
+        # PRIORITY 2: Water crops FIRST (CRITICAL - crops die without water!)
+        # SKIP on rainy/stormy days - rain waters crops automatically!
         # Exclude harvestable crops - they don't need water, they need harvesting
         unwatered = [c for c in crops if not c.get("isWatered", False) and not c.get("isReadyForHarvest", False)]
-        if unwatered:
+        # === CONSOLIDATED FARM CHORES (Batch Operation) ===
+        # Instead of separate water/harvest/plant tasks, use ONE batch task
+        # that runs auto_farm_chores skill for efficiency
+
+        harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
+        seed_items = [item for item in inventory if item and "seed" in item.get("name", "").lower()]
+        total_seeds = sum(item.get("stack", 1) for item in seed_items) if seed_items else 0
+        money = data.get("player", {}).get("money", 0)
+
+        # Build description of what batch will do
+        chore_parts = []
+        if harvestable:
+            chore_parts.append(f"harvest {len(harvestable)}")
+        if unwatered and not is_rainy:
+            chore_parts.append(f"water {len(unwatered)}")
+        elif is_rainy:
+            logger.info(f"🌧️ Rain day - crops watered by rain")
+        if total_seeds > 0:
+            chore_parts.append(f"plant {total_seeds}")
+        elif money >= 20:
+            chore_parts.append("buy+plant seeds")
+
+        if chore_parts or (money >= 20 and not is_rainy):
+            # Always add farm chores task - batch handles buying seeds if needed
+            desc = f"Farm chores: {', '.join(chore_parts)}" if chore_parts else "Farm chores (check crops)"
             self.tasks.append(DailyTask(
-                id=f"water_{self.current_day}_1",
-                description=f"Water {len(unwatered)} crops",
+                id=f"farm_chores_{self.current_day}",
+                description=desc,
                 category="farming",
                 priority=TaskPriority.CRITICAL.value,
                 target_location="Farm",
-                estimated_time=len(unwatered) * 2,
+                estimated_time=60,  # Batch handles everything
+                skill_override="auto_farm_chores",  # Use batch skill instead of individual actions
             ))
 
-        # PRIORITY 3: Harvest ready crops (HIGH - get money, clear space for replanting)
-        harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
-        if harvestable:
-            self.tasks.append(DailyTask(
-                id=f"harvest_{self.current_day}_1",
-                description=f"Harvest {len(harvestable)} mature crops",
-                category="farming",
-                priority=TaskPriority.HIGH.value,
-                target_location="Farm",
-                estimated_time=len(harvestable) * 3,
-            ))
-
-        # PRIORITY 4: Ship harvested crops IMMEDIATELY after harvest (HIGH - get money!)
-        # Check inventory for sellable crops - add right after harvest for proper order
+        # Ship task still separate (needs to go to shipping bin)
         sellable_crops = ["Parsnip", "Potato", "Cauliflower", "Green Bean", "Kale", "Melon",
                          "Blueberry", "Corn", "Tomato", "Pumpkin", "Cranberry", "Eggplant", "Grape", "Radish"]
         sellables = [item for item in inventory if item and item.get("name") in sellable_crops and item.get("stack", 0) > 0]
-        if sellables or harvestable:
+        if sellables:
             total_to_ship = sum(item.get("stack", 0) for item in sellables)
             self.tasks.append(DailyTask(
                 id=f"ship_{self.current_day}_1",
-                description=f"Ship {total_to_ship if sellables else 'harvested'} crops at shipping bin",
+                description=f"Ship {total_to_ship} crops at shipping bin",
                 category="farming",
                 priority=TaskPriority.HIGH.value,
                 target_location="Farm",
                 target_coords=(71, 14),  # Shipping bin location
                 estimated_time=10,
-            ))
-
-        # PRIORITY 5: Plant seeds (MEDIUM - grow more)
-        # Add plant task even if we don't have seeds - PrereqResolver will add buy_seeds prereq
-        seed_items = [item for item in inventory if item and "seed" in item.get("name", "").lower()]
-        total_seeds = sum(item.get("stack", 1) for item in seed_items) if seed_items else 0
-        money = data.get("player", {}).get("money", 0)
-        
-        if seed_items:
-            # Have seeds - plant them
-            self.tasks.append(DailyTask(
-                id=f"plant_{self.current_day}_1",
-                description=f"Plant {total_seeds} seeds",
-                category="farming",
-                priority=TaskPriority.MEDIUM.value,
-                target_location="Farm",
-                estimated_time=total_seeds * 3,
-            ))
-        elif money >= 20:  # 20g = cheapest seed (parsnip)
-            # No seeds but have money - PrereqResolver will add buy_seeds prereq
-            self.tasks.append(DailyTask(
-                id=f"plant_{self.current_day}_1",
-                description="Plant seeds (need to buy first)",
-                category="farming",
-                priority=TaskPriority.MEDIUM.value,
-                target_location="Farm",
-                estimated_time=30,  # Estimate for buy + plant
             ))
 
         # PRIORITY 5: Clear debris if nothing else to do (MEDIUM - expand)
@@ -728,13 +719,32 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         }
 
 
-# Singleton instance
+# Singleton instance with auto-refresh
 _daily_planner: Optional[DailyPlanner] = None
+_last_file_mtime: float = 0
 
 
 def get_daily_planner() -> DailyPlanner:
-    """Get or create the singleton DailyPlanner instance."""
-    global _daily_planner
+    """Get or create the singleton DailyPlanner instance.
+
+    Auto-refreshes from disk if the file has been modified by another process
+    (e.g., agent writes new plan, UI server needs to see it).
+    """
+    global _daily_planner, _last_file_mtime
+
+    persist_path = Path(DEFAULT_PERSIST_PATH)
+
+    # Check if file has been modified since last load
+    if persist_path.exists():
+        current_mtime = persist_path.stat().st_mtime
+        if _daily_planner is not None and current_mtime > _last_file_mtime:
+            logger.info(f"📋 Daily plan file changed, reloading...")
+            _daily_planner._load()
+            _last_file_mtime = current_mtime
+
     if _daily_planner is None:
         _daily_planner = DailyPlanner()
+        if persist_path.exists():
+            _last_file_mtime = persist_path.stat().st_mtime
+
     return _daily_planner

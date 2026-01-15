@@ -15,6 +15,7 @@ public class ActionCommand
     public string Item { get; set; }      // For buy action - item name or ID
     public int Quantity { get; set; } = 1; // For buy action - how many to buy
     public string ItemType { get; set; }  // For select_item_type - category like "seed", "crop", "food"
+    public int Level { get; set; }        // For enter_mine_level - target mine level
 }
 
 /// <summary>Target tile coordinates</summary>

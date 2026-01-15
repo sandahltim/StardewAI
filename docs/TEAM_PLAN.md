@@ -1205,3 +1205,58 @@ unified_agent.py         → upgrade_tool dispatch
 | Iridium | 25,000g | 5 Iridium Bars | 2 |
 
 *Updated Session 110 — Claude (PM)*
+
+---
+
+## Session 111 Highlights
+
+**Mining System**
+
+Complete mining infrastructure added:
+
+| Action | Purpose |
+|--------|---------|
+| `enter_mine_level` | Enter specific floor (elevator validation) |
+| `use_ladder` | Descend via ladder/shaft |
+| `swing_weapon` | Combat with MeleeWeapon |
+
+**Key Files Changed:**
+```
+ActionExecutor.cs        → EnterMineLevel(), UseLadder(), SwingWeapon()
+ActionCommand.cs         → Level property
+mining.yaml              → 20+ mining/combat skills
+unified_agent.py         → Mining action dispatches
+```
+
+**Mining Floor Reference:**
+| Levels | Type | Ore |
+|--------|------|-----|
+| 1-39 | Normal | Copper |
+| 40-79 | Frozen | Iron |
+| 80-119 | Lava | Gold |
+| 120+ | Skull Cavern | Iridium |
+
+**Batch Farm Chores (Architecture Change)**
+
+Replaced individual VLM-per-action with goal-based batch execution:
+
+| Old Flow | New Flow |
+|----------|----------|
+| VLM → action → VLM → action... | VLM → `auto_farm_chores` → batch runs all |
+
+**Batch Phases:**
+1. Buy seeds (if needed, Pierre open)
+2. Harvest ready crops
+3. Water (auto-refill)
+4. Till grid (contiguous 5-wide rows)
+5. Plant (row-by-row)
+
+**Key Files:**
+```
+unified_agent.py  → _batch_farm_chores(), _batch_till_grid()
+farming.yaml      → auto_farm_chores skill
+farm_planner.py   → flood-fill contiguous detection
+daily_planner.py  → consolidated farm_chores task
+```
+
+*Updated Session 111 — Claude (PM)*
