@@ -1158,6 +1158,46 @@ def proxy_skills() -> Dict[str, Any]:
     return _proxy_smapi("skills")
 
 
+@app.get("/api/farm-layout")
+def get_farm_layout() -> Dict[str, Any]:
+    """Get planned farm layout (scarecrows, chests, sprinklers) from farm planner."""
+    try:
+        # First get current farm state from SMAPI
+        farm_state = _proxy_smapi("farm")
+        if farm_state.get("status") == "error":
+            return {
+                "status": "smapi_unavailable",
+                "message": "Cannot get farm state from SMAPI",
+                "scarecrows": [],
+                "chests": [],
+                "sprinklers": [],
+                "coverage": {"protected_crops": 0, "total_crops": 0, "percentage": 0}
+            }
+
+        # Import and run farm planner
+        from planning.farm_planner import get_farm_layout_plan
+        return get_farm_layout_plan(farm_state)
+
+    except ImportError:
+        return {
+            "status": "module_unavailable",
+            "message": "Farm planner module not available",
+            "scarecrows": [],
+            "chests": [],
+            "sprinklers": [],
+            "coverage": {"protected_crops": 0, "total_crops": 0, "percentage": 0}
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "scarecrows": [],
+            "chests": [],
+            "sprinklers": [],
+            "coverage": {"protected_crops": 0, "total_crops": 0, "percentage": 0}
+        }
+
+
 @app.get("/api/action-failures")
 def get_action_failures(limit: int = 50, lesson_limit: int = 10) -> Dict[str, Any]:
     return _summarize_action_failures(limit=limit, lesson_limit=lesson_limit)

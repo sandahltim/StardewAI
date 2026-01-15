@@ -1,10 +1,258 @@
 # StardewAI Team Plan
 
 **Created:** 2026-01-08
-**Last Updated:** 2026-01-13 Session 100
+**Last Updated:** 2026-01-15 Session 108
 **Project Lead:** Claude (Opus) - Agent logic, architecture, coordination
 **UI/Memory:** Codex - User interface, memory systems, state persistence
 **Human Lead:** Tim - Direction, testing, hardware, final decisions
+
+---
+
+## Session 108 Highlight: Smart Farm Layout Planner
+
+### New Module: `planning/farm_planner.py`
+| Function | Purpose |
+|----------|---------|
+| `calculate_scarecrow_positions()` | Greedy set cover, 8-tile radius |
+| `get_chest_locations()` | Strategic spots (shipping, farmhouse) |
+| `get_placement_sequence()` | Navigate-to + place-direction |
+| `get_planting_layout()` | Contiguous seed positions |
+| `get_farm_layout_plan()` | Main API for UI/agent |
+
+### API Endpoint
+- `GET /api/farm-layout` - Returns planned placements + coverage stats
+
+### Tested End-to-End
+- Crafted scarecrow → Planner calculated (60, 19) → Navigated → Placed
+- Scarecrow now protecting 14 crops at optimal position
+- Planner recalculates after placement (4 more needed for 100%)
+
+### Codex: Farm Layout Visualizer
+- UI panel shows planned placements with coverage stats
+- Displays scarecrow/chest positions before placement
+
+### Session 109 Priority
+- Fix coverage stats (include existing scarecrows)
+- Integrate `requires_planning: true` into skill executor
+- Add `upgrade_tool` SMAPI action for Blacksmith
+
+---
+
+## Session 107 Highlight: Crafting + Storage System
+
+### SMAPI Actions Added
+| Action | Purpose |
+|--------|---------|
+| `craft` | Craft items from known recipes |
+| `place_item` | Place craftable items at tile |
+| `open_chest` / `close_chest` | Chest interaction |
+| `deposit_item` / `withdraw_item` | Storage operations |
+
+### GameState Enhancements
+- `FarmState.Chests` - All chests on farm with contents summary
+- `ChestInfo` model with position, name, slots_free, contents
+- `ChestItemSummary` with item categorization
+
+### Python Skills Created
+| File | Count | Examples |
+|------|-------|----------|
+| `crafting.yaml` | 15 | craft_scarecrow, craft_sprinkler, craft_fertilizer |
+| `placement.yaml` | 12 | place_scarecrow, place_sprinkler, apply_fertilizer |
+| `storage.yaml` | 15 | open_chest, deposit_item, organize_inventory |
+
+### New Module
+- `planning/inventory_manager.py` - Categorizes items (keep/store/sell), finds best chest
+
+### Status
+- ✅ SMAPI mod rebuilt and deployed
+- ✅ Python skills defined
+- ✅ Crafting tested - works (crafted chest, consumed 50 wood)
+- ❌ **CRITICAL GAP:** No smart placement logic - agent places randomly
+- ❌ Skills not yet integrated into unified_agent.py executor
+
+### Session 108 Priority: Farm Layout Planner
+Agent needs `farm_planner.py` to calculate optimal positions for:
+- Scarecrows (8-tile radius coverage)
+- Sprinklers (grid patterns matching type)
+- Chests (strategic locations)
+- Paths (efficient routes)
+
+---
+
+## Session 106 Highlight: Farming Completion Roadmap
+
+### Session 106 Fixes
+| Fix | Details |
+|-----|---------|
+| Rain detection | Daily planner skips watering on rainy days |
+| Tool upgrade tracking | UpgradeTracker suggests upgrades after 5 blocks |
+| Decorative tiles | Path, Sprinkler, Scarecrow, etc. added to skip list |
+| plant_seed verification | Fixed phantom failures using adjacentTile.hasCrop |
+
+### Farming Completion Roadmap (NEW DIRECTION)
+
+**Goal:** Finish ALL farming basics → Move to MINING
+
+| Phase | Focus | Priority |
+|-------|-------|----------|
+| Phase 1 | Crafting system (craft + place_item SMAPI actions) | HIGH |
+| Phase 2 | Sprinklers + Scarecrows automation | HIGH |
+| Phase 3 | Tool upgrades at Blacksmith | MEDIUM |
+| Phase 4 | Mining preparation | NEXT |
+
+**See `docs/NEXT_SESSION.md` for full implementation details.**
+
+### Files Modified Session 106
+| File | Change |
+|------|--------|
+| `planning/obstacle_manager.py` | UpgradeTracker, decorative tiles |
+| `memory/daily_planner.py` | Rain detection |
+| `unified_agent.py` | Upgrade tracking, plant_seed fix |
+
+---
+
+## Session 104 Highlight: Dynamic Systems & Batch Operations
+
+### Dynamic Crop Selection
+- Removed ALL hardcoded `buy_parsnip_seeds` references
+- New `get_recommended_seed_skill(state)` helper in unified_agent.py
+- Uses crop advisor to calculate optimal seed by profit/day
+- Shop hints, no-seeds hints, and overrides all use dynamic recommendation
+
+### Festival Crop Filter
+- Added `FESTIVAL_ONLY_CROPS = {"Strawberry", "Starfruit"}` 
+- These aren't sold at Pierre's - caused silent skill failures
+- Now excluded from recommendations, Cauliflower/Kale prioritized
+
+### Batch Watering (Major Performance Fix)
+- New `_batch_water_remaining()` method loops without VLM inference
+- **Old:** ~2s per crop (VLM decides each one)
+- **New:** ~0.3s per crop (direct execution loop)
+- Auto-refills when can empties, returns to farm after refill
+- Skips unreachable crops (behind buildings, hard obstacles)
+
+### Obstacle Handling
+- Hard obstacles (Stump, Boulder, Log) skipped immediately
+- Building/terrain detection - no blocker = skip crop
+- Stuck counter prevents infinite retry loops
+- Skip list tracks failed crops to avoid re-attempting
+
+### Dynamic Seed Quantity
+- Buy skills now use `quantity: max` instead of hardcoded numbers
+- Controller calculates: `min(money / seed_price, 20)`
+- Buys as many as affordable, capped at 20
+
+### Files Modified Session 104
+| File | Change |
+|------|--------|
+| `unified_agent.py` | Crop advisor integration, batch watering, dynamic buy |
+| `planning/crop_advisor.py` | Festival crop filter |
+| `skills/definitions/farming.yaml` | `quantity: max` for all buy skills |
+
+---
+
+## Session 103 Highlight: Bug Fixes & Reliability
+
+### Phantom Failure Fix
+- Increased delay for tile-modifying skills from 0.3s to 0.8s
+- `till_soil`, `clear_weeds`, `clear_stone` now wait for SMAPI tile state update
+- Failure rate dropped from **46.9% to 17.9%**
+
+### TTS Queue Fix
+- Commentary worker now drains queue to latest event
+- Skips stale commentary, always speaks most current
+- No more 45-second lag behind agent actions
+
+### UI Auto-Refresh
+- `get_daily_planner()` and `get_rusty_memory()` now check file mtime
+- Reload automatically when agent writes new data
+- Fixed Day 16 showing when game was on Day 8
+
+### Watering Can Refill
+- New `go_refill_watering_can` skill - pathfinds to water + refills
+- Changed `stop_adjacent: false` to reach cardinal edge (not diagonal corner)
+- Tries all 4 directions to find water
+
+### Shop Context Awareness
+- VLM hints now recognize task locations (SeedShop, Blacksmith, etc.)
+- Skip "WATERING CAN EMPTY" override when at Pierre's
+- Added shop-specific hints: "AT PIERRE'S! DO: buy_seeds"
+
+### Bug Remaining
+- Hardcoded `buy_parsnip_seeds` in hints/overrides - needs crop advisor integration
+
+### Files Modified Session 103
+| File | Change |
+|------|--------|
+| `unified_agent.py` | Shop hints, tile delay, location awareness |
+| `farming.yaml` | `go_refill_watering_can` skill |
+| `async_worker.py` | TTS queue drain to latest |
+| `daily_planner.py` | Auto-refresh singleton |
+| `rusty_memory.py` | Auto-refresh singleton |
+
+---
+
+## Session 102 Highlight: Farming Framework Solidified
+
+### Crop Database & Smart Selection
+- Created `data/game_knowledge.db` with 30+ crops (Spring/Summer/Fall)
+- Data includes: growth_days, seed_cost, sell_price, profit_per_day
+- `planning/crop_advisor.py` picks highest profit crop for season/day/budget
+- Integrated into PrereqResolver - buy_seeds now specifies optimal seed type
+
+### All Spring Crops at Pierre's
+Added buy skills for: kale, garlic, green bean, tulip, jazz, rice (joins existing parsnip, cauliflower, potato)
+
+### Dynamic Inventory Complete
+- Fixed `equip_seeds` to use `select_item_type: seed` (was using param)
+- All farming skills now use dynamic tool selection - no hardcoded slots
+
+### Backpack Upgrade (Codex)
+- SMAPI action `buy_backpack` - direct upgrade with money check
+- Handles both tiers: 12→24 (2000g), 24→36 (10000g)
+- New `shopping.yaml` skill file
+
+### Files Modified Session 102
+| File | Change |
+|------|--------|
+| `data/game_knowledge.db` | Created crops table |
+| `planning/crop_advisor.py` | NEW - profit-based selection |
+| `planning/prereq_resolver.py` | Integrated crop advisor |
+| `execution/task_executor.py` | Generic buy_seeds, params merge |
+| `skills/definitions/farming.yaml` | 6 new buy skills, equip_seeds fix |
+| `skills/definitions/shopping.yaml` | NEW - backpack upgrade |
+| `smapi-mod/ActionExecutor.cs` | buy_backpack action (Codex) |
+
+---
+
+## Session 101 Highlight: JSON Crash & Phantom Failures
+
+### Daily Summary JSON Crash Fixed
+**Problem:** Agent crashed at bedtime trying to save daily summary:
+```
+TypeError: keys must be str, int, float, bool or None, not tuple
+```
+
+**Root Cause:** `cell_coordinator.py:get_daily_summary()` used tuple keys `(x,y)` for skip_reasons dict.
+
+**Fix:** Convert to string keys `"x,y"` before JSON serialization.
+
+### Phantom Failure Timing Fixed
+**Problem:** Skills reported success but state verification detected failure:
+```
+[ERROR] 💀 HARD FAIL: water_crop phantom-failed 3x consecutively
+```
+
+**Root Cause:** Race condition - verification ran before SMAPI could poll updated game state.
+
+**Fix:** Added 0.3s delay before state verification + enhanced diagnostic logging.
+
+### Files Modified Session 101
+| File | Change |
+|------|--------|
+| `cell_coordinator.py:318` | Tuple keys → string keys |
+| `unified_agent.py:2786-2788` | 0.3s delay before verification |
+| `unified_agent.py:2637-2645` | Enhanced phantom diagnostics |
 
 ---
 

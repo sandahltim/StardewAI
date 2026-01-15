@@ -2,7 +2,218 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-12 Session 84
+**Last Updated:** 2026-01-14 Session 108
+
+---
+
+## 🆕 NEW: Farm Layout Visualizer Panel (Session 108)
+
+### TASK: Farm Layout Preview UI
+
+**Priority:** HIGH - Part of smart placement feature
+**Assigned:** 2026-01-14 Session 108
+**Status:** ✅ Complete - Codex finished 2026-01-15
+
+#### Background
+
+Session 107 revealed a critical gap: the agent places items randomly with no layout planning. Session 108 is building `planning/farm_planner.py` to calculate optimal positions for scarecrows, sprinklers, and chests.
+
+Codex: Build a UI panel to visualize these planned placements so Tim can see where things SHOULD go before the agent places them.
+
+#### Requirements
+
+**1. Add Farm Layout Panel**
+
+```
+┌──────────────────────────────────────────┐
+│ 🗺️ FARM LAYOUT PLAN                      │
+├──────────────────────────────────────────┤
+│ PLANNED PLACEMENTS:                      │
+│ 🌿 Scarecrow (54, 18) - covers 15 crops  │
+│ 🌿 Scarecrow (70, 18) - covers 12 crops  │
+│ 📦 Chest (64, 15) - near shipping bin    │
+├──────────────────────────────────────────┤
+│ COVERAGE STATS:                          │
+│ Crop protection: 95% (2 tiles exposed)   │
+│ Scarecrows needed: 2                     │
+└──────────────────────────────────────────┘
+```
+
+**2. API Endpoint**
+
+Add endpoint in `src/ui/app.py`:
+```python
+@app.get("/api/farm-layout")
+def get_farm_layout():
+    """Get planned placements from farm planner."""
+    try:
+        from planning.farm_planner import get_farm_layout_plan
+        return get_farm_layout_plan()
+    except Exception as e:
+        return {"status": "no_plan", "error": str(e)}
+```
+
+**3. Data Fields**
+
+From `farm_planner.get_farm_layout_plan()` (Claude building this):
+```python
+{
+    "scarecrows": [
+        {"x": 54, "y": 18, "covers_crops": 15, "radius": 8},
+        {"x": 70, "y": 18, "covers_crops": 12, "radius": 8}
+    ],
+    "chests": [
+        {"x": 64, "y": 15, "purpose": "near_shipping_bin"}
+    ],
+    "sprinklers": [],  # Empty until we have mining
+    "coverage": {
+        "protected_crops": 27,
+        "total_crops": 29,
+        "percentage": 93.1
+    }
+}
+```
+
+**4. Visual Elements**
+
+- 🌿 for scarecrows (green - protection)
+- 💧 for sprinklers (blue - watering)
+- 📦 for chests (brown - storage)
+- Coverage percentage bar
+- List of each planned placement with coordinates
+
+#### Files to Modify
+- `src/ui/app.py` - Add `/api/farm-layout` endpoint
+- `src/ui/static/app.js` - Add `pollFarmLayout()`, `renderFarmLayout()`
+- `src/ui/templates/index.html` - Add panel section
+- `src/ui/static/app.css` - Style for placement icons
+
+#### Test Command
+```bash
+# Test API (once Claude finishes farm_planner.py)
+curl http://localhost:9001/api/farm-layout | jq
+
+# View in UI
+open http://localhost:9001
+```
+
+#### Acceptance Criteria
+- [x] Panel shows planned scarecrow positions with crop coverage
+- [x] Panel shows planned chest positions with purpose
+- [x] Coverage stats displayed (protected/total crops)
+- [x] Graceful fallback when no plan exists
+- [x] Updates when farm state changes
+
+#### Blocked By
+Claude finishing `planning/farm_planner.py` with `get_farm_layout_plan()` function.
+
+---
+
+## ✅ DONE: Backpack Upgrade Support (Session 102)
+
+### TASK: Add Backpack Purchase Action to SMAPI
+
+**Priority:** MEDIUM
+**Assigned:** 2026-01-14 Session 102
+**Status:** ✅ Complete - Codex finished 2026-01-14
+
+#### Background
+
+Players can upgrade their backpack at Pierre's by clicking on the backpack display on the wall (NOT through the shop menu). This costs 2,000g for first upgrade (12→24 slots) and 10,000g for second (24→36 slots).
+
+Currently the agent cannot purchase backpack upgrades. Need SMAPI action to handle this.
+
+#### Research Needed
+
+1. How does the game handle backpack purchase? Is it a tile interaction or special menu?
+2. Check if there's an existing API or if we need custom action
+
+#### Requirements
+
+**Option A: If it's a tile/object interaction**
+- Add new action type: `buy_backpack` in ActionExecutor.cs
+- Locate the backpack display tile in SeedShop
+- Trigger interaction programmatically
+
+**Option B: If it requires menu manipulation**
+- May need to open shop menu and navigate to backpack tab
+- More complex - discuss with Claude first
+
+#### Files to Modify
+
+- `src/smapi-mod/StardewAI.GameBridge/ActionExecutor.cs` - Add buy_backpack action
+- `src/python-agent/skills/definitions/shopping.yaml` (create if needed) - Add skill
+
+#### Test Command
+
+```bash
+# Agent should be able to buy backpack when at Pierre's with 2000g+
+python src/python-agent/unified_agent.py --goal "Buy a backpack upgrade"
+```
+
+#### Acceptance Criteria
+
+- [x] Agent can purchase backpack upgrade when at Pierre's with enough gold
+- [x] Works for both first (2000g) and second (10000g) upgrades
+- [x] Graceful failure if can't afford or already maxed
+
+---
+
+## ✅ DONE: Dynamic Tool Selection in Skills (Session 101)
+
+### TASK: Replace Hardcoded Slot Numbers with Tool Names
+
+**Priority:** HIGH
+**Assigned:** 2026-01-14 Session 101
+**Status:** ✅ COMPLETE - Codex finished 2026-01-14
+
+#### Background
+
+Skills currently use hardcoded slot numbers like `select_slot: 2` for Watering Can. If player reorganizes inventory, skills break. We need dynamic tool selection by name.
+
+**Dependency:** Claude is updating SMAPI mod to support `select_item_type: Watering Can` (matching by tool name, not just category).
+
+#### Requirements
+
+Once Claude confirms SMAPI change is done, update `farming.yaml`:
+
+**File:** `src/python-agent/skills/definitions/farming.yaml`
+
+| Line | Current | Replace With |
+|------|---------|--------------|
+| 19 | `- select_slot: 2  # Watering Can` | `- select_item_type: Watering Can` |
+| 47 | `- select_slot: 2` | `- select_item_type: Watering Can` |
+| 72 | `- select_slot: 2  # Watering Can is typically slot 2` | `- select_item_type: Watering Can` |
+| 180 | `- select_slot: 1  # Hoe` | `- select_item_type: Hoe` |
+| 205 | `- select_slot: 1  # Hoe is typically slot 1` | `- select_item_type: Hoe` |
+| 225 | `- select_slot: 4  # Scythe` | `- select_item_type: Scythe` |
+| 248 | `- select_slot: 4  # Scythe is typically slot 4` | `- select_item_type: Scythe` |
+| 264 | `- select_slot: 3  # Pickaxe` | `- select_item_type: Pickaxe` |
+| 287 | `- select_slot: 3  # Pickaxe is typically slot 3` | `- select_item_type: Pickaxe` |
+| 303 | `- select_slot: 0  # Axe` | `- select_item_type: Axe` |
+| 326 | `- select_slot: 0  # Axe is typically slot 0` | `- select_item_type: Axe` |
+
+#### Test Command
+
+```bash
+# After changes, run agent and verify tool selection works
+cd /home/tim/StardewAI
+source venv/bin/activate
+python src/python-agent/unified_agent.py --goal "Water the crops"
+
+# Watch for logs like:
+# SelectItemType: Found Watering Can at slot X
+```
+
+#### Acceptance Criteria
+
+- [ ] All `select_slot: N` in farming.yaml replaced with `select_item_type: ToolName`
+- [ ] No hardcoded slot numbers remain in farming.yaml (except `select_slot: "{seed_slot}"` which is already dynamic)
+- [ ] Agent can water crops regardless of inventory arrangement
+
+#### Blocked By
+
+Claude updating SMAPI `SelectItemType` to match by tool name. Will post to team chat when ready.
 
 ---
 

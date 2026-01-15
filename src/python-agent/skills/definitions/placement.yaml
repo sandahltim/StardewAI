@@ -1,0 +1,369 @@
+# Placement Skills for StardewAI
+# These skills handle placing items on farm tiles
+#
+# There are two types of placement skills:
+# 1. Basic: place_* - Assumes player is already at target, just places
+# 2. Smart: auto_place_* - Uses farm planner to find optimal position + navigates
+#
+# The VLM should call auto_place_* when planning, and place_* when already positioned.
+
+# =============================================================================
+# SMART PLACEMENT (with navigation to optimal position)
+# =============================================================================
+
+auto_place_scarecrow:
+  description: "Place scarecrow at optimal position (navigates there first). Use this when you have a scarecrow and want to protect crops."
+  category: placement
+  energy_cost: 0
+  requires_planning: true
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Scarecrow
+      - type: at_location
+        location: Farm
+
+  # The agent will call farm_planner.get_placement_sequence() to get:
+  # - target_pos: where to move
+  # - place_direction: which way to face
+  planning:
+    planner: farm_planner
+    function: get_placement_sequence
+    args:
+      item_type: scarecrow
+
+  actions:
+    - move_to: "{planned_target_pos}"
+    - select_item_type: Scarecrow
+    - face: "{planned_direction}"
+    - place_item: "{planned_direction}"
+
+  on_success:
+    message: "Placed scarecrow at optimal position - protects nearby crops"
+
+  on_failure:
+    no_item:
+      message: "No Scarecrow in inventory - craft one first"
+      recovery_skill: craft_scarecrow
+    no_plan:
+      message: "No crops to protect - planner found no placement needed"
+
+auto_place_chest:
+  description: "Place chest at strategic location (near shipping bin or farmhouse)"
+  category: placement
+  energy_cost: 0
+  requires_planning: true
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Chest
+      - type: at_location
+        location: Farm
+
+  planning:
+    planner: farm_planner
+    function: get_placement_sequence
+    args:
+      item_type: chest
+
+  actions:
+    - move_to: "{planned_target_pos}"
+    - select_item_type: Chest
+    - face: "{planned_direction}"
+    - place_item: "{planned_direction}"
+
+  on_success:
+    message: "Placed chest at strategic location"
+
+  on_failure:
+    no_item:
+      message: "No Chest in inventory"
+      recovery_skill: craft_chest
+
+# =============================================================================
+# BASIC PLACEMENT (player already positioned)
+# =============================================================================
+
+place_scarecrow:
+  description: "Place a scarecrow to protect crops (8-tile radius coverage)"
+  category: placement
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Scarecrow
+      - type: at_location
+        location: Farm
+
+  actions:
+    - select_item_type: Scarecrow
+    - face: "{target_direction}"
+    - place_item: "{target_direction}"
+
+  on_success:
+    message: "Placed Scarecrow - protects 8-tile radius"
+
+  on_failure:
+    no_item:
+      message: "No Scarecrow in inventory - craft one first"
+      recovery_skill: craft_scarecrow
+    blocked:
+      message: "Cannot place Scarecrow here - tile blocked"
+
+place_chest:
+  description: "Place a chest for storage"
+  category: placement
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Chest
+
+  actions:
+    - select_item_type: Chest
+    - face: "{target_direction}"
+    - place_item: "{target_direction}"
+
+  on_success:
+    message: "Placed Chest for storage"
+
+  on_failure:
+    no_item:
+      message: "No Chest in inventory"
+      recovery_skill: craft_chest
+    blocked:
+      message: "Cannot place Chest here"
+
+# =============================================================================
+# SPRINKLER PLACEMENT
+# =============================================================================
+
+place_sprinkler:
+  description: "Place a sprinkler on farm (auto-selects best available)"
+  category: placement
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item_type
+        type: sprinkler
+      - type: at_location
+        location: Farm
+
+  actions:
+    # Try iridium first, then quality, then basic
+    - select_item_type: Iridium Sprinkler
+    - face: "{target_direction}"
+    - place_item: "{target_direction}"
+
+  fallback_actions:
+    - select_item_type: Quality Sprinkler
+    - face: "{target_direction}"
+    - place_item: "{target_direction}"
+
+  fallback_actions_2:
+    - select_item_type: Sprinkler
+    - face: "{target_direction}"
+    - place_item: "{target_direction}"
+
+  on_success:
+    message: "Placed sprinkler - will auto-water adjacent tiles each morning"
+
+  on_failure:
+    no_sprinkler:
+      message: "No sprinklers in inventory"
+      recovery_skill: craft_basic_sprinkler
+    blocked:
+      message: "Cannot place sprinkler here"
+
+place_basic_sprinkler:
+  description: "Place a basic sprinkler (waters 4 cardinal tiles)"
+  category: placement
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Sprinkler
+      - type: at_location
+        location: Farm
+
+  actions:
+    - select_item_type: Sprinkler
+    - face: "{target_direction}"
+    - place_item: "{target_direction}"
+
+  on_success:
+    message: "Placed Basic Sprinkler (waters N/S/E/W tiles)"
+
+place_quality_sprinkler:
+  description: "Place a quality sprinkler (waters 3x3 grid)"
+  category: placement
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Quality Sprinkler
+      - type: at_location
+        location: Farm
+
+  actions:
+    - select_item_type: Quality Sprinkler
+    - face: "{target_direction}"
+    - place_item: "{target_direction}"
+
+  on_success:
+    message: "Placed Quality Sprinkler (waters 8 surrounding tiles)"
+
+place_iridium_sprinkler:
+  description: "Place an iridium sprinkler (waters 5x5 grid)"
+  category: placement
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Iridium Sprinkler
+      - type: at_location
+        location: Farm
+
+  actions:
+    - select_item_type: Iridium Sprinkler
+    - face: "{target_direction}"
+    - place_item: "{target_direction}"
+
+  on_success:
+    message: "Placed Iridium Sprinkler (waters 24 surrounding tiles)"
+
+# =============================================================================
+# FERTILIZER APPLICATION
+# =============================================================================
+
+apply_fertilizer:
+  description: "Apply fertilizer to tilled soil before planting"
+  category: placement
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item_type
+        type: fertilizer
+
+  actions:
+    # Auto-selects any fertilizer type
+    - select_item_type: fertilizer
+    - face: "{target_direction}"
+    - use_tool
+
+  on_success:
+    message: "Applied fertilizer to soil"
+
+  on_failure:
+    no_fertilizer:
+      message: "No fertilizer in inventory"
+      recovery_skill: craft_basic_fertilizer
+    wrong_tile:
+      message: "Can only apply fertilizer to tilled soil (before planting)"
+
+apply_basic_fertilizer:
+  description: "Apply basic fertilizer for better quality crops"
+  category: placement
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Basic Fertilizer
+
+  actions:
+    - select_item_type: Basic Fertilizer
+    - face: "{target_direction}"
+    - use_tool
+
+  on_success:
+    message: "Applied Basic Fertilizer"
+
+apply_speed_gro:
+  description: "Apply Speed-Gro for faster crop growth"
+  category: placement
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Speed-Gro
+
+  actions:
+    - select_item_type: Speed-Gro
+    - face: "{target_direction}"
+    - use_tool
+
+  on_success:
+    message: "Applied Speed-Gro (10% faster growth)"
+
+# =============================================================================
+# FENCING PLACEMENT
+# =============================================================================
+
+place_fence:
+  description: "Place a fence section (auto-selects available fence)"
+  category: placement
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item_type
+        type: fence
+
+  actions:
+    - select_item_type: Fence
+    - face: "{target_direction}"
+    - place_item: "{target_direction}"
+
+  on_success:
+    message: "Placed fence section"
+
+place_gate:
+  description: "Place a gate in fence line"
+  category: placement
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Gate
+
+  actions:
+    - select_item_type: Gate
+    - face: "{target_direction}"
+    - place_item: "{target_direction}"
+
+  on_success:
+    message: "Placed gate"
+
+# =============================================================================
+# PATH PLACEMENT
+# =============================================================================
+
+place_path:
+  description: "Place a path tile (decorative, prevents grass regrowth)"
+  category: placement
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item_type
+        type: path
+
+  actions:
+    - select_item_type: Path
+    - face: "{target_direction}"
+    - place_item: "{target_direction}"
+
+  on_success:
+    message: "Placed path tile"
