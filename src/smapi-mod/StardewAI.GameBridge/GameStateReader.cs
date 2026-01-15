@@ -125,12 +125,21 @@ public class GameStateReader
             });
         }
 
-        // Count tilled empty tiles (for planting)
+        // Count tilled empty tiles (for planting) and grass positions
         foreach (var pair in farm.terrainFeatures.Pairs)
         {
             if (pair.Value is HoeDirt dirt && dirt.crop == null)
             {
                 state.TilledTiles.Add(new TilePosition
+                {
+                    X = (int)pair.Key.X,
+                    Y = (int)pair.Key.Y
+                });
+            }
+            else if (pair.Value is Grass)
+            {
+                // Grass needs to be cleared before tilling
+                state.GrassPositions.Add(new TilePosition
                 {
                     X = (int)pair.Key.X,
                     Y = (int)pair.Key.Y

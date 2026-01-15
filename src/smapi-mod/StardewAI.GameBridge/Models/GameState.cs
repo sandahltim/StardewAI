@@ -186,6 +186,7 @@ public class FarmState
     public List<CropInfo> Crops { get; set; } = new();
     public List<TileObject> Objects { get; set; } = new();
     public List<TilePosition> TilledTiles { get; set; } = new();
+    public List<TilePosition> GrassPositions { get; set; } = new();  // Grass that needs clearing
     public List<ResourceClumpInfo> ResourceClumps { get; set; } = new();
     public List<ChestInfo> Chests { get; set; } = new();
 }

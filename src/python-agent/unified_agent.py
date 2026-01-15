@@ -3522,8 +3522,8 @@ class StardewAgent:
     async def _batch_till_grid(self, count: int) -> tuple:
         """Till a contiguous grid of soil tiles.
 
+        CLEARS obstacles (grass, weeds, stones, twigs) first, then tills.
         DYNAMICALLY finds the best farming area from farm state.
-        No hardcoded positions - scans for largest clear area.
 
         Args:
             count: Number of tiles to till
@@ -3535,7 +3535,6 @@ class StardewAgent:
 
         tilled = 0
         tilled_positions = []  # Track what we actually tilled
-        max_attempts = count + 20  # Allow some failures
 
         logging.info(f"🔨 Batch tilling {count} tiles in grid pattern")
 
@@ -3547,61 +3546,113 @@ class StardewAgent:
 
         data = farm_state.get("data") or farm_state
 
-        # Get existing tilled and crop positions
+        # Get existing tilled and crop positions (can't till these)
         existing_tilled = {(t.get("x"), t.get("y")) for t in data.get("tilledTiles", [])}
         existing_crops = {(c.get("x"), c.get("y")) for c in data.get("crops", [])}
-        occupied = existing_tilled | existing_crops
+        permanent_blocked = existing_tilled | existing_crops
 
-        # Find debris/objects that block
+        # Get clearable objects with their types
+        objects_list = data.get("objects", [])
+        objects_by_pos = {(o.get("x"), o.get("y")): o for o in objects_list}
+        
+        # Get grass positions (terrain features that need scythe)
+        grass_positions = {(g.get("x"), g.get("y")) for g in data.get("grassPositions", [])}
+        logging.info(f"🔨 Farm state: {len(grass_positions)} grass tiles detected")
+        
+        # Debris (resource clumps - big stumps, boulders) - usually can't clear early game
         debris = {(d.get("x"), d.get("y")) for d in data.get("debris", [])}
-        
-        # Get objects (stones, weeds, twigs) that block tilling
-        objects = {(o.get("x"), o.get("y")) for o in data.get("objects", [])}
-        
-        # Combine all blocked positions
-        blocked = occupied | debris | objects
 
-        # DYNAMIC: Find best starting position for a grid using farm dimensions
-        start_x, start_y = self._find_best_grid_start(blocked, count, GRID_WIDTH, data)
+        # For grid search, consider all blocked (even clearable like grass)
+        all_blocked = permanent_blocked | debris | set(objects_by_pos.keys()) | grass_positions
+
+        # DYNAMIC: Find best starting position for a grid
+        start_x, start_y = self._find_best_grid_start(all_blocked, count, GRID_WIDTH, data)
         logging.info(f"🔨 Dynamic grid start: ({start_x}, {start_y})")
 
-        # Generate grid positions
+        # Generate grid positions (may include clearable objects/grass)
         grid_positions = []
+        positions_to_clear = []  # Track which need clearing first (with type)
 
-        for row in range(count // GRID_WIDTH + 1):
+        for row in range(count // GRID_WIDTH + 2):  # Extra rows in case some blocked
             for col in range(GRID_WIDTH):
                 if len(grid_positions) >= count:
                     break
                 x = start_x + col
                 y = start_y + row
-                if (x, y) not in occupied and (x, y) not in debris:
-                    grid_positions.append((x, y))
+                
+                if (x, y) in permanent_blocked or (x, y) in debris:
+                    continue  # Can't use this tile
+                
+                # Check if needs clearing
+                if (x, y) in grass_positions:
+                    positions_to_clear.append(((x, y), "grass"))
+                elif (x, y) in objects_by_pos:
+                    positions_to_clear.append(((x, y), "object"))
+                
+                grid_positions.append((x, y))
+            if len(grid_positions) >= count:
+                break
 
         if not grid_positions:
             logging.warning("🔨 No available grid positions")
             return (0, [])
 
-        logging.info(f"🔨 Grid: {len(grid_positions)} positions from ({start_x},{start_y})")
+        logging.info(f"🔨 Grid: {len(grid_positions)} positions, {len(positions_to_clear)} need clearing")
 
-        # Equip hoe
+        # --- PHASE 1: CLEAR obstacles (grass, weeds, stones, twigs) ---
+        if positions_to_clear:
+            logging.info(f"🧹 Clearing {len(positions_to_clear)} obstacles before tilling")
+            
+            for (x, y), clear_type in positions_to_clear:
+                # Choose tool based on type
+                if clear_type == "grass":
+                    # Grass terrain feature - use scythe
+                    self.controller.execute(Action("select_item_type", {"value": "Scythe"}, "equip scythe"))
+                else:
+                    # Object - check what kind
+                    obj = objects_by_pos.get((x, y), {})
+                    obj_name = obj.get("name", "").lower()
+                    
+                    if "stone" in obj_name or "rock" in obj_name:
+                        self.controller.execute(Action("select_item_type", {"value": "Pickaxe"}, "equip pickaxe"))
+                    elif "twig" in obj_name or "wood" in obj_name or "branch" in obj_name:
+                        self.controller.execute(Action("select_item_type", {"value": "Axe"}, "equip axe"))
+                    else:
+                        # Weeds, fiber, etc - use scythe
+                        self.controller.execute(Action("select_item_type", {"value": "Scythe"}, "equip scythe"))
+                
+                # Move adjacent (stand south, face north)
+                stand_x, stand_y = x, y + 1
+                self.controller.execute(Action("move_to", {"x": stand_x, "y": stand_y}, f"move to clear"))
+                await asyncio.sleep(0.05)
+                
+                # Face and clear
+                self.controller.execute(Action("face", {"direction": "north"}, "face north"))
+                self.controller.execute(Action("use_tool", {}, "clear"))
+                await asyncio.sleep(0.05)
+            
+            logging.info(f"🧹 Cleared {len(positions_to_clear)} obstacles")
+
+        # --- PHASE 2: TILL the grid ---
+        logging.info(f"🔨 Tilling {len(grid_positions)} positions")
         self.controller.execute(Action("select_item_type", {"value": "Hoe"}, "equip hoe"))
 
         for x, y in grid_positions:
-            if tilled >= count or tilled >= max_attempts:
+            if tilled >= count:
                 break
 
             # Move adjacent (stand south, face north)
             stand_x, stand_y = x, y + 1
             self.controller.execute(Action("move_to", {"x": stand_x, "y": stand_y}, f"move to till"))
-            await asyncio.sleep(0.05)  # Minimal wait for move_to
+            await asyncio.sleep(0.05)
 
             # Face north and till
             self.controller.execute(Action("face", {"direction": "north"}, "face north"))
             self.controller.execute(Action("use_tool", {}, "till"))
-            await asyncio.sleep(0.05)  # Minimal delay
+            await asyncio.sleep(0.05)
 
             tilled += 1
-            tilled_positions.append((x, y))  # Track this position
+            tilled_positions.append((x, y))
             if tilled % 5 == 0:
                 logging.info(f"🔨 Tilled {tilled}/{count}")
 
