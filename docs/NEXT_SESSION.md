@@ -883,4 +883,54 @@ dotnet build
 
 ---
 
-*Session 109 Handoff: Smart placement integration complete, orderly planting skill added — Claude*
+## Session 110 Accomplishments
+
+### Tool Upgrade System Complete
+| Component | Change |
+|-----------|--------|
+| `ActionExecutor.cs` | Added `UpgradeTool()` method (+160 lines) |
+| `shopping.yaml` | Added 5 upgrade skills (pickaxe, axe, hoe, watering can, go_to_blacksmith) |
+| `unified_agent.py` | Added `upgrade_tool` action dispatch |
+
+### SMAPI `upgrade_tool` Action
+- Checks player at Blacksmith location
+- Validates tool exists in inventory
+- Checks gold and metal bar requirements
+- Removes tool from inventory, sets `toolBeingUpgraded`
+- Tool ready in 2 days
+
+### Upgrade Costs Reference
+| Level | Gold | Bars |
+|-------|------|------|
+| Copper | 2,000g | 5 Copper Bars |
+| Steel | 5,000g | 5 Iron Bars |
+| Gold | 10,000g | 5 Gold Bars |
+| Iridium | 25,000g | 5 Iridium Bars |
+
+### Code Review: auto_plant_seeds
+- Row-by-row sorting working correctly
+- Minor issue: uses `select_slot` instead of `select_item_type` for seeds (low risk)
+
+---
+
+## Session 111 Priorities
+
+### 1. Add `collect_upgraded_tool` Action
+- Pick up finished tool from Clint after 2 days
+- Check `player.toolBeingUpgraded` and `daysLeftForToolUpgrade`
+
+### 2. Test Tool Upgrade Flow
+- Go to Blacksmith
+- Upgrade pickaxe (need 2000g + 5 Copper Bars)
+- Wait 2 days, collect tool
+
+### 3. Test auto_plant_seeds Live
+- Still needs seeds + tilled soil to verify
+
+### 4. Mining Preparation
+- Mining skills groundwork
+- Combat basics
+
+---
+
+*Session 110 Handoff: Tool upgrade system complete (SMAPI + Python skills) — Claude*

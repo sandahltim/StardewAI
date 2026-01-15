@@ -1907,6 +1907,16 @@ class ModBridgeController:
             elif action_type == "buy_backpack":
                 return self._send_action({"action": "buy_backpack"})
 
+            elif action_type == "upgrade_tool":
+                tool = action.params.get("tool", "")
+                return self._send_action({
+                    "action": "upgrade_tool",
+                    "tool": tool
+                })
+
+            elif action_type == "collect_upgraded_tool":
+                return self._send_action({"action": "collect_upgraded_tool"})
+
             # Fallback for unknown actions
             logging.warning(f"Unknown action for ModBridge: {action_type}")
             return False

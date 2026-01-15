@@ -1168,3 +1168,40 @@ skills/definitions/farming.yaml → auto_plant_seeds skill
 4. Logs progress every 5 plants
 
 *Updated Session 109 — Claude (PM)*
+
+---
+
+## Session 110 Highlights
+
+**Tool Upgrade System**
+
+Added complete tool upgrade workflow for Blacksmith:
+
+| Action | Purpose |
+|--------|---------|
+| `upgrade_tool` | Start upgrade (removes tool, deducts gold+bars) |
+| `collect_upgraded_tool` | Pick up finished tool (TODO) |
+
+**Upgrade Skills Added:**
+- `go_to_blacksmith` - Warp to Clint's shop
+- `upgrade_pickaxe` - Copper→Steel→Gold→Iridium
+- `upgrade_axe` - For chopping large stumps/logs
+- `upgrade_hoe` - Larger tilling area
+- `upgrade_watering_can` - More water capacity
+
+**Key Files Changed:**
+```
+ActionExecutor.cs        → UpgradeTool() method (+160 lines)
+shopping.yaml            → 5 upgrade skills
+unified_agent.py         → upgrade_tool dispatch
+```
+
+**Upgrade Cost Table:**
+| Level | Gold | Bars | Days |
+|-------|------|------|------|
+| Copper | 2,000g | 5 Copper Bars | 2 |
+| Steel | 5,000g | 5 Iron Bars | 2 |
+| Gold | 10,000g | 5 Gold Bars | 2 |
+| Iridium | 25,000g | 5 Iridium Bars | 2 |
+
+*Updated Session 110 — Claude (PM)*

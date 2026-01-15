@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.Xna.Framework;
 using StardewAI.GameBridge.Models;
 using StardewAI.GameBridge.Pathfinding;
@@ -63,6 +64,7 @@ public class ActionExecutor
                 "ship" => ShipItem(command.Slot),
                 "eat" => EatItem(command.Slot),
                 "buy" => BuyItem(command.Item, command.Quantity),
+                "buy_backpack" => BuyBackpack(),
                 "wait" => Wait(command.Ticks),
                 "face" => Face(command.Direction),
                 "toggle_menu" => ToggleMenu(),
@@ -71,6 +73,17 @@ public class ActionExecutor
                 "toolbar_prev" => ToolbarPrev(),
                 "dismiss_menu" => DismissMenu(),
                 "confirm_dialog" => ConfirmDialog(),
+                // Crafting & Placement
+                "craft" => CraftItem(command.Item, command.Quantity),
+                "place_item" => PlaceItemAtTile(command.Direction),
+                // Chest & Storage
+                "open_chest" => OpenChest(command.Direction),
+                "close_chest" => CloseChest(),
+                "deposit_item" => DepositItem(command.Slot, command.Quantity),
+                "withdraw_item" => WithdrawItem(command.Slot, command.Quantity),
+                // Tool Upgrades
+                "upgrade_tool" => UpgradeTool(command.Tool),
+                "collect_upgraded_tool" => CollectUpgradedTool(),
                 _ => new ActionResult { Success = false, Error = $"Unknown action: {command.Action}", State = ActionState.Failed }
             };
         }
@@ -487,7 +500,9 @@ public class ActionExecutor
                 "food" or "edible" => item is StardewValley.Object obj && obj.Edibility > 0,
                 "tool" or "tools" => item is Tool,
                 "sellable" => item is StardewValley.Object obj && obj.canBeShipped(),
-                _ => false
+                // Fallback: match by item name (case-insensitive) - enables "Watering Can", "Hoe", etc.
+                _ => item.DisplayName.ToLower().Contains(searchType) ||
+                     item.Name.ToLower().Contains(searchType)
             };
 
             if (match)
@@ -944,6 +959,374 @@ public class ActionExecutor
         };
     }
 
+    private ActionResult BuyBackpack()
+    {
+        var player = Game1.player;
+        var locationName = player.currentLocation?.Name;
+
+        if (locationName != "SeedShop")
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Not at Pierre's (current: {locationName ?? "unknown"}). Must be in SeedShop to buy backpack.",
+                State = ActionState.Failed
+            };
+        }
+
+        int currentSlots = GetMaxItems(player);
+        int nextSlots;
+        int cost;
+
+        if (currentSlots <= 12)
+        {
+            nextSlots = 24;
+            cost = 2000;
+        }
+        else if (currentSlots <= 24)
+        {
+            nextSlots = 36;
+            cost = 10000;
+        }
+        else
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Backpack already maxed ({currentSlots} slots)",
+                State = ActionState.Failed
+            };
+        }
+
+        if (player.Money < cost)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Not enough gold. Need {cost}g, have {player.Money}g",
+                State = ActionState.Failed
+            };
+        }
+
+        if (!SetMaxItems(player, nextSlots))
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "Failed to update backpack size",
+                State = ActionState.Failed
+            };
+        }
+
+        player.Money -= cost;
+
+        _monitor.Log($"Backpack upgraded to {nextSlots} slots for {cost}g", LogLevel.Info);
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Backpack upgraded to {nextSlots} slots for {cost}g (balance: {player.Money}g)",
+            State = ActionState.Complete
+        };
+    }
+
+    private static int GetMaxItems(Farmer player)
+    {
+        var playerType = player.GetType();
+        var prop = playerType.GetProperty("MaxItems");
+        if (prop != null)
+        {
+            var value = prop.GetValue(player);
+            if (value is int intValue)
+                return intValue;
+            var netValue = value?.GetType().GetProperty("Value");
+            if (netValue != null && netValue.PropertyType == typeof(int))
+                return (int)netValue.GetValue(value);
+        }
+
+        var field = playerType.GetField("maxItems");
+        if (field != null)
+        {
+            var value = field.GetValue(player);
+            if (value is int intValue)
+                return intValue;
+            var netValue = value?.GetType().GetProperty("Value");
+            if (netValue != null && netValue.PropertyType == typeof(int))
+                return (int)netValue.GetValue(value);
+        }
+
+        return player.Items?.Count ?? 12;
+    }
+
+    private static bool SetMaxItems(Farmer player, int value)
+    {
+        var playerType = player.GetType();
+        var prop = playerType.GetProperty("MaxItems");
+        if (prop != null && prop.CanWrite)
+        {
+            if (prop.PropertyType == typeof(int))
+            {
+                prop.SetValue(player, value);
+                return true;
+            }
+            var propValue = prop.GetValue(player);
+            var netValue = propValue?.GetType().GetProperty("Value");
+            if (netValue != null && netValue.CanWrite && netValue.PropertyType == typeof(int))
+            {
+                netValue.SetValue(propValue, value);
+                return true;
+            }
+        }
+
+        var field = playerType.GetField("maxItems");
+        if (field != null)
+        {
+            if (field.FieldType == typeof(int))
+            {
+                field.SetValue(player, value);
+                return true;
+            }
+            var fieldValue = field.GetValue(player);
+            var netValue = fieldValue?.GetType().GetProperty("Value");
+            if (netValue != null && netValue.CanWrite && netValue.PropertyType == typeof(int))
+            {
+                netValue.SetValue(fieldValue, value);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private ActionResult UpgradeTool(string toolName)
+    {
+        var player = Game1.player;
+        var locationName = player.currentLocation?.Name;
+
+        // Must be at blacksmith
+        if (locationName != "Blacksmith")
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Not at Blacksmith (current: {locationName ?? "unknown"}). Go to Clint's shop.",
+                State = ActionState.Failed
+            };
+        }
+
+        // Already upgrading a tool?
+        if (player.toolBeingUpgraded.Value != null)
+        {
+            var currentUpgrade = player.toolBeingUpgraded.Value;
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Already upgrading {currentUpgrade.DisplayName}. {player.daysLeftForToolUpgrade.Value} day(s) remaining.",
+                State = ActionState.Failed
+            };
+        }
+
+        // Find the tool in inventory
+        Tool tool = null;
+        foreach (var item in player.Items)
+        {
+            if (item is Tool t && t.DisplayName.ToLower().Contains(toolName.ToLower()))
+            {
+                tool = t;
+                break;
+            }
+        }
+
+        if (tool == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Tool '{toolName}' not found in inventory",
+                State = ActionState.Failed
+            };
+        }
+
+        // Get current upgrade level and check if already maxed
+        int currentLevel = tool.UpgradeLevel;
+        if (currentLevel >= 4)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"{tool.DisplayName} is already at Iridium level (max)",
+                State = ActionState.Failed
+            };
+        }
+
+        // Calculate costs based on next upgrade level
+        int goldCost;
+        string barName;
+        int barCount = 5;
+
+        switch (currentLevel)
+        {
+            case 0: // Basic -> Copper
+                goldCost = 2000;
+                barName = "Copper Bar";
+                break;
+            case 1: // Copper -> Steel
+                goldCost = 5000;
+                barName = "Iron Bar";
+                break;
+            case 2: // Steel -> Gold
+                goldCost = 10000;
+                barName = "Gold Bar";
+                break;
+            case 3: // Gold -> Iridium
+                goldCost = 25000;
+                barName = "Iridium Bar";
+                break;
+            default:
+                return new ActionResult
+                {
+                    Success = false,
+                    Error = $"Invalid tool level: {currentLevel}",
+                    State = ActionState.Failed
+                };
+        }
+
+        // Check gold
+        if (player.Money < goldCost)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Not enough gold. Need {goldCost}g, have {player.Money}g",
+                State = ActionState.Failed
+            };
+        }
+
+        // Count bars in inventory
+        int barCount_owned = 0;
+        foreach (var item in player.Items)
+        {
+            if (item != null && item.Name == barName)
+            {
+                barCount_owned += item.Stack;
+            }
+        }
+
+        if (barCount_owned < barCount)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Not enough {barName}. Need {barCount}, have {barCount_owned}",
+                State = ActionState.Failed
+            };
+        }
+
+        // Remove bars from inventory
+        int barsToRemove = barCount;
+        for (int i = 0; i < player.Items.Count && barsToRemove > 0; i++)
+        {
+            var item = player.Items[i];
+            if (item != null && item.Name == barName)
+            {
+                int removeFromStack = Math.Min(item.Stack, barsToRemove);
+                item.Stack -= removeFromStack;
+                barsToRemove -= removeFromStack;
+                if (item.Stack <= 0)
+                {
+                    player.Items[i] = null;
+                }
+            }
+        }
+
+        // Deduct gold
+        player.Money -= goldCost;
+
+        // Upgrade the tool - game expects us to remove from inventory and set toolBeingUpgraded
+        player.removeItemFromInventory(tool);
+        tool.UpgradeLevel = currentLevel + 1;
+        player.toolBeingUpgraded.Value = tool;
+        player.daysLeftForToolUpgrade.Value = 2;
+
+        string[] levelNames = { "Basic", "Copper", "Steel", "Gold", "Iridium" };
+        string newLevelName = levelNames[currentLevel + 1];
+
+        _monitor.Log($"Tool upgrade started: {tool.DisplayName} -> {newLevelName} for {goldCost}g + {barCount} {barName}", LogLevel.Info);
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Upgrading {tool.DisplayName} to {newLevelName} for {goldCost}g + {barCount} {barName}. Ready in 2 days.",
+            State = ActionState.Complete
+        };
+    }
+
+    private ActionResult CollectUpgradedTool()
+    {
+        var player = Game1.player;
+        var locationName = player.currentLocation?.Name;
+
+        // Must be at blacksmith
+        if (locationName != "Blacksmith")
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Not at Blacksmith (current: {locationName ?? "unknown"}). Go to Clint's shop.",
+                State = ActionState.Failed
+            };
+        }
+
+        // Check if there's a tool being upgraded
+        var upgradingTool = player.toolBeingUpgraded.Value;
+        if (upgradingTool == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No tool is currently being upgraded",
+                State = ActionState.Failed
+            };
+        }
+
+        // Check if upgrade is complete
+        int daysLeft = player.daysLeftForToolUpgrade.Value;
+        if (daysLeft > 0)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"{upgradingTool.DisplayName} not ready yet. {daysLeft} day(s) remaining.",
+                State = ActionState.Failed
+            };
+        }
+
+        // Add tool back to inventory
+        string toolName = upgradingTool.DisplayName;
+        if (!player.addItemToInventoryBool(upgradingTool))
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Inventory full. Cannot collect {toolName}.",
+                State = ActionState.Failed
+            };
+        }
+
+        // Clear the upgrade state
+        player.toolBeingUpgraded.Value = null;
+        player.daysLeftForToolUpgrade.Value = 0;
+
+        _monitor.Log($"Collected upgraded tool: {toolName}", LogLevel.Info);
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Collected {toolName} from Clint!",
+            State = ActionState.Complete
+        };
+    }
+
     private ActionResult Wait(int ticks)
     {
         _waitTicksRemaining = Math.Max(1, Math.Min(ticks, 600)); // 1-600 ticks (10 seconds max)
@@ -1071,7 +1454,25 @@ public class ActionExecutor
 
     private ActionResult ConfirmDialog()
     {
-        // Handle Yes/No dialogue boxes (like sleep confirmation)
+        // Handle active events (cutscenes, pet adoption, character introductions)
+        // Use skipEvent=false approach: simulate clicking to advance, don't skip
+        if (Game1.eventUp && Game1.currentLocation?.currentEvent != null)
+        {
+            var evt = Game1.currentLocation.currentEvent;
+            var playerPos = Game1.player.TilePoint;
+
+            // Try to advance event by simulating action at player position
+            // receiveActionPress(xTile, yTile) advances event dialogue
+            evt.receiveActionPress(playerPos.X, playerPos.Y);
+            return new ActionResult
+            {
+                Success = true,
+                Message = "Advanced event",
+                State = ActionState.Complete
+            };
+        }
+
+        // Handle Yes/No dialogue boxes (like sleep confirmation, pet adoption question)
         if (Game1.activeClickableMenu is DialogueBox dialogueBox)
         {
             // Check if this is a question dialogue with responses
@@ -1092,23 +1493,37 @@ public class ActionExecutor
             }
             else
             {
-                // Regular dialogue box - just close it
-                Game1.activeClickableMenu = null;
+                // Regular dialogue box - advance/close it by simulating click
+                dialogueBox.receiveLeftClick(0, 0);
                 return new ActionResult
                 {
                     Success = true,
-                    Message = "Closed dialogue (no responses)",
+                    Message = "Advanced dialogue",
                     State = ActionState.Complete
                 };
             }
         }
 
-        // No dialog to confirm
+        // Handle NPC dialogue (Game1.dialogueUp without menu)
+        if (Game1.dialogueUp)
+        {
+            // Close dialogue by setting flags
+            Game1.dialogueUp = false;
+            Game1.currentSpeaker = null;
+            return new ActionResult
+            {
+                Success = true,
+                Message = "Dismissed dialogue",
+                State = ActionState.Complete
+            };
+        }
+
+        // No dialog/event to advance
         return new ActionResult
         {
-            Success = false,
-            Error = "No dialogue box active",
-            State = ActionState.Failed
+            Success = true,
+            Message = "No dialogue or event active",
+            State = ActionState.Complete
         };
     }
 
@@ -1304,5 +1719,464 @@ public class ActionExecutor
         _currentPath = null;
         _pathIndex = 0;
         _waitTicksRemaining = 0;
+    }
+
+    // =============================================================================
+    // CRAFTING SYSTEM
+    // =============================================================================
+
+    private ActionResult CraftItem(string itemName, int quantity)
+    {
+        if (string.IsNullOrEmpty(itemName))
+            return new ActionResult { Success = false, Error = "No item name specified", State = ActionState.Failed };
+
+        var player = Game1.player;
+        int qty = Math.Max(1, quantity);
+
+        // Search for the recipe (case-insensitive)
+        string recipeName = null;
+        CraftingRecipe recipe = null;
+        
+        foreach (var knownRecipe in player.craftingRecipes.Keys)
+        {
+            if (knownRecipe.Equals(itemName, StringComparison.OrdinalIgnoreCase))
+            {
+                recipeName = knownRecipe;
+                recipe = new CraftingRecipe(knownRecipe);
+                break;
+            }
+        }
+
+        // If not found by exact name, try partial match
+        if (recipe == null)
+        {
+            foreach (var knownRecipe in player.craftingRecipes.Keys)
+            {
+                if (knownRecipe.Contains(itemName, StringComparison.OrdinalIgnoreCase))
+                {
+                    recipeName = knownRecipe;
+                    recipe = new CraftingRecipe(knownRecipe);
+                    break;
+                }
+            }
+        }
+
+        if (recipe == null)
+        {
+            var knownRecipes = string.Join(", ", player.craftingRecipes.Keys.Take(10));
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Recipe '{itemName}' not known. Known recipes: {knownRecipes}...",
+                State = ActionState.Failed
+            };
+        }
+
+        // Check if player has enough materials for requested quantity
+        for (int i = 0; i < qty; i++)
+        {
+            if (!recipe.doesFarmerHaveIngredientsInInventory())
+            {
+                var needed = GetMissingIngredients(recipe, player);
+                return new ActionResult
+                {
+                    Success = false,
+                    Error = $"Missing ingredients for {recipeName}: {needed}",
+                    State = ActionState.Failed
+                };
+            }
+
+            // Consume ingredients and create item
+            recipe.consumeIngredients(null); // null = use player inventory
+            
+            // Create the crafted item
+            Item craftedItem = recipe.createItem();
+            
+            if (craftedItem == null)
+            {
+                return new ActionResult
+                {
+                    Success = false,
+                    Error = $"Failed to create item for recipe {recipeName}",
+                    State = ActionState.Failed
+                };
+            }
+
+            // Add to inventory
+            bool added = player.addItemToInventoryBool(craftedItem);
+            if (!added)
+            {
+                // Try to drop on ground if inventory full
+                Game1.createItemDebris(craftedItem, player.Position, player.FacingDirection, player.currentLocation);
+                _monitor.Log($"Inventory full - dropped {craftedItem.DisplayName} on ground", LogLevel.Warn);
+            }
+
+            // Increment crafting count for achievements
+            player.craftingRecipes[recipeName] += recipe.numberProducedPerCraft;
+        }
+
+        _monitor.Log($"Crafted {qty}x {recipeName}", LogLevel.Info);
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Crafted {qty}x {recipeName}",
+            State = ActionState.Complete
+        };
+    }
+
+    private string GetMissingIngredients(CraftingRecipe recipe, Farmer player)
+    {
+        var missing = new List<string>();
+        
+        foreach (var ingredient in recipe.recipeList)
+        {
+            string itemId = ingredient.Key;
+            int needed = ingredient.Value;
+            int have = 0;
+            
+            // Count how many the player has
+            foreach (var item in player.Items)
+            {
+                if (item != null && (item.QualifiedItemId == itemId || item.ItemId == itemId))
+                {
+                    have += item.Stack;
+                }
+            }
+            
+            if (have < needed)
+            {
+                // Get display name for the item
+                var sampleItem = ItemRegistry.Create(itemId);
+                string displayName = sampleItem?.DisplayName ?? itemId;
+                missing.Add($"{displayName} ({have}/{needed})");
+            }
+        }
+        
+        return string.Join(", ", missing);
+    }
+
+    // =============================================================================
+    // ITEM PLACEMENT
+    // =============================================================================
+
+    private ActionResult PlaceItemAtTile(string direction)
+    {
+        var player = Game1.player;
+        var activeObject = player.ActiveObject;
+
+        if (activeObject == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No placeable item selected",
+                State = ActionState.Failed
+            };
+        }
+
+        // Set facing direction if specified
+        if (!string.IsNullOrEmpty(direction))
+        {
+            int facing = TilePathfinder.DirectionToFacing(direction);
+            if (facing >= 0) player.FacingDirection = facing;
+        }
+
+        // Get tile in front of player
+        var delta = GetDirectionDelta(player.FacingDirection);
+        int targetX = player.TilePoint.X + delta.X;
+        int targetY = player.TilePoint.Y + delta.Y;
+
+        // Try to place the object
+        bool success = Utility.tryToPlaceItem(player.currentLocation, activeObject, targetX * 64, targetY * 64);
+
+        if (success)
+        {
+            _monitor.Log($"Placed {activeObject.DisplayName} at ({targetX}, {targetY})", LogLevel.Info);
+            return new ActionResult
+            {
+                Success = true,
+                Message = $"Placed {activeObject.DisplayName} at ({targetX}, {targetY})",
+                State = ActionState.Complete
+            };
+        }
+        else
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Cannot place {activeObject.DisplayName} at ({targetX}, {targetY})",
+                State = ActionState.Failed
+            };
+        }
+    }
+
+    // =============================================================================
+    // CHEST & STORAGE SYSTEM
+    // =============================================================================
+
+    // Track the currently open chest for deposit/withdraw operations
+    private StardewValley.Objects.Chest _currentOpenChest = null;
+
+    private ActionResult OpenChest(string direction)
+    {
+        var player = Game1.player;
+        var location = Game1.currentLocation;
+
+        // Set facing direction if specified
+        if (!string.IsNullOrEmpty(direction))
+        {
+            int facing = TilePathfinder.DirectionToFacing(direction);
+            if (facing >= 0) player.FacingDirection = facing;
+        }
+
+        // Get tile in front of player
+        var delta = GetDirectionDelta(player.FacingDirection);
+        int targetX = player.TilePoint.X + delta.X;
+        int targetY = player.TilePoint.Y + delta.Y;
+        var targetTile = new Vector2(targetX, targetY);
+
+        // Look for chest at target tile
+        if (location.objects.TryGetValue(targetTile, out var obj) && obj is StardewValley.Objects.Chest chest)
+        {
+            _currentOpenChest = chest;
+            
+            // Get chest contents summary
+            var contents = GetChestContentsSummary(chest);
+            
+            _monitor.Log($"Opened chest at ({targetX}, {targetY}): {contents}", LogLevel.Debug);
+            
+            return new ActionResult
+            {
+                Success = true,
+                Message = $"Opened chest at ({targetX}, {targetY}). Contents: {contents}",
+                State = ActionState.Complete
+            };
+        }
+
+        return new ActionResult
+        {
+            Success = false,
+            Error = $"No chest at ({targetX}, {targetY})",
+            State = ActionState.Failed
+        };
+    }
+
+    private ActionResult CloseChest()
+    {
+        if (_currentOpenChest == null)
+        {
+            return new ActionResult
+            {
+                Success = true,
+                Message = "No chest was open",
+                State = ActionState.Complete
+            };
+        }
+
+        _currentOpenChest = null;
+        
+        return new ActionResult
+        {
+            Success = true,
+            Message = "Closed chest",
+            State = ActionState.Complete
+        };
+    }
+
+    private ActionResult DepositItem(int slot, int quantity)
+    {
+        if (_currentOpenChest == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No chest is open. Use open_chest first.",
+                State = ActionState.Failed
+            };
+        }
+
+        var player = Game1.player;
+        
+        // Validate slot
+        if (slot < 0 || slot >= player.Items.Count)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Invalid slot: {slot}",
+                State = ActionState.Failed
+            };
+        }
+
+        var item = player.Items[slot];
+        if (item == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Slot {slot} is empty",
+                State = ActionState.Failed
+            };
+        }
+
+        // Determine quantity to deposit (-1 = entire stack)
+        int depositQty = quantity <= 0 ? item.Stack : Math.Min(quantity, item.Stack);
+        string itemName = item.DisplayName;
+
+        // Create item to deposit
+        Item toDeposit;
+        if (depositQty >= item.Stack)
+        {
+            // Moving entire stack
+            toDeposit = item;
+            player.Items[slot] = null;
+        }
+        else
+        {
+            // Splitting stack
+            toDeposit = item.getOne();
+            toDeposit.Stack = depositQty;
+            item.Stack -= depositQty;
+        }
+
+        // Add to chest
+        Item remaining = _currentOpenChest.addItem(toDeposit);
+        
+        if (remaining != null)
+        {
+            // Chest couldn't accept all items, return remainder to player
+            player.addItemToInventory(remaining);
+            int actualDeposited = depositQty - remaining.Stack;
+            
+            if (actualDeposited > 0)
+            {
+                return new ActionResult
+                {
+                    Success = true,
+                    Message = $"Deposited {actualDeposited}x {itemName} (chest partially full)",
+                    State = ActionState.Complete
+                };
+            }
+            else
+            {
+                return new ActionResult
+                {
+                    Success = false,
+                    Error = "Chest is full",
+                    State = ActionState.Failed
+                };
+            }
+        }
+
+        _monitor.Log($"Deposited {depositQty}x {itemName} to chest", LogLevel.Debug);
+        
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Deposited {depositQty}x {itemName}",
+            State = ActionState.Complete
+        };
+    }
+
+    private ActionResult WithdrawItem(int slot, int quantity)
+    {
+        if (_currentOpenChest == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No chest is open. Use open_chest first.",
+                State = ActionState.Failed
+            };
+        }
+
+        var player = Game1.player;
+        var chestItems = _currentOpenChest.Items;
+        
+        // Validate slot
+        if (slot < 0 || slot >= chestItems.Count)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Invalid chest slot: {slot}. Chest has {chestItems.Count} slots.",
+                State = ActionState.Failed
+            };
+        }
+
+        var item = chestItems[slot];
+        if (item == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Chest slot {slot} is empty",
+                State = ActionState.Failed
+            };
+        }
+
+        // Determine quantity to withdraw (-1 = entire stack)
+        int withdrawQty = quantity <= 0 ? item.Stack : Math.Min(quantity, item.Stack);
+        string itemName = item.DisplayName;
+
+        // Create item to withdraw
+        Item toWithdraw;
+        if (withdrawQty >= item.Stack)
+        {
+            // Taking entire stack
+            toWithdraw = item;
+            chestItems[slot] = null;
+        }
+        else
+        {
+            // Splitting stack
+            toWithdraw = item.getOne();
+            toWithdraw.Stack = withdrawQty;
+            item.Stack -= withdrawQty;
+        }
+
+        // Add to player inventory
+        bool added = player.addItemToInventoryBool(toWithdraw);
+        
+        if (!added)
+        {
+            // Return to chest if player inventory full
+            _currentOpenChest.addItem(toWithdraw);
+            return new ActionResult
+            {
+                Success = false,
+                Error = "Player inventory is full",
+                State = ActionState.Failed
+            };
+        }
+
+        _monitor.Log($"Withdrew {withdrawQty}x {itemName} from chest", LogLevel.Debug);
+        
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Withdrew {withdrawQty}x {itemName}",
+            State = ActionState.Complete
+        };
+    }
+
+    private string GetChestContentsSummary(StardewValley.Objects.Chest chest)
+    {
+        var items = chest.Items.Where(i => i != null).ToList();
+        
+        if (items.Count == 0)
+            return "empty";
+
+        var summary = items
+            .GroupBy(i => i.DisplayName)
+            .Select(g => $"{g.Sum(i => i.Stack)}x {g.Key}")
+            .Take(5);  // Limit to 5 item types for brevity
+        
+        string result = string.Join(", ", summary);
+        if (items.Count > 5)
+            result += $" (+{items.Count - 5} more types)";
+        
+        return result;
     }
 }

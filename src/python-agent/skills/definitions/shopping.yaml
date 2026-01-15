@@ -1,0 +1,187 @@
+# Shopping and economy skills
+
+buy_backpack_upgrade:
+  description: "Buy a backpack upgrade at Pierre's (SeedShop)"
+  category: economy
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: SeedShop
+      - type: time_between
+        start: "9:00"
+        end: "17:00"
+
+  actions:
+    - buy_backpack
+
+  on_success:
+    message: "Bought a backpack upgrade"
+
+  on_failure:
+    wrong_location:
+      message: "Not at Pierre's shop - go_to_pierre first"
+      recovery_skill: go_to_pierre
+    not_enough_money:
+      message: "Not enough gold to buy a backpack upgrade"
+    maxed:
+      message: "Backpack already maxed"
+
+# ============================================================
+# Blacksmith Tool Upgrades
+# ============================================================
+
+go_to_blacksmith:
+  description: "Go to Clint's blacksmith shop"
+  category: navigation
+  energy_cost: 0
+
+  actions:
+    - warp: { location: "Blacksmith" }
+
+  on_success:
+    message: "Arrived at Blacksmith"
+
+upgrade_pickaxe:
+  description: "Upgrade pickaxe at blacksmith (2000g + 5 Copper Bars for first upgrade)"
+  category: economy
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Blacksmith
+
+  actions:
+    - upgrade_tool: { tool: "Pickaxe" }
+
+  on_success:
+    message: "Pickaxe upgrade started - ready in 2 days"
+
+  on_failure:
+    wrong_location:
+      message: "Not at Blacksmith - go there first"
+      recovery_skill: go_to_blacksmith
+    not_enough_money:
+      message: "Not enough gold to upgrade pickaxe"
+    not_enough_bars:
+      message: "Not enough metal bars for upgrade"
+    already_upgrading:
+      message: "Already upgrading a tool"
+    maxed:
+      message: "Pickaxe already at max level"
+
+upgrade_axe:
+  description: "Upgrade axe at blacksmith (2000g + 5 Copper Bars for first upgrade)"
+  category: economy
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Blacksmith
+
+  actions:
+    - upgrade_tool: { tool: "Axe" }
+
+  on_success:
+    message: "Axe upgrade started - ready in 2 days"
+
+  on_failure:
+    wrong_location:
+      message: "Not at Blacksmith - go there first"
+      recovery_skill: go_to_blacksmith
+    not_enough_money:
+      message: "Not enough gold to upgrade axe"
+    not_enough_bars:
+      message: "Not enough metal bars for upgrade"
+    already_upgrading:
+      message: "Already upgrading a tool"
+    maxed:
+      message: "Axe already at max level"
+
+upgrade_hoe:
+  description: "Upgrade hoe at blacksmith (2000g + 5 Copper Bars for first upgrade)"
+  category: economy
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Blacksmith
+
+  actions:
+    - upgrade_tool: { tool: "Hoe" }
+
+  on_success:
+    message: "Hoe upgrade started - ready in 2 days"
+
+  on_failure:
+    wrong_location:
+      message: "Not at Blacksmith - go there first"
+      recovery_skill: go_to_blacksmith
+    not_enough_money:
+      message: "Not enough gold to upgrade hoe"
+    not_enough_bars:
+      message: "Not enough metal bars for upgrade"
+    already_upgrading:
+      message: "Already upgrading a tool"
+    maxed:
+      message: "Hoe already at max level"
+
+upgrade_watering_can:
+  description: "Upgrade watering can at blacksmith (2000g + 5 Copper Bars for first upgrade)"
+  category: economy
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Blacksmith
+
+  actions:
+    - upgrade_tool: { tool: "Watering Can" }
+
+  on_success:
+    message: "Watering Can upgrade started - ready in 2 days"
+
+  on_failure:
+    wrong_location:
+      message: "Not at Blacksmith - go there first"
+      recovery_skill: go_to_blacksmith
+    not_enough_money:
+      message: "Not enough gold to upgrade watering can"
+    not_enough_bars:
+      message: "Not enough metal bars for upgrade"
+    already_upgrading:
+      message: "Already upgrading a tool"
+    maxed:
+      message: "Watering Can already at max level"
+
+collect_upgraded_tool:
+  description: "Collect finished tool upgrade from Clint at blacksmith"
+  category: economy
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: location_is
+        location: Blacksmith
+
+  actions:
+    - collect_upgraded_tool: {}
+
+  on_success:
+    message: "Collected upgraded tool from Clint"
+
+  on_failure:
+    wrong_location:
+      message: "Not at Blacksmith - go there first"
+      recovery_skill: go_to_blacksmith
+    no_upgrade:
+      message: "No tool is being upgraded"
+    not_ready:
+      message: "Tool not ready yet - wait more days"
+    inventory_full:
+      message: "Inventory full - make space first"
