@@ -315,7 +315,7 @@ class CellFarmingCoordinator:
         return {
             "cells_completed": len(successful),
             "cells_skipped": len(self.skipped_cells),
-            "skip_reasons": dict(self.skipped_cells),
+            "skip_reasons": {f"{x},{y}": reason for (x, y), reason in self.skipped_cells.items()},
             "total_cells": len(self.plan.cells),
             "completion_rate": len(successful) / max(1, len(self.plan.cells)),
         }

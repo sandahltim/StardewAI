@@ -3,7 +3,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DB_PATH = Path(__file__).resolve().parents[2] / "data" / "game_knowledge.db"
+DB_PATH = Path(__file__).resolve().parents[3] / "data" / "game_knowledge.db"
 
 
 def _connect() -> sqlite3.Connection:

@@ -2136,6 +2136,7 @@ class StardewAgent:
         self.goal = ""
         self.last_think_time = 0
         self.action_queue: List[Action] = []
+        self._pending_batch = None  # For skill_override batch execution
         self.recent_actions: List[str] = []  # Track last 10 actions for VLM context
         self.vlm_status = "Idle"
         self.last_state_poll = 0.0
@@ -3137,7 +3138,7 @@ class StardewAgent:
                         batch_count += 1
                         if batch_count % 10 == 0:
                             logging.info(f"🚿 Batch progress: {batch_count} crops, {len(unwatered)-1} remaining")
-                        await asyncio.sleep(0.15)  # Brief delay between waters
+                        await asyncio.sleep(0.03)  # Minimal delay - water action is instant
                         continue
                     else:
                         logging.warning(f"🚿 Batch water failed at ({adjacent_crop['x']}, {adjacent_crop['y']})")
@@ -3243,10 +3244,10 @@ class StardewAgent:
                         continue
                 
                 # Execute move via controller
-                move_action = Action("move", {"direction": move_dir, "duration": 0.2}, f"move {move_dir}")
+                move_action = Action("move", {"direction": move_dir, "duration": 0.15}, f"move {move_dir}")
                 if hasattr(self.controller, "execute"):
                     self.controller.execute(move_action)
-                    await asyncio.sleep(0.25)
+                    await asyncio.sleep(0.05)  # Let game process the move
                 else:
                     logging.warning("🚿 No controller.execute for movement")
                     break
@@ -3254,24 +3255,24 @@ class StardewAgent:
         if batch_count > 0:
             logging.info(f"🚿 Batch watering done: {batch_count} crops, {refill_count} refills")
 
-    async def _batch_plant_seeds(self, seed_type: str = None) -> int:
-        """Batch plant seeds at optimal positions using farm planner.
+    async def _batch_plant_seeds(self, seed_type: str = None, tilled_positions: list = None) -> int:
+        """Batch plant seeds at positions.
 
-        Uses get_planting_sequence() for row-by-row orderly planting.
-        Plants and waters each position. Returns number planted.
+        If tilled_positions provided, plant there directly (from fresh tilling).
+        Otherwise, query farm state for existing tilled tiles.
 
         Args:
             seed_type: Specific seed to plant (None = any seeds)
+            tilled_positions: List of (x, y) tuples to plant at (from _batch_till_grid)
 
         Returns:
             Number of seeds successfully planted
         """
-        from planning.farm_planner import get_planting_sequence
-
         planted_count = 0
         max_attempts = 100  # Safety limit
 
-        # Get initial state and count seeds
+        # Force fresh state
+        self.last_state_poll = 0
         self._refresh_state_snapshot()
         if not self.last_state:
             logging.warning("🌱 Batch plant: no state available")
@@ -3290,24 +3291,34 @@ class StardewAgent:
         seed_slot = seed_items[0].get("slot", 0)
         logging.info(f"🌱 Starting batch plant: {total_seeds} seeds available")
 
-        # Get farm state for planner
-        farm_state = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
-        if not farm_state:
-            logging.warning("🌱 Batch plant: no farm state")
-            return 0
+        # Use provided positions or query farm state
+        if tilled_positions:
+            # Positions passed directly - use them (sorted row-by-row)
+            positions = sorted(tilled_positions, key=lambda p: (p[1], p[0]))
+            positions = [{"x": x, "y": y} for x, y in positions[:total_seeds]]
+            logging.info(f"🌱 Using {len(positions)} provided positions")
+        else:
+            # Query farm state (fallback)
+            from planning.farm_planner import get_planting_sequence
+            farm_state = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
+            if not farm_state:
+                logging.warning("🌱 Batch plant: no farm state")
+                return 0
 
-        player = self.last_state.get("player", {})
-        player_pos = (player.get("tileX", 0), player.get("tileY", 0))
+            data = farm_state.get("data") or farm_state
+            logging.info(f"🌱 Farm state: {len(data.get('tilledTiles', []))} tilled, {len(data.get('crops', []))} crops")
 
-        # Get planting sequence from farm planner
-        sequence = get_planting_sequence(farm_state, player_pos, total_seeds)
-        positions = sequence.get("positions", [])
+            player = self.last_state.get("player", {})
+            player_pos = (player.get("tileX", 0), player.get("tileY", 0))
+
+            sequence = get_planting_sequence(farm_state, player_pos, total_seeds)
+            positions = sequence.get("positions", [])
 
         if not positions:
-            logging.info("🌱 No tilled positions available for planting")
+            logging.info("🌱 No positions available for planting")
             return 0
 
-        logging.info(f"🌱 Planner: {len(positions)} positions to plant (row-by-row)")
+        logging.info(f"🌱 Planting at {len(positions)} positions")
 
         for i, pos in enumerate(positions):
             if planted_count >= max_attempts:
@@ -3327,25 +3338,22 @@ class StardewAgent:
                 logging.debug(f"🌱 Couldn't reach ({stand_x},{stand_y}), skipping")
                 continue
 
-            await asyncio.sleep(0.3)  # Wait for movement
+            await asyncio.sleep(0.05)  # Minimal wait for move_to
 
             # Select seeds
             self.controller.execute(Action("select_slot", {"slot": seed_slot}, "select seeds"))
-            await asyncio.sleep(0.1)
 
             # Face north and plant
             self.controller.execute(Action("face", {"direction": "north"}, "face north"))
-            await asyncio.sleep(0.1)
-
             self.controller.execute(Action("use_tool", {}, "plant seed"))
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.05)  # Minimal delay
 
             # Water immediately
             water_skill = self.skills_dict.get("water_crop")
             if water_skill:
                 skill_state = dict(self.last_state) if self.last_state else {}
                 await self.skill_executor.execute(water_skill, {"target_direction": "north"}, skill_state)
-                await asyncio.sleep(0.15)
+                await asyncio.sleep(0.03)  # Minimal delay
 
             planted_count += 1
 
@@ -3408,7 +3416,7 @@ class StardewAgent:
 
                 # Go to Pierre's
                 self.controller.execute(Action("warp", {"location": "SeedShop"}, "warp to Pierre's"))
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.15)  # Warp is instant, just need state sync
                 self._refresh_state_snapshot()
 
                 # Buy seeds - calculate quantity based on money
@@ -3433,13 +3441,13 @@ class StardewAgent:
                         "item": seed_item,
                         "quantity": quantity
                     }, f"buy {quantity} {seed_item}"))
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.1)  # Buy is instant
                     results["seeds_bought"] = quantity
 
                 # Return to farm
                 logging.info("🏠 Returning to farm...")
                 self.controller.execute(Action("warp", {"location": "Farm"}, "warp to Farm"))
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.15)  # Warp is instant
                 self._refresh_state_snapshot()
             elif not pierre_open:
                 logging.info(f"🛒 No seeds but Pierre's closed (hour={hour}, day={day_of_week})")
@@ -3454,36 +3462,36 @@ class StardewAgent:
         if loc_name != "Farm":
             logging.info(f"🏠 Not on Farm (at {loc_name}), warping...")
             self.controller.execute(Action("warp", {"location": "Farm"}, "warp to Farm"))
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.15)  # Warp is instant
             self._refresh_state_snapshot()
             location = self.last_state.get("location", {}) if self.last_state else {}
             crops = location.get("crops", [])
 
-        # --- PHASE 1: HARVEST ---
+        # --- PHASE 1: WATER (critical - crops die without water!) ---
+        unwatered = [c for c in crops if not c.get("isWatered", False) and not c.get("isReadyForHarvest", False)]
+        if unwatered:
+            logging.info(f"💧 Phase 1: Watering {len(unwatered)} crops")
+            await self._batch_water_remaining()
+            results["watered"] = len(unwatered)  # Approximate
+            self._refresh_state_snapshot()
+            crops = self.last_state.get("location", {}).get("crops", []) if self.last_state else []
+
+        # --- PHASE 2: HARVEST ---
         harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
         if harvestable:
-            logging.info(f"🌾 Phase 1: Harvesting {len(harvestable)} crops")
+            logging.info(f"🌾 Phase 2: Harvesting {len(harvestable)} crops")
             for crop in harvestable:
                 cx, cy = crop.get("x", 0), crop.get("y", 0)
-                # Stand south, face north
+                # Stand south, face north - use fast sequence
                 self.controller.execute(Action("move_to", {"x": cx, "y": cy + 1}, f"move to harvest"))
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.05)  # Minimal delay - move_to handles timing
                 self.controller.execute(Action("face", {"direction": "north"}, "face crop"))
                 self.controller.execute(Action("harvest", {"direction": "north"}, "harvest"))
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.05)  # Harvest is instant
                 results["harvested"] += 1
             logging.info(f"🌾 Harvested {results['harvested']} crops")
             self._refresh_state_snapshot()
             crops = self.last_state.get("location", {}).get("crops", []) if self.last_state else []
-
-        # --- PHASE 2: WATER ---
-        unwatered = [c for c in crops if not c.get("isWatered", False) and not c.get("isReadyForHarvest", False)]
-        if unwatered:
-            logging.info(f"💧 Phase 2: Watering {len(unwatered)} crops")
-            # Use existing batch water
-            await self._batch_water_remaining()
-            results["watered"] = len(unwatered)  # Approximate
-            self._refresh_state_snapshot()
 
         # --- PHASE 3: TILL & PLANT ---
         # Check for seeds
@@ -3492,40 +3500,18 @@ class StardewAgent:
         seed_count = sum(i.get("stack", 1) for i in seed_items)
 
         if seed_count > 0:
-            # Get tilled count from farm state
-            farm_state = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
-            tilled_tiles = farm_state.get("data", farm_state).get("tilledTiles", []) if farm_state else []
-            crop_positions = {(c.get("x"), c.get("y")) for c in crops}
-            available_tilled = [t for t in tilled_tiles if (t.get("x"), t.get("y")) not in crop_positions]
+            # Always till a fresh grid - don't trust existing scattered tiles
+            logging.info(f"🔨 Phase 3a: Tilling {seed_count} tiles for planting")
+            tilled_count, tilled_positions = await self._batch_till_grid(seed_count)
+            results["tilled"] = tilled_count
 
-            # Find contiguous tilled area - check if existing tiles are grouped
-            # If they're scattered (not a grid), we'll till a fresh grid
-            if available_tilled:
-                # Sort by position to check contiguity
-                sorted_tilled = sorted([(t.get("x"), t.get("y")) for t in available_tilled])
-                # Check if they're mostly contiguous (within 2 tiles of each other)
-                if len(sorted_tilled) >= 2:
-                    min_x = min(t[0] for t in sorted_tilled)
-                    max_x = max(t[0] for t in sorted_tilled)
-                    min_y = min(t[1] for t in sorted_tilled)
-                    max_y = max(t[1] for t in sorted_tilled)
-                    spread = (max_x - min_x) + (max_y - min_y)
-                    # If spread is too large for the count, they're scattered
-                    if spread > len(sorted_tilled) * 2:
-                        logging.info(f"🔨 Existing tilled tiles are scattered (spread={spread}), tilling fresh grid")
-                        available_tilled = []  # Ignore scattered tiles
-
-            # If not enough contiguous tilled soil, till a grid
-            if len(available_tilled) < seed_count:
-                needed = seed_count - len(available_tilled)
-                logging.info(f"🔨 Phase 3a: Tilling {needed} tiles for grid")
-                tilled = await self._batch_till_grid(needed)
-                results["tilled"] = tilled
-
-            # Now plant
-            logging.info("🌱 Phase 3b: Planting seeds")
-            planted = await self._batch_plant_seeds()
-            results["planted"] = planted
+            if tilled_positions:
+                # Now plant at the positions we just tilled
+                logging.info("🌱 Phase 3b: Planting seeds")
+                planted = await self._batch_plant_seeds(tilled_positions=tilled_positions)
+                results["planted"] = planted
+            else:
+                logging.warning("🌱 No tilled positions to plant at")
 
         logging.info("🏠 ═══════════════════════════════════════")
         logging.info(f"🏠 BATCH CHORES COMPLETE: harvested={results['harvested']}, watered={results['watered']}, tilled={results['tilled']}, planted={results['planted']}")
@@ -3533,22 +3519,22 @@ class StardewAgent:
 
         return results
 
-    async def _batch_till_grid(self, count: int) -> int:
+    async def _batch_till_grid(self, count: int) -> tuple:
         """Till a contiguous grid of soil tiles.
 
-        Creates a nice rectangular grid starting from a good farm area.
-        Uses SMAPI farm state to find clearable positions.
+        DYNAMICALLY finds the best farming area from farm state.
+        No hardcoded positions - scans for largest clear area.
 
         Args:
             count: Number of tiles to till
 
         Returns:
-            Number of tiles actually tilled
+            Tuple of (tiles_tilled_count, list_of_positions)
         """
-        FARM_GRID_START = (60, 16)  # Good starting position on standard farm
         GRID_WIDTH = 5  # Till in rows of 5
 
         tilled = 0
+        tilled_positions = []  # Track what we actually tilled
         max_attempts = count + 20  # Allow some failures
 
         logging.info(f"🔨 Batch tilling {count} tiles in grid pattern")
@@ -3557,7 +3543,7 @@ class StardewAgent:
         farm_state = self.controller.get_farm() if hasattr(self.controller, "get_farm") else None
         if not farm_state:
             logging.warning("🔨 No farm state for tilling")
-            return 0
+            return (0, [])
 
         data = farm_state.get("data") or farm_state
 
@@ -3568,9 +3554,18 @@ class StardewAgent:
 
         # Find debris/objects that block
         debris = {(d.get("x"), d.get("y")) for d in data.get("debris", [])}
+        
+        # Get objects (stones, weeds, twigs) that block tilling
+        objects = {(o.get("x"), o.get("y")) for o in data.get("objects", [])}
+        
+        # Combine all blocked positions
+        blocked = occupied | debris | objects
+
+        # DYNAMIC: Find best starting position for a grid using farm dimensions
+        start_x, start_y = self._find_best_grid_start(blocked, count, GRID_WIDTH, data)
+        logging.info(f"🔨 Dynamic grid start: ({start_x}, {start_y})")
 
         # Generate grid positions
-        start_x, start_y = FARM_GRID_START
         grid_positions = []
 
         for row in range(count // GRID_WIDTH + 1):
@@ -3584,13 +3579,12 @@ class StardewAgent:
 
         if not grid_positions:
             logging.warning("🔨 No available grid positions")
-            return 0
+            return (0, [])
 
         logging.info(f"🔨 Grid: {len(grid_positions)} positions from ({start_x},{start_y})")
 
         # Equip hoe
         self.controller.execute(Action("select_item_type", {"value": "Hoe"}, "equip hoe"))
-        await asyncio.sleep(0.2)
 
         for x, y in grid_positions:
             if tilled >= count or tilled >= max_attempts:
@@ -3599,20 +3593,103 @@ class StardewAgent:
             # Move adjacent (stand south, face north)
             stand_x, stand_y = x, y + 1
             self.controller.execute(Action("move_to", {"x": stand_x, "y": stand_y}, f"move to till"))
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.05)  # Minimal wait for move_to
 
             # Face north and till
             self.controller.execute(Action("face", {"direction": "north"}, "face north"))
-            await asyncio.sleep(0.1)
             self.controller.execute(Action("use_tool", {}, "till"))
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.05)  # Minimal delay
 
             tilled += 1
+            tilled_positions.append((x, y))  # Track this position
             if tilled % 5 == 0:
                 logging.info(f"🔨 Tilled {tilled}/{count}")
 
-        logging.info(f"🔨 Batch tilling complete: {tilled} tiles")
-        return tilled
+        logging.info(f"🔨 Batch tilling complete: {tilled} tiles at positions {tilled_positions[:3]}...")
+        return (tilled, tilled_positions)
+
+    def _find_best_grid_start(self, blocked: set, count: int, grid_width: int, farm_data: dict = None) -> tuple:
+        """Find the best starting position for a farming grid.
+
+        DYNAMICALLY determines bounds based on farm type and dimensions.
+        Scans to find the position with the most contiguous clear tiles.
+
+        Args:
+            blocked: Set of (x, y) tuples that are blocked
+            count: Number of tiles needed
+            grid_width: Width of the grid pattern
+            farm_data: Farm state data with name, mapWidth, mapHeight
+
+        Returns:
+            Tuple of (start_x, start_y) for best grid position
+        """
+        # Get farm dimensions and type from SMAPI data
+        map_width = farm_data.get("mapWidth", 80) if farm_data else 80
+        map_height = farm_data.get("mapHeight", 65) if farm_data else 65
+        farm_name = (farm_data.get("name", "") or "").lower() if farm_data else ""
+
+        # Farm-type-specific tillable bounds
+        # These define WHERE crops can actually grow on each farm type
+        if "beach" in farm_name:
+            # Beach Farm: Only small tillable patches, sand can't be tilled
+            MIN_X, MAX_X = 35, 55
+            MIN_Y, MAX_Y = 30, 50
+        elif "riverland" in farm_name:
+            # Riverland Farm: Islands with water between them
+            MIN_X, MAX_X = 40, 70
+            MIN_Y, MAX_Y = 20, 45
+        elif "forest" in farm_name:
+            # Forest Farm: Large stumps on left, tillable on right
+            MIN_X, MAX_X = 50, 80
+            MIN_Y, MAX_Y = 15, 45
+        elif "hilltop" in farm_name or "hill-top" in farm_name:
+            # Hilltop Farm: Quarry on left, small tillable areas
+            MIN_X, MAX_X = 55, 85
+            MIN_Y, MAX_Y = 20, 45
+        elif "wilderness" in farm_name:
+            # Wilderness Farm: Similar to standard but monsters at night
+            MIN_X, MAX_X = 55, 85
+            MIN_Y, MAX_Y = 16, 40
+        elif "four" in farm_name and "corner" in farm_name:
+            # Four Corners Farm: Divided into quadrants
+            MIN_X, MAX_X = 30, 70
+            MIN_Y, MAX_Y = 20, 50
+        else:
+            # Standard Farm (default): Large open tillable area
+            # Use map dimensions with margins for buildings
+            MIN_X = max(5, int(map_width * 0.4))   # ~40% from left
+            MAX_X = min(map_width - 5, int(map_width * 0.95))
+            MIN_Y = 16  # Below farmhouse row
+            MAX_Y = min(map_height - 5, int(map_height * 0.7))
+
+        logging.info(f"🔨 Farm bounds: {farm_name or 'standard'} ({MIN_X}-{MAX_X} x {MIN_Y}-{MAX_Y})")
+
+        best_pos = (MIN_X + 5, MIN_Y + 2)  # Fallback within bounds
+        best_score = 0
+
+        grid_height = (count + grid_width - 1) // grid_width
+
+        # Scan potential starting positions (step by 2 for efficiency)
+        for start_y in range(MIN_Y, MAX_Y - grid_height + 1, 2):
+            for start_x in range(MIN_X, MAX_X - grid_width + 1, 2):
+                # Count how many tiles in this grid are clear
+                clear_count = 0
+                for row in range(grid_height):
+                    for col in range(grid_width):
+                        x = start_x + col
+                        y = start_y + row
+                        if (x, y) not in blocked:
+                            clear_count += 1
+
+                # Score: clear tiles + bonus for being further south (away from buildings)
+                score = clear_count + (start_y - MIN_Y) * 0.1
+
+                if score > best_score:
+                    best_score = score
+                    best_pos = (start_x, start_y)
+
+        logging.info(f"🔨 Grid search: best={best_pos} with score={best_score:.1f}")
+        return best_pos
 
     def _filter_adjacent_crop_moves(self, actions: List[Action]) -> List[Action]:
         """
@@ -4392,6 +4469,23 @@ class StardewAgent:
                 daily_task = self.daily_planner._find_task(task_id)
                 if daily_task and daily_task.status in ("completed", "skipped"):
                     continue
+
+                # SKILL_OVERRIDE: Batch operations bypass TaskExecutor entirely
+                if daily_task and hasattr(daily_task, 'skill_override') and daily_task.skill_override:
+                    batch_skill = daily_task.skill_override
+                    logging.info(f"🚀 BATCH MODE: Task {task_id} uses skill_override={batch_skill}")
+
+                    # Mark task as started
+                    self.daily_planner.start_task(task_id)
+
+                    # Store for async execution - caller will await
+                    self._pending_batch = {
+                        "skill": batch_skill,
+                        "task_id": task_id,
+                        "queue": resolved_queue,
+                        "queue_index": i
+                    }
+                    return True  # Signal batch is pending
 
             # Check location requirements
             # Farm tasks need to be on Farm; navigation tasks can be anywhere
@@ -6088,8 +6182,34 @@ Recent: {recent}"""
             pass  # Day 1 clearing is exclusive
         elif self.task_executor and not self.task_executor.is_active():
             if self._try_start_daily_task():
-                # Task started - executor will handle it next iteration
-                pass
+                # Check if batch operation is pending
+                if hasattr(self, '_pending_batch') and self._pending_batch:
+                    batch = self._pending_batch
+                    self._pending_batch = None  # Clear before execution
+
+                    logging.info(f"🚀 Executing batch: {batch['skill']}")
+                    self.vlm_status = f"Batch: {batch['skill']}"
+                    self._send_ui_status()
+
+                    try:
+                        success = await self.execute_skill(batch['skill'], {})
+                        if success:
+                            logging.info(f"✅ Batch {batch['skill']} completed")
+                            self.daily_planner.complete_task(batch['task_id'])
+                        else:
+                            logging.warning(f"⚠️ Batch {batch['skill']} returned False")
+                        # Remove from queue
+                        queue = batch['queue']
+                        for j, rt in enumerate(queue):
+                            rt_id = rt.original_task_id if hasattr(rt, 'original_task_id') else rt.get('original_task_id', '')
+                            if rt_id == batch['task_id']:
+                                queue.pop(j)
+                                break
+                    except Exception as e:
+                        logging.error(f"❌ Batch {batch['skill']} failed: {e}")
+
+                    return  # Done with this tick
+                # else: Task started - executor will handle it next iteration
 
         if self.task_executor and self.task_executor.is_active() and not self._day1_clearing_active:
             # Get FRESH game state for position and precondition checks

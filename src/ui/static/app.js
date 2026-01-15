@@ -48,6 +48,11 @@ function applySmapiEmptyState() {
   const calendarToday = document.getElementById("calendarToday");
   const calendarSeason = document.getElementById("calendarSeason");
   const calendarUpcoming = document.getElementById("calendarUpcoming");
+  const farmLayoutMeta = document.getElementById("farmLayoutMeta");
+  const farmLayoutPlacements = document.getElementById("farmLayoutPlacements");
+  const farmLayoutCoverage = document.getElementById("farmLayoutCoverage");
+  const farmLayoutBarFill = document.getElementById("farmLayoutBarFill");
+  const farmLayoutPercent = document.getElementById("farmLayoutPercent");
   if (compassNote) compassNote.textContent = "SMAPI offline";
   if (tileStatus) tileStatus.textContent = "No tile data";
   if (tileNote) tileNote.textContent = "SMAPI offline";
@@ -67,6 +72,11 @@ function applySmapiEmptyState() {
   if (calendarToday) calendarToday.textContent = "Today: -";
   if (calendarSeason) calendarSeason.textContent = "Season ends in: -";
   if (calendarUpcoming) calendarUpcoming.innerHTML = "<li>SMAPI offline</li>";
+  if (farmLayoutMeta) farmLayoutMeta.textContent = "Planner unavailable";
+  if (farmLayoutPlacements) farmLayoutPlacements.innerHTML = "<li>None</li>";
+  if (farmLayoutCoverage) farmLayoutCoverage.textContent = "-";
+  if (farmLayoutBarFill) farmLayoutBarFill.style.width = "0%";
+  if (farmLayoutPercent) farmLayoutPercent.textContent = "0% protected";
 }
 
 function postJSON(url, data) {
@@ -405,6 +415,11 @@ function updateStatus(status) {
   const farmPlanPercent = document.getElementById("farmPlanPercent");
   const farmPlanGrid = document.getElementById("farmPlanGrid");
   const farmPlanRows = document.getElementById("farmPlanRows");
+  const farmLayoutMeta = document.getElementById("farmLayoutMeta");
+  const farmLayoutPlacements = document.getElementById("farmLayoutPlacements");
+  const farmLayoutCoverage = document.getElementById("farmLayoutCoverage");
+  const farmLayoutBarFill = document.getElementById("farmLayoutBarFill");
+  const farmLayoutPercent = document.getElementById("farmLayoutPercent");
   const vlmObservation = document.getElementById("vlmObservation");
   const vlmProposed = document.getElementById("vlmProposed");
   const vlmValidation = document.getElementById("vlmValidation");
@@ -1737,6 +1752,81 @@ function init() {
     }
   };
 
+  const formatLayoutLabel = (value) => {
+    if (!value) return "";
+    return String(value).replace(/_/g, " ");
+  };
+
+  const updateFarmLayout = (payload) => {
+    if (!farmLayoutMeta || !farmLayoutPlacements || !farmLayoutCoverage) return;
+    const status = payload?.status;
+    if (!payload || (status && status !== "ok")) {
+      farmLayoutMeta.textContent = payload?.message || "No layout plan yet.";
+      farmLayoutPlacements.innerHTML = "<li>None</li>";
+      farmLayoutCoverage.textContent = "-";
+      if (farmLayoutBarFill) farmLayoutBarFill.style.width = "0%";
+      if (farmLayoutPercent) farmLayoutPercent.textContent = "0% protected";
+      return;
+    }
+
+    farmLayoutMeta.textContent = payload?.message || "Layout plan ready.";
+    const placements = [];
+    const scarecrows = Array.isArray(payload?.scarecrows) ? payload.scarecrows : [];
+    scarecrows.forEach((entry) => {
+      const x = entry?.x ?? "?";
+      const y = entry?.y ?? "?";
+      const covers = entry?.covers_crops ?? entry?.covers;
+      const coverLabel = Number.isFinite(Number(covers)) ? ` - covers ${covers} crops` : "";
+      placements.push(`🌿 Scarecrow (${x}, ${y})${coverLabel}`);
+    });
+
+    const sprinklers = Array.isArray(payload?.sprinklers) ? payload.sprinklers : [];
+    sprinklers.forEach((entry) => {
+      const x = entry?.x ?? "?";
+      const y = entry?.y ?? "?";
+      const radius = entry?.radius ?? entry?.range;
+      const radiusLabel = Number.isFinite(Number(radius)) ? ` - radius ${radius}` : "";
+      placements.push(`💧 Sprinkler (${x}, ${y})${radiusLabel}`);
+    });
+
+    const chests = Array.isArray(payload?.chests) ? payload.chests : [];
+    chests.forEach((entry) => {
+      const x = entry?.x ?? "?";
+      const y = entry?.y ?? "?";
+      const purpose = formatLayoutLabel(entry?.purpose);
+      const purposeLabel = purpose ? ` - ${purpose}` : "";
+      placements.push(`📦 Chest (${x}, ${y})${purposeLabel}`);
+    });
+
+    farmLayoutPlacements.innerHTML = "";
+    if (!placements.length) {
+      const item = document.createElement("li");
+      item.textContent = "None";
+      farmLayoutPlacements.append(item);
+    } else {
+      placements.forEach((entry) => {
+        const item = document.createElement("li");
+        item.textContent = entry;
+        farmLayoutPlacements.append(item);
+      });
+    }
+
+    const coverage = payload?.coverage || {};
+    const protectedCrops = Number(coverage.protected_crops ?? coverage.protected ?? 0);
+    const totalCrops = Number(coverage.total_crops ?? coverage.total ?? 0);
+    const rawPercent = Number(coverage.percentage);
+    const percent = Number.isFinite(rawPercent)
+      ? Math.round(rawPercent)
+      : totalCrops > 0
+        ? Math.round((protectedCrops / totalCrops) * 100)
+        : 0;
+    farmLayoutCoverage.textContent = totalCrops > 0
+      ? `Protected: ${protectedCrops}/${totalCrops} crops`
+      : "No crop coverage data";
+    if (farmLayoutBarFill) farmLayoutBarFill.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    if (farmLayoutPercent) farmLayoutPercent.textContent = `${percent}% protected`;
+  };
+
   const normalizeLocation = (value) => {
     return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
   };
@@ -2729,6 +2819,15 @@ function init() {
       })
       .catch(() => {
         updateFarmPlan(null);
+      });
+
+    fetch("/api/farm-layout")
+      .then((res) => res.json())
+      .then((plan) => {
+        updateFarmLayout(plan);
+      })
+      .catch(() => {
+        updateFarmLayout(null);
       });
 
     const smapiBase = `${window.location.protocol}//${window.location.hostname}:8790`;

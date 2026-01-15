@@ -1,3 +1,4 @@
+using System.Linq;
 using Microsoft.Xna.Framework;
 using StardewAI.GameBridge.Models;
 using StardewAI.GameBridge.Pathfinding;
@@ -134,6 +135,39 @@ public class GameStateReader
                     X = (int)pair.Key.X,
                     Y = (int)pair.Key.Y
                 });
+            }
+        }
+
+        // Read Chests on farm for inventory management
+        foreach (var pair in farm.objects.Pairs)
+        {
+            if (pair.Value is StardewValley.Objects.Chest chest)
+            {
+                var pos = pair.Key;
+                var items = chest.Items.Where(i => i != null).ToList();
+                
+                var chestInfo = new ChestInfo
+                {
+                    X = (int)pos.X,
+                    Y = (int)pos.Y,
+                    Name = string.IsNullOrEmpty(chest.DisplayName) ? "Chest" : chest.DisplayName,
+                    ItemCount = items.Sum(i => i.Stack),
+                    SlotsFree = chest.GetActualCapacity() - items.Count
+                };
+                
+                // Group items by name for summary
+                var grouped = items
+                    .GroupBy(i => i.DisplayName)
+                    .Select(g => new ChestItemSummary
+                    {
+                        ItemName = g.Key,
+                        Quantity = g.Sum(i => i.Stack),
+                        Category = GetItemCategory(g.First())
+                    })
+                    .ToList();
+                
+                chestInfo.Contents = grouped;
+                state.Chests.Add(chestInfo);
             }
         }
 
@@ -331,6 +365,7 @@ public class GameStateReader
     {
         int tilesClear = 0;
         string blocker = null;
+        AdjacentTileInfo adjacentTile = null;
 
         for (int i = 1; i <= maxTiles; i++)
         {
@@ -341,6 +376,12 @@ public class GameStateReader
             {
                 blocker = "map_edge";
                 break;
+            }
+
+            // Get detailed tile state for immediately adjacent tile (i=1)
+            if (i == 1)
+            {
+                adjacentTile = GetAdjacentTileInfo(location, x, y);
             }
 
             var tileLocation = new xTile.Dimensions.Location(x, y);
@@ -361,8 +402,69 @@ public class GameStateReader
         {
             Clear = blocker == null,
             TilesUntilBlocked = tilesClear,
-            Blocker = blocker
+            Blocker = blocker,
+            AdjacentTile = adjacentTile
         };
+    }
+
+    /// <summary>Get detailed tile state for phantom failure detection</summary>
+    private AdjacentTileInfo GetAdjacentTileInfo(GameLocation location, int x, int y)
+    {
+        var tileVec = new Vector2(x, y);
+        var info = new AdjacentTileInfo
+        {
+            X = x,
+            Y = y,
+            IsTilled = false,
+            HasCrop = false,
+            IsWatered = false,
+            CanTill = false,
+            CanPlant = false,
+            BlockerType = null
+        };
+
+        // Check for objects blocking the tile (stone, weeds, etc.)
+        if (location.Objects.TryGetValue(tileVec, out var obj))
+        {
+            info.BlockerType = obj.Name;
+            return info;
+        }
+
+        // Check terrain features (HoeDirt for farming)
+        if (location.terrainFeatures.TryGetValue(tileVec, out var feature))
+        {
+            if (feature is StardewValley.TerrainFeatures.HoeDirt hoeDirt)
+            {
+                info.IsTilled = true;
+                info.HasCrop = hoeDirt.crop != null;
+                info.IsWatered = hoeDirt.state.Value == 1;
+                info.CanPlant = hoeDirt.crop == null;  // Can plant if tilled but no crop
+            }
+            else if (feature is StardewValley.TerrainFeatures.Tree)
+            {
+                info.BlockerType = "Tree";
+            }
+            else if (feature is StardewValley.TerrainFeatures.Grass)
+            {
+                info.BlockerType = "Grass";
+            }
+            else if (!feature.isPassable())
+            {
+                info.BlockerType = feature.GetType().Name;
+            }
+            return info;
+        }
+
+        // Empty tile - check if it can be tilled (on farm, diggable)
+        if (location is Farm || location.Name == "Farm")
+        {
+            // Simple check: if no obstruction and we're on farm, likely tillable
+            var tileLocation = new xTile.Dimensions.Location(x, y);
+            info.CanTill = location.isTilePassable(tileLocation, Game1.viewport) &&
+                          !location.isWaterTile(x, y);
+        }
+
+        return info;
     }
 
     private string GetBlockerName(GameLocation location, int x, int y)
@@ -734,6 +836,36 @@ public class GameStateReader
             if (obj.Category == StardewValley.Object.SeedsCategory) return "seed";
             if (obj.Category == StardewValley.Object.VegetableCategory) return "crop";
             if (obj.Category == StardewValley.Object.FruitsCategory) return "fruit";
+        }
+        return "object";
+    }
+
+    private string GetItemCategory(Item item)
+    {
+        if (item is Tool) return "tool";
+        if (item is StardewValley.Object obj)
+        {
+            // Category values from Stardew Valley source
+            return obj.Category switch
+            {
+                -74 => "seed",      // SeedsCategory
+                -75 => "crop",      // VegetableCategory  
+                -79 => "fruit",     // FruitsCategory
+                -4 => "fish",       // FishCategory
+                -7 => "cooking",    // CookingCategory (cooked dishes)
+                -2 => "gem",        // GemCategory
+                -12 => "mineral",   // MineralsCategory
+                -15 => "ore",       // MetalResources
+                -16 => "material",  // BuildingResources (wood, stone)
+                -19 => "fertilizer",// FertilizerCategory
+                -80 => "flower",    // FlowersCategory
+                -81 => "forage",    // GreensCategory
+                -26 => "artisan",   // ArtisanGoodsCategory
+                -27 => "syrup",     // SyrupCategory
+                -28 => "monster_loot", // MonsterLootCategory
+                -8 => "crafting",   // CraftingCategory
+                _ => "misc"
+            };
         }
         return "object";
     }

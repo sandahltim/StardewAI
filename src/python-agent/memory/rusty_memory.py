@@ -496,15 +496,34 @@ class RustyMemory:
 
 
 # ─────────────────────────────────────────────────────────────────
-# Singleton
+# Singleton with auto-refresh
 # ─────────────────────────────────────────────────────────────────
 
 _rusty_memory: Optional[RustyMemory] = None
+_rusty_last_mtime: float = 0
 
 
 def get_rusty_memory() -> RustyMemory:
-    """Get or create the singleton RustyMemory instance."""
-    global _rusty_memory
+    """Get or create the singleton RustyMemory instance.
+
+    Auto-refreshes from disk if the file has been modified by another process
+    (e.g., agent writes new memory, UI server needs to see it).
+    """
+    global _rusty_memory, _rusty_last_mtime
+
+    persist_path = Path(DEFAULT_PERSIST_PATH)
+
+    # Check if file has been modified since last load
+    if persist_path.exists():
+        current_mtime = persist_path.stat().st_mtime
+        if _rusty_memory is not None and current_mtime > _rusty_last_mtime:
+            logger.info(f"🧠 Rusty memory file changed, reloading...")
+            _rusty_memory._load()
+            _rusty_last_mtime = current_mtime
+
     if _rusty_memory is None:
         _rusty_memory = RustyMemory()
+        if persist_path.exists():
+            _rusty_last_mtime = persist_path.stat().st_mtime
+
     return _rusty_memory

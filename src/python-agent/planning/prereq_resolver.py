@@ -36,6 +36,14 @@ except ImportError:
     RESERVED_CROPS = ["Parsnip", "Green Bean", "Cauliflower", "Potato"]
     DEFAULT_LOCATIONS = {"water_pond": (72, 31)}
 
+# Import crop advisor for smart seed selection
+try:
+    from planning.crop_advisor import get_recommended_crop, format_crop_advice
+    HAS_CROP_ADVISOR = True
+except ImportError:
+    HAS_CROP_ADVISOR = False
+    get_recommended_crop = None
+
 logger = logging.getLogger(__name__)
 
 
@@ -117,6 +125,11 @@ class PrereqResolver:
         money = player.get("money", 0)
         watering_can_water = player.get("wateringCanWater", 0)
         watering_can_max = player.get("wateringCanMax", 40)
+
+        # Extract season and day for smart crop selection
+        self._season = data.get("season", "spring").lower()
+        self._day = data.get("day", 1)
+        self._money = money  # Store for crop advisor
 
         # Extract nearest water location from surroundings
         self._nearest_water = None
@@ -326,8 +339,22 @@ class PrereqResolver:
 
             if not seeds:
                 # No seeds - need to buy
-                # Check if we have money
-                cheapest_seed_price = min(SEED_PRICES.values())  # 20g for parsnip
+                # Use crop advisor to pick best seeds for current season/day/budget
+                recommended = None
+                seed_name = "parsnip seeds"  # Default fallback
+                seed_cost = 20
+                quantity = 5  # Default quantity
+
+                if HAS_CROP_ADVISOR and get_recommended_crop:
+                    recommended = get_recommended_crop(self._season, self._day, money)
+                    if recommended:
+                        seed_name = recommended.seed_name
+                        seed_cost = recommended.seed_cost
+                        # Buy as many as we can afford (max 10 at a time)
+                        quantity = min(10, money // seed_cost)
+                        logger.info(f"🌱 Crop advisor recommends: {recommended.name} ({seed_name}) - {recommended.profit_per_day:.1f}g/day profit")
+
+                cheapest_seed_price = seed_cost
 
                 if money >= cheapest_seed_price:
                     # Have money - go buy seeds then return to farm
@@ -341,8 +368,8 @@ class PrereqResolver:
                     prereqs.append(PrereqAction(
                         action_type="buy_seeds",
                         task_type="buy_seeds",
-                        description="Buy seeds from Pierre",
-                        params={},
+                        description=f"Buy {quantity} {seed_name} from Pierre",
+                        params={"seed_type": seed_name, "quantity": quantity},
                         estimated_time=5,
                     ))
                     # Return to farm for planting
@@ -374,8 +401,8 @@ class PrereqResolver:
                         prereqs.append(PrereqAction(
                             action_type="buy_seeds",
                             task_type="buy_seeds",
-                            description="Buy seeds from Pierre",
-                            params={},
+                            description=f"Buy {seed_name} from Pierre",
+                            params={"seed_type": seed_name, "quantity": quantity},
                             estimated_time=5,
                         ))
                         # Return to farm for planting

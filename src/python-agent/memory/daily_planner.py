@@ -453,15 +453,24 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         # This is added in _generate_maintenance_tasks but we note it's last resort
 
     def _generate_maintenance_tasks(self, state: Dict[str, Any]) -> None:
-        """Generate farm maintenance tasks."""
+        """Generate farm maintenance tasks.
+        
+        Tasks are added conditionally based on prerequisites:
+        - Clear debris: energy > 50%
+        - Mining: has pickaxe + energy > 60% + VLM can reprioritize
+        """
         # Handle SMAPI response structure
         data = state.get("data") or state
-        # Check energy for whether to add strenuous tasks
         player = data.get("player", {})
+        inventory = data.get("inventory", [])
+        time_data = data.get("time", {})
+        
         energy = player.get("energy", 100)
         max_energy = player.get("maxEnergy", 100)
         energy_pct = (energy / max_energy * 100) if max_energy > 0 else 100
-
+        hour = time_data.get("hour", 6)
+        
+        # Clear debris - needs some energy
         if energy_pct > 50:
             self.tasks.append(DailyTask(
                 id=f"clear_{self.current_day}_1",
@@ -470,6 +479,29 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 priority=TaskPriority.MEDIUM.value,
                 target_location="Farm",
                 estimated_time=30,
+            ))
+        
+        # Mining - conditional on having pickaxe and good energy
+        # VLM reasoning can reprioritize based on context (weather, goals, etc.)
+        has_pickaxe = any(
+            item and "pickaxe" in item.get("name", "").lower()
+            for item in inventory if item
+        )
+        
+        # Mining prerequisites: pickaxe + energy > 60% + not too late in day
+        if has_pickaxe and energy_pct > 60 and hour < 14:
+            # Get combat level to suggest appropriate mine depth
+            combat_level = player.get("combatLevel", 0)
+            mine_depth = min(combat_level * 5, 40) if combat_level > 0 else 5
+            
+            self.tasks.append(DailyTask(
+                id=f"mining_{self.current_day}_1",
+                description=f"Mine ore in the mines (floors 1-{mine_depth})",
+                category="mining",
+                priority=TaskPriority.MEDIUM.value,  # VLM can adjust
+                target_location="Mine",
+                estimated_time=60,
+                notes="VLM may reprioritize based on weather/goals/energy",
             ))
 
     def _generate_social_tasks(self, state: Dict[str, Any]) -> None:

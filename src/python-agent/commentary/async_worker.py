@@ -146,12 +146,30 @@ class AsyncCommentaryWorker:
                 event = self._queue.get(timeout=1.0)
             except queue.Empty:
                 continue
-                
+
             if event is None:  # Poison pill
                 break
-                
+
+            # Skip to most recent event - drain queue and use last item
+            # This prevents TTS from lagging behind with old commentary
+            latest_event = event
+            drained = 0
+            while True:
+                try:
+                    next_event = self._queue.get_nowait()
+                    if next_event is None:  # Poison pill
+                        self._queue.put(None)  # Re-queue it
+                        break
+                    latest_event = next_event
+                    drained += 1
+                except queue.Empty:
+                    break
+
+            if drained > 0:
+                logging.debug(f"🔊 TTS: Skipped {drained} stale events, using latest")
+
             try:
-                self._process_event(event)
+                self._process_event(latest_event)
             except Exception as e:
                 logging.error(f"Commentary worker error: {e}")
                 

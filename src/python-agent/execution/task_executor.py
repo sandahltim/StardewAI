@@ -116,7 +116,7 @@ class TaskExecutor:
         "ship_items": "ship_item",
         "navigate": None,  # No skill - just movement to destination
         "refill_watering_can": "refill_watering_can",
-        "buy_seeds": "buy_parsnip_seeds",  # Default to parsnip seeds
+        "buy_seeds": "buy_seeds",  # Generic - uses seed_type param from prereq resolver
     }
     
     # Map debris names to clearing skills
@@ -655,9 +655,15 @@ class TaskExecutor:
         # Get skill name based on task and target
         skill_name = self._get_skill_for_target(target)
 
+        # Build params - start with direction, merge task params if any
+        params = {"target_direction": direction}
+        if self._task_params:
+            # Merge task params (e.g., seed_type, quantity for buy_seeds)
+            params.update(self._task_params)
+
         return ExecutorAction(
             action_type=skill_name,
-            params={"target_direction": direction},
+            params=params,
             target=target,
             reason=f"Executing {skill_name} on target at ({target.x}, {target.y})"
         )

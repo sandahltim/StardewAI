@@ -626,6 +626,8 @@ def get_planting_sequence(
     # Find plantable positions (tilled but no crop)
     plantable_set = {pos for pos in tilled_positions if pos not in crop_positions}
 
+    logger.info(f"🌱 Planner: {len(tilled_positions)} tilled, {len(crop_positions)} crops, {len(plantable_set)} plantable")
+
     # Find the largest contiguous group (connected tiles)
     # This prevents planting scattered tiles
     if plantable_set:
@@ -653,6 +655,7 @@ def get_planting_sequence(
 
         # Use the largest contiguous group
         largest_group = max(groups, key=len)
+        logger.info(f"🌱 Planner: {len(groups)} groups found, largest has {len(largest_group)} tiles")
         plantable_set = largest_group
 
     # Convert to list of dicts

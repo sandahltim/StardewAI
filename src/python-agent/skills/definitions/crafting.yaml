@@ -1,0 +1,331 @@
+# Crafting Skills for StardewAI
+# These skills handle item crafting for farming automation
+
+# =============================================================================
+# FARM EQUIPMENT
+# =============================================================================
+
+craft_scarecrow:
+  description: "Craft a scarecrow to protect crops from crows (8-tile radius)"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Wood
+        count: 50
+      - type: has_item
+        item: Coal
+        count: 1
+      - type: has_item
+        item: Fiber
+        count: 20
+
+  actions:
+    - craft:
+        item: Scarecrow
+        quantity: 1
+
+  on_success:
+    message: "Crafted Scarecrow (50 Wood, 1 Coal, 20 Fiber)"
+
+  on_failure:
+    missing_materials:
+      message: "Missing materials for Scarecrow"
+    recipe_unknown:
+      message: "Don't know Scarecrow recipe yet"
+
+craft_chest:
+  description: "Craft a chest for storage (36 slots)"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Wood
+        count: 50
+
+  actions:
+    - craft:
+        item: Chest
+        quantity: 1
+
+  on_success:
+    message: "Crafted Chest (50 Wood)"
+
+  on_failure:
+    missing_materials:
+      message: "Need 50 Wood to craft Chest"
+
+# =============================================================================
+# SPRINKLERS
+# =============================================================================
+
+craft_basic_sprinkler:
+  description: "Craft basic sprinkler (waters 4 adjacent tiles)"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Copper Bar
+        count: 1
+      - type: has_item
+        item: Iron Bar
+        count: 1
+      - type: skill_level
+        skill: farming
+        level: 2
+
+  actions:
+    - craft:
+        item: Sprinkler
+        quantity: 1
+
+  on_success:
+    message: "Crafted Basic Sprinkler (1 Copper Bar, 1 Iron Bar)"
+
+  on_failure:
+    missing_materials:
+      message: "Need 1 Copper Bar + 1 Iron Bar"
+    skill_too_low:
+      message: "Need Farming level 2 to craft Sprinklers"
+
+craft_quality_sprinkler:
+  description: "Craft quality sprinkler (waters 8 tiles in 3x3)"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Iron Bar
+        count: 1
+      - type: has_item
+        item: Gold Bar
+        count: 1
+      - type: has_item
+        item: Refined Quartz
+        count: 1
+      - type: skill_level
+        skill: farming
+        level: 6
+
+  actions:
+    - craft:
+        item: Quality Sprinkler
+        quantity: 1
+
+  on_success:
+    message: "Crafted Quality Sprinkler"
+
+  on_failure:
+    missing_materials:
+      message: "Need 1 Iron Bar, 1 Gold Bar, 1 Refined Quartz"
+    skill_too_low:
+      message: "Need Farming level 6 to craft Quality Sprinklers"
+
+craft_iridium_sprinkler:
+  description: "Craft iridium sprinkler (waters 24 tiles in 5x5)"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Gold Bar
+        count: 1
+      - type: has_item
+        item: Iridium Bar
+        count: 1
+      - type: has_item
+        item: Battery Pack
+        count: 1
+      - type: skill_level
+        skill: farming
+        level: 9
+
+  actions:
+    - craft:
+        item: Iridium Sprinkler
+        quantity: 1
+
+  on_success:
+    message: "Crafted Iridium Sprinkler"
+
+  on_failure:
+    missing_materials:
+      message: "Need 1 Gold Bar, 1 Iridium Bar, 1 Battery Pack"
+
+# =============================================================================
+# FERTILIZERS
+# =============================================================================
+
+craft_basic_fertilizer:
+  description: "Craft basic fertilizer (increases crop quality)"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Sap
+        count: 2
+
+  actions:
+    - craft:
+        item: Basic Fertilizer
+        quantity: 1
+
+  on_success:
+    message: "Crafted Basic Fertilizer (2 Sap)"
+
+craft_quality_fertilizer:
+  description: "Craft quality fertilizer (better quality crops)"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Sap
+        count: 2
+      - type: has_item
+        item: Any Fish
+        count: 1
+
+  actions:
+    - craft:
+        item: Quality Fertilizer
+        quantity: 1
+
+  on_success:
+    message: "Crafted Quality Fertilizer"
+
+craft_speed_gro:
+  description: "Craft Speed-Gro (10% faster crop growth)"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Pine Tar
+        count: 1
+      - type: has_item
+        item: Clam
+        count: 1
+
+  actions:
+    - craft:
+        item: Speed-Gro
+        quantity: 1
+
+  on_success:
+    message: "Crafted Speed-Gro"
+
+# =============================================================================
+# FENCING
+# =============================================================================
+
+craft_wood_fence:
+  description: "Craft wooden fence (2 wood each)"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Wood
+        count: 2
+
+  actions:
+    - craft:
+        item: Wood Fence
+        quantity: 1
+
+  on_success:
+    message: "Crafted Wood Fence"
+
+craft_stone_fence:
+  description: "Craft stone fence (2 stone each)"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Stone
+        count: 2
+
+  actions:
+    - craft:
+        item: Stone Fence
+        quantity: 1
+
+  on_success:
+    message: "Crafted Stone Fence"
+
+craft_gate:
+  description: "Craft gate for fences (10 wood)"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Wood
+        count: 10
+
+  actions:
+    - craft:
+        item: Gate
+        quantity: 1
+
+  on_success:
+    message: "Crafted Gate"
+
+# =============================================================================
+# PATHS & FLOORING
+# =============================================================================
+
+craft_wood_path:
+  description: "Craft wooden path tiles"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Wood
+        count: 1
+
+  actions:
+    - craft:
+        item: Wood Path
+        quantity: 1
+
+  on_success:
+    message: "Crafted Wood Path"
+
+craft_cobblestone_path:
+  description: "Craft cobblestone path tiles"
+  category: crafting
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: has_item
+        item: Stone
+        count: 1
+
+  actions:
+    - craft:
+        item: Cobblestone Path
+        quantity: 1
+
+  on_success:
+    message: "Crafted Cobblestone Path"

@@ -160,6 +160,20 @@ public class DirectionInfo
     public bool Clear { get; set; }
     public int TilesUntilBlocked { get; set; }
     public string Blocker { get; set; }
+    public AdjacentTileInfo AdjacentTile { get; set; }  // State of immediately adjacent tile
+}
+
+/// <summary>State of the immediately adjacent tile in a direction</summary>
+public class AdjacentTileInfo
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public bool IsTilled { get; set; }     // Has been hoed
+    public bool HasCrop { get; set; }      // Has a planted crop
+    public bool IsWatered { get; set; }    // Crop has been watered today
+    public bool CanTill { get; set; }      // Can use hoe here
+    public bool CanPlant { get; set; }     // Can plant seeds here
+    public string BlockerType { get; set; } // What's blocking (if any): "Stone", "Weeds", etc.
 }
 
 /// <summary>Farm state - accessible from any location for planning</summary>
@@ -173,6 +187,26 @@ public class FarmState
     public List<TileObject> Objects { get; set; } = new();
     public List<TilePosition> TilledTiles { get; set; } = new();
     public List<ResourceClumpInfo> ResourceClumps { get; set; } = new();
+    public List<ChestInfo> Chests { get; set; } = new();
+}
+
+/// <summary>Chest storage info</summary>
+public class ChestInfo
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public string Name { get; set; }             // Custom name if set, else "Chest"
+    public int ItemCount { get; set; }           // Total items in chest
+    public int SlotsFree { get; set; }           // Available slots
+    public List<ChestItemSummary> Contents { get; set; } = new();
+}
+
+/// <summary>Summary of items in a chest</summary>
+public class ChestItemSummary
+{
+    public string ItemName { get; set; }
+    public int Quantity { get; set; }
+    public string Category { get; set; }         // "seed", "crop", "material", "tool", etc.
 }
 
 /// <summary>Large obstacles that need tool upgrades (stumps, logs, boulders)</summary>

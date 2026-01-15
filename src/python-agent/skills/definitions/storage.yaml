@@ -1,0 +1,332 @@
+# Storage Skills for StardewAI
+# These skills handle chest/inventory management
+
+# =============================================================================
+# CHEST OPERATIONS
+# =============================================================================
+
+open_chest:
+  description: "Open a chest to access its contents"
+  category: storage
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: adjacent_to
+        target: chest
+
+  actions:
+    - face: "{target_direction}"
+    - open_chest: "{target_direction}"
+
+  on_success:
+    message: "Opened chest"
+
+  on_failure:
+    not_adjacent:
+      message: "Not adjacent to any chest"
+
+close_chest:
+  description: "Close the currently open chest"
+  category: storage
+  energy_cost: 0
+
+  actions:
+    - close_chest
+
+  on_success:
+    message: "Closed chest"
+
+# =============================================================================
+# DEPOSIT OPERATIONS
+# =============================================================================
+
+store_item:
+  description: "Store a specific item from inventory to open chest"
+  category: storage
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: chest_open
+
+  actions:
+    - deposit_item:
+        slot: "{slot}"
+        quantity: -1  # All of stack
+
+  on_success:
+    message: "Stored item in chest"
+
+  on_failure:
+    no_chest_open:
+      message: "No chest is open - use open_chest first"
+    chest_full:
+      message: "Chest is full"
+
+store_all_seeds:
+  description: "Store all seeds from inventory to chest"
+  category: storage
+  energy_cost: 0
+  composite: true
+
+  preconditions:
+    required:
+      - type: chest_open
+      - type: has_item_type
+        type: seed
+
+  actions:
+    # This requires iteration in the agent - deposit each seed slot
+    - deposit_all_type:
+        type: seed
+
+  on_success:
+    message: "Stored all seeds in chest"
+
+store_all_materials:
+  description: "Store wood, stone, fiber, sap, ore to chest (keep 20 each)"
+  category: storage
+  energy_cost: 0
+  composite: true
+
+  preconditions:
+    required:
+      - type: chest_open
+
+  actions:
+    - deposit_excess:
+        type: material
+        keep: 20
+
+  on_success:
+    message: "Stored excess materials (kept 20 of each)"
+
+store_all_crops:
+  description: "Store harvested crops to chest instead of shipping"
+  category: storage
+  energy_cost: 0
+  composite: true
+
+  preconditions:
+    required:
+      - type: chest_open
+      - type: has_item_type
+        type: crop
+
+  actions:
+    - deposit_all_type:
+        type: crop
+
+  on_success:
+    message: "Stored crops in chest"
+
+store_ores_and_bars:
+  description: "Store ores and metal bars to chest"
+  category: storage
+  energy_cost: 0
+  composite: true
+
+  preconditions:
+    required:
+      - type: chest_open
+
+  actions:
+    - deposit_all_type:
+        type: ore
+    - deposit_all_type:
+        type: bar
+
+  on_success:
+    message: "Stored ores and bars"
+
+# =============================================================================
+# WITHDRAW OPERATIONS
+# =============================================================================
+
+retrieve_item:
+  description: "Take an item from chest to inventory"
+  category: storage
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: chest_open
+
+  actions:
+    - withdraw_item:
+        slot: "{slot}"
+        quantity: "{quantity}"
+
+  on_success:
+    message: "Retrieved item from chest"
+
+  on_failure:
+    no_chest_open:
+      message: "No chest is open"
+    inventory_full:
+      message: "Player inventory is full"
+    slot_empty:
+      message: "That chest slot is empty"
+
+retrieve_seeds:
+  description: "Get seeds from storage chest for planting"
+  category: storage
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: chest_open
+
+  actions:
+    - withdraw_type:
+        type: seed
+        quantity: max
+
+  on_success:
+    message: "Retrieved seeds for planting"
+
+retrieve_watering_supplies:
+  description: "Get any watering-related items from chest"
+  category: storage
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: chest_open
+
+  actions:
+    # Get sprinklers if available
+    - withdraw_type:
+        type: sprinkler
+        quantity: max
+
+  on_success:
+    message: "Retrieved watering supplies"
+
+# =============================================================================
+# FULL WORKFLOWS
+# =============================================================================
+
+go_to_chest_and_store:
+  description: "Navigate to nearest chest and store materials/excess items"
+  category: storage
+  composite: true
+  energy_cost: 0
+
+  actions:
+    - pathfind_to:
+        target: nearest_chest
+        stop_adjacent: true
+    - face: chest
+    - open_chest: facing
+    - deposit_excess:
+        type: material
+        keep: 20
+    - deposit_excess:
+        type: seed
+        keep: 0  # Store all seeds for later
+    - close_chest
+
+  on_success:
+    message: "Stored items in chest"
+
+  on_failure:
+    no_chest:
+      message: "No chest found on farm - craft one first"
+      recovery_skill: craft_chest
+
+go_to_chest_and_retrieve_seeds:
+  description: "Navigate to chest and get seeds for planting"
+  category: storage
+  composite: true
+  energy_cost: 0
+
+  actions:
+    - pathfind_to:
+        target: chest_with_seeds
+        stop_adjacent: true
+    - face: chest
+    - open_chest: facing
+    - withdraw_type:
+        type: seed
+        quantity: max
+    - close_chest
+
+  on_success:
+    message: "Retrieved seeds from storage"
+
+organize_inventory:
+  description: "Navigate to storage and organize - keep tools, store excess"
+  category: storage
+  composite: true
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: inventory_over
+        percent: 80
+
+  actions:
+    - pathfind_to:
+        target: nearest_chest
+        stop_adjacent: true
+    - face: chest
+    - open_chest: facing
+    # Store materials but keep 20 of each
+    - deposit_excess:
+        type: material
+        keep: 20
+    # Store all ore
+    - deposit_all_type:
+        type: ore
+    # Store excess crops (keep some for gifts/bundles)
+    - deposit_excess:
+        type: crop
+        keep: 5
+    - close_chest
+
+  on_success:
+    message: "Inventory organized - tools kept, excess stored"
+
+# =============================================================================
+# CHEST PLANNING HELPERS
+# =============================================================================
+
+check_chest_contents:
+  description: "Check what's in adjacent chest without taking items"
+  category: storage
+  energy_cost: 0
+
+  preconditions:
+    required:
+      - type: adjacent_to
+        target: chest
+
+  actions:
+    - face: "{target_direction}"
+    - open_chest: "{target_direction}"
+    # Contents are logged automatically
+    - wait: 0.5
+    - close_chest
+
+  on_success:
+    message: "Checked chest contents"
+
+count_stored_seeds:
+  description: "Count seeds in storage for planting planning"
+  category: storage
+  energy_cost: 0
+  composite: true
+
+  actions:
+    - pathfind_to:
+        target: nearest_chest
+        stop_adjacent: true
+    - open_chest: facing
+    # Agent reads chest contents from game state
+    - wait: 0.3
+    - close_chest
+
+  on_success:
+    message: "Counted stored seeds"
