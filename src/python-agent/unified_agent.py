@@ -3105,6 +3105,30 @@ class StardewAgent:
                 self.recent_actions = self.recent_actions[-10:]
                 return False
 
+        # Session 118: Block till_soil if target tile is already tilled
+        if skill_name == "till_soil" and self.last_surroundings:
+            target_dir = params.get("target_direction", "south")
+            dirs = self.last_surroundings.get("directions", {})
+            dir_info = dirs.get(target_dir, {})
+            adj_tile = dir_info.get("adjacentTile", {})
+            if adj_tile.get("isTilled", False):
+                logging.warning(f"🛡️ BLOCKED: till_soil target {target_dir} already tilled! Skipping.")
+                self.recent_actions.append(f"BLOCKED: till_soil ({target_dir} already tilled)")
+                self.recent_actions = self.recent_actions[-10:]
+                return False
+
+        # Session 118: Block plant_seed if target tile already has crop
+        if skill_name == "plant_seed" and self.last_surroundings:
+            target_dir = params.get("target_direction", "south")
+            dirs = self.last_surroundings.get("directions", {})
+            dir_info = dirs.get(target_dir, {})
+            adj_tile = dir_info.get("adjacentTile", {})
+            if adj_tile.get("hasCrop", False):
+                logging.warning(f"🛡️ BLOCKED: plant_seed target {target_dir} already has crop! Skipping.")
+                self.recent_actions.append(f"BLOCKED: plant_seed ({target_dir} has crop)")
+                self.recent_actions = self.recent_actions[-10:]
+                return False
+
         # WATER VALIDATION: Auto-target nearest unwatered crop in adjacent tiles
         if skill_name == "water_crop" and self.last_state:
             player = self.last_state.get("player", {})
