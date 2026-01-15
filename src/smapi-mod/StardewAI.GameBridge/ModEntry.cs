@@ -38,7 +38,7 @@ public class ModEntry : Mod
 
     // Config - port 8790 (8765/8766 reserved, 8780 is llama-server)
     private const int HttpPort = 8790;
-    private const int StateUpdateInterval = 15; // Every 15 ticks (4x per second at 60fps)
+    private const int StateUpdateInterval = 5; // Every 5 ticks (~12x per second at 60fps) - Session 118: reduced from 15 to fix cache staleness
 
     public override void Entry(IModHelper helper)
     {
