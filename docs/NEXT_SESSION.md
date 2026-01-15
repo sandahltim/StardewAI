@@ -30,11 +30,45 @@
 - Verify player actually reached target position before harvesting
 - Log skipped crops that couldn't be reached
 
+### Unified SMAPI Client
+
+**Created `smapi_client.py`** - single point of access to ALL game data.
+
+**Available Endpoints:**
+| Endpoint | Description |
+|----------|-------------|
+| `/state` | Player, inventory, location, time |
+| `/surroundings` | Directional info, nearest water |
+| `/farm` | ALL crops, debris, chests (no distance limit) |
+| `/skills` | Farming, fishing, mining levels |
+| `/npcs` | 39 NPCs with friendship, birthday |
+| `/animals` | Farm animals and buildings |
+| `/machines` | Processing machines status |
+| `/calendar` | Events, birthdays, season info |
+| `/fishing` | Available fish by location |
+| `/mining` | Mine floor, rocks, monsters |
+| `/storage` | Chests, fridge, silo |
+
+**Usage:**
+```python
+from smapi_client import SMAPIClient, get_world
+
+# Get complete world state
+world = get_world()
+print(f"Crops: {len(world.farm.crops)}")
+print(f"NPCs: {len(world.npcs.npcs)}")
+
+# Or use controller
+crops = self.controller.get_farm()["crops"]
+npcs = self.controller.get_npcs()
+```
+
 ---
 
 ## Commits This Session
 
 ```
+c85ad2c Session 120: Add unified SMAPI client with complete game data access
 24a1cfe Session 120: Fix batch harvest - verify move and try multiple positions
 2b5a7ce Session 120: Fix batch water refill - include surroundings data
 3ed4d94 Session 120: Fix batch water infinite loop on empty can
