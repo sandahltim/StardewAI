@@ -1,169 +1,89 @@
-# Session 118: Fix Farmable Tile Validation
+# Session 119: Next Steps
 
-**Last Updated:** 2026-01-15 Session 117 by Claude
-**Priority:** CRITICAL BUG FIX
+**Last Updated:** 2026-01-15 Session 118 by Claude
+**Status:** Ready for testing
 
 ---
 
-## Session 117 Summary
+## Session 118 Summary
 
-### Completed: Verification Improvements
-1. **Diagnostic logging** - `verify_watered()` and `verify_planted()` now log exactly what they see when failing
-2. **Increased wait times** - Water: 0.5s → 1.0s, Plant: 0.3s → 0.5s
-3. **Retry mechanisms** - All verification failures now retry once before recording failure
-
-### CRITICAL BUG DISCOVERED: Invalid Tile Selection
-
+### CRITICAL FIX: Tillable Validation
 **Problem:** Agent tried to till/plant on farmhouse lawn - tiles that CANNOT be farmed.
 
-**Root Cause:** `_batch_till_and_plant()` selects grid positions based on:
-- Not in `existing_tilled` or `existing_crops`
-- Not blocked by `resourceClumps` (stumps/boulders)
-- Not in `objects`, `grass`, `debris`
+**Solution:** Added `/tillable-area` endpoint to SMAPI mod that checks:
+1. Tile has "Diggable" map property (farmland, not lawn/paths/buildings)
+2. Tile is passable (not blocked by objects/buildings)
 
-**MISSING:** Validation that tiles are actually **tillable ground** (not building footprints, paths, water, etc.)
+**Files Changed:**
+- `src/smapi-mod/StardewAI.GameBridge/Models/GameState.cs` - TillableResult, TillableAreaResult models
+- `src/smapi-mod/StardewAI.GameBridge/HttpServer.cs` - `/tillable-area` route
+- `src/smapi-mod/StardewAI.GameBridge/ModEntry.cs` - CheckTillableAreaFromHttp implementation
+- `src/python-agent/unified_agent.py` - get_tillable_area() + grid validation
 
----
-
-## Bug Location
-
-**File:** `src/python-agent/unified_agent.py`
-**Method:** `_batch_till_and_plant()` (lines ~3785-4006)
-**Issue:** Grid generation at lines ~3860-3880
-
-```python
-# Current (BROKEN) - only checks for blockers, not tillability
-unclearable = permanent_blocked | clump_blocked
-grid_positions = []
-for row in range(count // GRID_WIDTH + 2):
-    for col in range(GRID_WIDTH):
-        x = start_x + col
-        y = start_y + row
-        if (x, y) not in unclearable:  # ← NOT ENOUGH!
-            grid_positions.append((x, y))
-```
-
----
-
-## Fix Required
-
-### Option A: Use SMAPI `/passable-area` endpoint
-Check if tile is passable AND not a building:
-```python
-# Before adding to grid:
-passable = self.controller.check_passable(x, y)
-if passable and (x, y) not in unclearable:
-    grid_positions.append((x, y))
-```
-
-### Option B: Use `/farm` tilledTiles + known good areas
-The farm has specific tillable regions. Could define bounds:
-```python
-FARMHOUSE_BOUNDS = {"x_min": 56, "x_max": 69, "y_min": 8, "y_max": 16}  # Approximate
-# Skip tiles inside farmhouse area
-```
-
-### Option C: Pre-check with hoe (most accurate)
-Before committing to a tile, verify `canTill` from surroundings:
-```python
-# Get tile info from surroundings
-tile_info = surroundings.get("adjacentTiles", {}).get("north", {})
-if tile_info.get("canTill", False):
-    # Safe to till
-```
-
-**Recommendation:** Option A is cleanest if `/passable-area` works. Option C is most game-accurate.
-
----
-
-## Code Changes Made (Session 117)
-
-### 1. Diagnostic Logging
-```python
-# verify_watered() - line 2023-2025
-if not is_watered:
-    logging.warning(f"verify_watered({x},{y}): Crop exists but isWatered=False (crop={crop.get('cropName', '?')})")
-
-# verify_planted() - line 2007-2008
-if not result:
-    logging.warning(f"verify_planted({x},{y}): NOT in crops (total_crops={len(crops)})")
-```
-
-### 2. Water Verification Retry (lines 3967-3987)
-```python
-await asyncio.sleep(1.0)  # Increased from 0.5s
-water_verified = self.controller.verify_watered(x, y)
-if not water_verified:
-    logging.info(f"💧 Water verification failed at ({x},{y}), retrying...")
-    self.controller.execute(Action("use_tool", {"direction": "north"}, "water"))
-    await asyncio.sleep(1.0)
-    water_verified = self.controller.verify_watered(x, y)
-```
-
-### 3. Plant Verification Retry (lines 3959-3980)
-```python
-await asyncio.sleep(0.5)  # Increased from 0.3s
-plant_verified = self.controller.verify_planted(x, y)
-if not plant_verified:
-    logging.info(f"🌱 Plant verification failed at ({x},{y}), retrying...")
-    # Re-select seeds and retry
-    await asyncio.sleep(0.5)
-    plant_verified = self.controller.verify_planted(x, y)
-```
-
-### 4. Similar fix in `_batch_water_remaining()` (lines 3321-3352)
-
----
-
-## Testing Checklist for Session 118
-
-### Test 1: Validate Grid Positions
-After implementing fix, run agent and verify:
+**Test:** Endpoint correctly identifies non-tillable tiles:
 ```bash
-python src/python-agent/unified_agent.py --goal "Plant seeds"
+curl -s "http://localhost:8790/tillable-area?centerX=60&centerY=14&radius=8" | jq
+# Returns 128 tillable, 161 not_tillable (farmhouse area)
 ```
-- Grid positions should NOT include farmhouse area
-- All tilled positions should be valid farmland
 
-### Test 2: Verification Rates
-Check verification after fix:
-```bash
-curl -s localhost:9001/api/verification-status | jq
-```
-Target: >90% for till, plant, AND water
+### Water Positioning Fix
+**Problem:** Agent would step toward crop one tile at a time, sometimes ending ON the crop.
 
-### Test 3: Full Cycle
-If verification passes, test complete farm chores cycle.
+**Solution:** Use `move_to` to target specific adjacent position (south of crop preferred).
 
----
-
-## Quick Reference
-
-**SMAPI Endpoints for Tile Validation:**
-- `GET /passable?x=N&y=N` - Is tile passable?
-- `GET /surroundings` - Returns `adjacentTiles` with `canTill`, `canPlant` flags
-- `GET /farm` - Returns `tilledTiles` array (known good positions)
-
-**Farmhouse approximate bounds (Standard Farm):**
-- Building: x=57-68, y=9-15 (rough - verify in game)
-- Porch/entrance: extends south a few tiles
+### Session 117 Improvements (also committed)
+1. Diagnostic logging for `verify_watered()` and `verify_planted()`
+2. Increased wait times (water: 0.5s→1.0s, plant: 0.3s→0.5s)
+3. Retry mechanisms for all verification failures
 
 ---
 
 ## Commits This Session
 
-None yet - changes not committed due to critical bug discovery.
-
-**Changed files (uncommitted):**
-- `src/python-agent/unified_agent.py` - Verification improvements + retry logic
+```
+40fd545 Session 117+118: Add tillable validation to prevent farming on non-farmland
+6244c77 Session 118: Fix water positioning to use move_to for adjacent position
+```
 
 ---
 
-## Session 118 Priority
+## Remaining Issues
 
-1. **FIX:** Add tillable validation to `_batch_till_and_plant()` grid selection
-2. **TEST:** Verify grid excludes farmhouse/buildings
-3. **TEST:** Run verification tests, target >90%
-4. **COMMIT:** All fixes once verified working
+### Water Verification Still Failing Sometimes
+The crop at (65,19) was still showing unwatered after watering attempts. This might be:
+1. Timing issue (SMAPI state cache)
+2. Player not facing correct direction
+3. Action not executing properly
+
+**Investigation needed:** Check logs to see if water action executes and why verification fails.
+
+### Task Priority/Completion
+User reported agent "went and cleared rocks instead of finishing planting". This is expected behavior - after `auto_farm_chores` completes, the daily task queue moves to next task (clear debris). If planting stopped early, need to investigate why.
+
+---
+
+## Session 119 Priorities
+
+1. **TEST:** Run full farm chores cycle with new fixes
+2. **VERIFY:** Tillable validation prevents farmhouse planting
+3. **VERIFY:** Water positioning works correctly
+4. **INVESTIGATE:** If water verification still fails, add more diagnostics
+
+---
+
+## Quick Test Commands
+
+```bash
+# Test tillable area endpoint
+curl -s "http://localhost:8790/tillable-area?centerX=60&centerY=14&radius=8" | jq '{tillable: ([.data.tiles[] | select(.canTill == true)] | length), not_tillable: ([.data.tiles[] | select(.canTill == false)] | length)}'
+
+# Check farm state
+curl -s http://localhost:8790/farm | jq '{crops: (.data.crops | length), unwatered: ([.data.crops[] | select(.isWatered == false)] | length)}'
+
+# Run agent
+python src/python-agent/unified_agent.py --goal "Water crops and plant seeds"
+```
+
+---
 
 -- Claude
