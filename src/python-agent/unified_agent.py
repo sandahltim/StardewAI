@@ -3908,16 +3908,47 @@ class StardewAgent:
         harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
         if harvestable:
             logging.info(f"🌾 Phase 2: Harvesting {len(harvestable)} crops")
+            skipped_harvest = 0
             for crop in harvestable:
                 cx, cy = crop.get("x", 0), crop.get("y", 0)
-                # Stand south, face north - use fast sequence
-                self.controller.execute(Action("move_to", {"x": cx, "y": cy + 1}, f"move to harvest"))
-                await asyncio.sleep(0.05)  # Minimal delay - move_to handles timing
-                self.controller.execute(Action("face", {"direction": "north"}, "face crop"))
-                self.controller.execute(Action("harvest", {"direction": "north"}, "harvest"))
-                await asyncio.sleep(0.05)  # Harvest is instant
-                results["harvested"] += 1
-            logging.info(f"🌾 Harvested {results['harvested']} crops")
+                crop_name = crop.get("cropName", "crop")
+                
+                # Session 120: Try multiple adjacent positions to reach crop
+                # Order: south (face north), north (face south), east (face west), west (face east)
+                adjacent_positions = [
+                    (cx, cy + 1, "north"),  # Stand south, face north
+                    (cx, cy - 1, "south"),  # Stand north, face south
+                    (cx + 1, cy, "west"),   # Stand east, face west
+                    (cx - 1, cy, "east"),   # Stand west, face east
+                ]
+                
+                reached = False
+                for adj_x, adj_y, face_dir in adjacent_positions:
+                    move_result = self.controller.execute(Action("move_to", {"x": adj_x, "y": adj_y}, f"move to harvest"))
+                    await asyncio.sleep(0.1)  # Wait for teleport to complete
+                    
+                    # Check if move succeeded (we should be at target position)
+                    self._refresh_state_snapshot()
+                    if self.last_state:
+                        player = self.last_state.get("player", {})
+                        px, py = player.get("tileX", 0), player.get("tileY", 0)
+                        if px == adj_x and py == adj_y:
+                            # Successfully reached adjacent position
+                            self.controller.execute(Action("face", {"direction": face_dir}, "face crop"))
+                            self.controller.execute(Action("harvest", {"direction": face_dir}, "harvest"))
+                            await asyncio.sleep(0.1)  # Wait for harvest
+                            results["harvested"] += 1
+                            reached = True
+                            break
+                
+                if not reached:
+                    logging.warning(f"⏭️ Couldn't reach {crop_name} at ({cx},{cy}), skipping")
+                    skipped_harvest += 1
+            
+            if skipped_harvest > 0:
+                logging.info(f"🌾 Harvested {results['harvested']} crops, skipped {skipped_harvest} unreachable")
+            else:
+                logging.info(f"🌾 Harvested {results['harvested']} crops")
             self._refresh_state_snapshot()
             crops = _refresh_farm_crops()
 
