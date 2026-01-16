@@ -4401,21 +4401,45 @@ class StardewAgent:
 
             logging.info(f"⛏️ Floor {floor}: {len(rocks)} rocks, {len(monsters)} monsters, ladder={ladder_found}")
 
-            # Priority 1: Handle nearby monsters
+            # Detect infested floor: monsters present but no ladder spawns from rocks
+            # On infested floors, ALL monsters must die before ladder appears
+            is_infested = len(monsters) > 3 and not ladder_found and len(rocks) < 10
+
+            # Priority 1: Handle monsters
+            # - Always attack nearby monsters (dist <= 3)
+            # - On infested floors or low rocks: actively hunt monsters
+            hunt_monsters = is_infested or (len(rocks) < 5 and len(monsters) > 0)
+
+            if hunt_monsters and monsters:
+                logging.info(f"⛏️ {'INFESTED FLOOR' if is_infested else 'Low rocks'} - hunting {len(monsters)} monsters")
+
             for monster in monsters:
                 mx, my = monster.get("x", monster.get("tileX", 0)), monster.get("y", monster.get("tileY", 0))
                 dist = abs(mx - player_x) + abs(my - player_y)
-                if dist <= 3:
-                    logging.info(f"⛏️ Monster nearby! {monster.get('name', 'unknown')} at ({mx},{my}), dist={dist}")
-                    # Move toward and attack
+
+                # Attack if nearby OR actively hunting
+                if dist <= 3 or (hunt_monsters and dist <= 8):
+                    logging.info(f"⛏️ Engaging {monster.get('name', 'unknown')} at ({mx},{my}), dist={dist}")
+
+                    # Move closer if needed
+                    if dist > 2:
+                        self.controller.execute(Action("move_to", {"x": mx, "y": my}, f"approach monster"))
+                        await asyncio.sleep(0.3)
+                        self._refresh_state_snapshot()
+                        if self.last_state:
+                            player = self.last_state.get("player", {})
+                            player_x = player.get("tileX", player_x)
+                            player_y = player.get("tileY", player_y)
+
+                    # Equip weapon and attack
                     direction = self._direction_to_target(player_x, player_y, mx, my)
-                    # Equip weapon (select from inventory)
                     self.controller.execute(Action("select_item_type", {"value": "Weapon"}, "equip weapon"))
                     await asyncio.sleep(0.1)
-                    # Attack
-                    self.controller.execute(Action("swing_weapon", {"direction": direction}, f"attack {direction}"))
-                    await asyncio.sleep(0.3)
-                    results["monsters_killed"] += 1  # Optimistic count
+                    # Multiple swings for tougher monsters
+                    for _ in range(3):
+                        self.controller.execute(Action("swing_weapon", {"direction": direction}, f"attack {direction}"))
+                        await asyncio.sleep(0.2)
+                    results["monsters_killed"] += 1
 
             # Priority 2: Use ladder if found
             if ladder_found or shaft_found:
