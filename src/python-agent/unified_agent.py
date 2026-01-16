@@ -2079,7 +2079,8 @@ class ModBridgeController:
                     # Default: warp to farm if no location specified
                     return self._send_action({"action": "warp_to_farm"})
 
-            elif action_type == "equip":
+            elif action_type in ("equip", "equip_tool"):
+                # Session 127: "equip_tool" alias used by batch mining
                 tool = action.params.get("tool", "")
                 return self._send_action({
                     "action": "equip_tool",
@@ -2179,6 +2180,10 @@ class ModBridgeController:
 
             elif action_type == "use_ladder":
                 return self._send_action({"action": "use_ladder"})
+
+            elif action_type == "descend_mine":
+                # Session 127: Descend to next mine level (works from entrance or ladder)
+                return self._send_action({"action": "descend_mine"})
 
             elif action_type == "swing_weapon":
                 direction = action.params.get("direction", "")

@@ -1,15 +1,42 @@
-# Session 127: Test Session 126 Fixes
+# Session 128: Test Complete Task Flow
 
-**Last Updated:** 2026-01-15 Session 126 by Claude
-**Status:** Multiple critical fixes applied - MUST restart game to test
+**Last Updated:** 2026-01-16 Session 127 by Claude
+**Status:** Multiple dispatch bugs fixed - ready for full flow test
 
 ---
 
-## CRITICAL: Restart Required
+## Session 127 Summary
 
-1. **Restart Stardew Valley** (completely exit and restart) - loads new SMAPI mod
-2. **Restart agent** - loads Python fixes
+Fixed 4 action dispatch bugs that were breaking the farm→ship→mine workflow:
 
+| Bug | Symptom | Root Cause | Fix |
+|-----|---------|------------|-----|
+| `descend_mine` unknown | Loop at mine entrance | Missing Python dispatch | `unified_agent.py:2183` |
+| Ship task skipped | Mining before selling | Only created if crops in inventory | `daily_planner.py:450` |
+| No ship targets | 0 sellable items found | Missing "fruit" type | `target_generator.py:287` |
+| Watering rocks in mine | Wrong tool used | `equip_tool` not dispatched | `unified_agent.py:2082` |
+
+### Key Insight
+
+The "watering rocks" bug: batch mining called `Action("equip_tool", ...)` but dispatcher only recognized `action_type == "equip"`. Pickaxe never equipped, so watering can got used on rocks.
+
+---
+
+## Startup Commands
+
+**Terminal 1 - llama-server:**
+```bash
+cd /home/tim/StardewAI
+./scripts/start-llama-server.sh
+```
+
+**Terminal 2 - UI Server:**
+```bash
+cd /home/tim/StardewAI && source venv/bin/activate
+uvicorn src.ui.app:app --reload --port 9001
+```
+
+**Terminal 3 - Agent:**
 ```bash
 cd /home/tim/StardewAI && source venv/bin/activate
 python src/python-agent/unified_agent.py --goal "Do farm chores and go mining"
@@ -17,128 +44,82 @@ python src/python-agent/unified_agent.py --goal "Do farm chores and go mining"
 
 ---
 
-## Session 126 Fixes
+## Session 128 Testing Checklist
 
-### Bug 1: Warp from FarmHouse to Farm Failing
-**Symptom:** 5 warp attempts, still in FarmHouse
-**Root Cause:** `_refresh_state_snapshot()` has 0.5s rate limit, warp loop slept only 0.3s
-**Fix:** Sleep 0.6s + reset `last_state_poll = 0` to force refresh
-**File:** `unified_agent.py:4246`
+### Task Flow Verification
+- [ ] Farm chores runs first (CRITICAL priority)
+- [ ] Ship task runs after harvest (HIGH priority)
+- [ ] Mining runs last (MEDIUM priority)
+- [ ] Log shows: `📦 Ship task created: Ship X crops after harvest`
 
-### Bug 2: Failed Tasks Removed from Queue
-**Symptom:** Farm chores failed verification, but mining started anyway
-**Root Cause:** `queue.pop()` happened regardless of success/failure
-**Fix:** Only pop on success; failed tasks reset to "pending" for retry
-**File:** `unified_agent.py:8016`, `daily_planner.py:676`
+### Ship Task Verification
+- [ ] Log shows: `📦 Ship target check: N sellable, inventory=[...]`
+- [ ] Sellable items include type "crop" and "fruit"
+- [ ] Agent navigates to shipping bin
+- [ ] Items actually shipped
 
-### Bug 3: No Verification Before Next Task
-**Symptom:** Farm chores "completed" without actually watering/harvesting
-**Fix:** Added before/after crop check - must reduce unwatered by >50%
-**File:** `unified_agent.py:3497`
-
-### Bug 4: `descend_mine` Action Unknown
-**Symptom:** `Unknown action for ModBridge: descend_mine` loop
-**Root Cause:** Game running old SMAPI mod (DLL not reloaded)
-**Fix:** SMAPI mod rebuilt - requires game restart
-**File:** `ActionExecutor.cs:104`
-
-### Bug 5: Mining Ladder/Shaft Coordinates Missing
-**Fix:** Added `LadderPosition` and `ShaftPosition` to `/mining` endpoint
-**File:** `GameState.cs:455`, `ModEntry.cs:757`
-
-### Bug 6: Fishing State Missing Real-time Status
-**Fix:** Added `IsNibbling`, `IsMinigameActive`, etc. to `/fishing` endpoint
-**File:** `GameState.cs:428`, `ModEntry.cs:737`
-
-### Bug 7: Animal Actions No Targeting Verification
-**Fix:** `milk_animal`/`shear_animal` now verify animal in range first
-**File:** `ActionExecutor.cs:2538`, `ActionExecutor.cs:2610`
-
----
-
-## Expected Logs (Success)
-
-```
-🎯 Expected work: water 11, harvest 7
-🏠 ═══════════════════════════════════════
-🏠 BATCH FARM CHORES - Running autonomously
-🏠 ═══════════════════════════════════════
-🏠 Not on Farm (at FarmHouse), warping... (attempt 1/5)
-[HTTP GET /state should appear here - confirms rate limit fix]
-🏠 Farm has 18 total crops
-💧 Phase 1: Watering 11 crops
-🌾 Phase 2: Harvesting 7 crops
-🏠 ═══════════════════════════════════════
-🏠 BATCH CHORES COMPLETE: harvested=7, watered=11, tilled=0, planted=0
-🏠 ═══════════════════════════════════════
-🔍 Verification: unwatered 11→0, harvestable 7→0
-✅ VERIFIED: Farm chores completed successfully
-✅ auto_farm_chores: 18 actions taken
-✅ Batch auto_farm_chores completed
-```
-
-Then mining should start:
-```
-🎯 Executing batch skill: auto_mine
-⛏️ At mine entrance (floor 0) - using descend_mine
-[Should descend to floor 1, not loop]
-```
-
----
-
-## If Verification Fails
-
-If you see:
-```
-🔍 Verification: unwatered 11→11, harvestable 7→7
-❌ VERIFICATION FAILED: 11 crops still unwatered!
-⚠️ Batch auto_farm_chores returned False - task stays in queue for retry
-🔄 Task reset for retry: Farm chores...
-```
-
-This means:
-1. Warp might still be failing (check for GET /state between warp attempts)
-2. Water/harvest actions aren't working
-3. Task will retry (won't skip to mining)
-
----
-
-## Commits This Session
-
-```
-260b046 Session 126: Failed batch tasks stay in queue for retry
-a47fd39 Session 126: Fix warp not refreshing state due to rate limit
-2d4ab33 Session 126: Add verification for farm chores before moving to next task
-289c736 Session 126: Add task queue diagnostic logging
-1a5e84f Session 126: Use descend_mine for mine entry (fixes floor 0 loop)
-5a18331 Session 126: Address Codex audit findings
-```
-
----
-
-## Key Files Reference
-
-| File | Line | Purpose |
-|------|------|---------|
-| `unified_agent.py` | 3486 | Farm chores verification (before/after) |
-| `unified_agent.py` | 4246 | Warp sleep + rate limit reset |
-| `unified_agent.py` | 8016 | Only pop queue on success |
-| `daily_planner.py` | 676 | `_reset_task_status()` for retry |
-| `ActionExecutor.cs` | 104 | `descend_mine` action |
-| `ModEntry.cs` | 757 | Ladder/shaft coordinate reading |
-
----
-
-## Testing Checklist
-
-- [ ] Game restarted (new SMAPI mod loaded)
-- [ ] Agent restarted (new Python code)
-- [ ] Farm chores runs and warps to Farm successfully
-- [ ] Verification shows crops watered (11→0)
-- [ ] Only AFTER verification passes does mining start
+### Mining Verification
 - [ ] `descend_mine` works (no "Unknown action" warning)
-- [ ] Mining descends from floor 0 to floor 1
+- [ ] Agent descends from floor 0 to floor 1
+- [ ] Pickaxe gets equipped (not watering can)
+- [ ] Rocks get mined (not watered)
 
 ---
 
--- Claude (Session 126)
+## Files Modified Session 127
+
+| File | Line | Change |
+|------|------|--------|
+| `unified_agent.py` | 2082 | `equip_tool` alias for `equip` |
+| `unified_agent.py` | 2183 | `descend_mine` dispatch |
+| `daily_planner.py` | 450 | Ship task if harvestable crops exist |
+| `target_generator.py` | 287 | Added "fruit" to sellable types |
+| `target_generator.py` | 293 | Diagnostic logging for ship targets |
+
+---
+
+## Session 126 Fixes (Still Relevant)
+
+These fixes from Session 126 are still in effect:
+
+| Fix | File | Line |
+|-----|------|------|
+| Warp rate limit reset | `unified_agent.py` | 4246 |
+| Failed tasks retry | `unified_agent.py` | 8016 |
+| Farm chores verification | `unified_agent.py` | 3497 |
+| Ladder/shaft coordinates | `ModEntry.cs` | 757 |
+
+---
+
+## Known Issues
+
+1. **SMAPI mod rebuild required** if C# changes made - game must restart
+2. **Python changes** only need agent restart (no game restart)
+3. **VLM fallback** - if batch skills fail, VLM takes over with potentially wrong actions
+
+---
+
+## Architecture Notes
+
+### Task Priority Order
+```
+CRITICAL (1) → HIGH (2) → MEDIUM (3) → LOW (4)
+farm_chores  → ship     → mining     → social
+```
+
+### Batch Skills (bypass TaskExecutor)
+- `auto_farm_chores` - harvest, water, till, plant
+- `auto_mine` - descend floors, break rocks, combat
+
+### Action Dispatch Chain
+```
+Action("equip_tool", {tool: "Pickaxe"})
+  → unified_agent._execute_modbridge_action()
+  → action_type in ("equip", "equip_tool")  ← Session 127 fix
+  → _send_action({action: "equip_tool", tool: "Pickaxe"})
+  → SMAPI mod ActionExecutor.cs
+```
+
+---
+
+-- Claude (Session 127)

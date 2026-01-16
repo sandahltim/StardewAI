@@ -283,13 +283,19 @@ class TargetGenerator:
         inventory = data.get("inventory") or []
         
         # Check if there are sellable items in inventory
-        sellable_categories = ["crop", "forage", "artisan"]
+        # Session 127: Added "fruit" - SMAPI returns "fruit" for FruitsCategory (berries, melons, etc.)
+        sellable_categories = ["crop", "fruit", "forage", "artisan"]
         sellable_items = [
             item for item in inventory
             if item and item.get("type") in sellable_categories and item.get("stack", 0) > 0
         ]
-        
+
+        # Session 127: Diagnostic logging for ship task debugging
+        all_items = [(item.get("name"), item.get("type"), item.get("stack")) for item in inventory if item]
+        logger.info(f"📦 Ship target check: {len(sellable_items)} sellable, inventory={all_items[:10]}")
+
         if not sellable_items:
+            logger.info(f"📦 No sellable items found (looking for types: {sellable_categories})")
             return []
         
         # Get shipping bin location

@@ -440,20 +440,31 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
             ))
 
         # Ship task still separate (needs to go to shipping bin)
+        # Session 127: Also create ship task if harvestable crops exist (anticipating harvest)
         sellable_crops = ["Parsnip", "Potato", "Cauliflower", "Green Bean", "Kale", "Melon",
                          "Blueberry", "Corn", "Tomato", "Pumpkin", "Cranberry", "Eggplant", "Grape", "Radish"]
         sellables = [item for item in inventory if item and item.get("name") in sellable_crops and item.get("stack", 0) > 0]
-        if sellables:
-            total_to_ship = sum(item.get("stack", 0) for item in sellables)
+        total_in_inventory = sum(item.get("stack", 0) for item in sellables) if sellables else 0
+
+        # Create ship task if: have sellables in inventory OR have harvestable crops (will be harvested first)
+        if sellables or harvestable:
+            if total_in_inventory > 0 and harvestable:
+                desc = f"Ship {total_in_inventory} crops + {len(harvestable)} after harvest"
+            elif total_in_inventory > 0:
+                desc = f"Ship {total_in_inventory} crops at shipping bin"
+            else:
+                desc = f"Ship {len(harvestable)} crops after harvest"
+
             self.tasks.append(DailyTask(
                 id=f"ship_{self.current_day}_1",
-                description=f"Ship {total_to_ship} crops at shipping bin",
+                description=desc,
                 category="farming",
                 priority=TaskPriority.HIGH.value,
                 target_location="Farm",
                 target_coords=(71, 14),  # Shipping bin location
                 estimated_time=10,
             ))
+            logger.info(f"📦 Ship task created: {desc}")
 
         # PRIORITY 5: Clear debris if nothing else to do (MEDIUM - expand)
         # This is added in _generate_maintenance_tasks but we note it's last resort
