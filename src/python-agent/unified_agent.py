@@ -5837,6 +5837,9 @@ class StardewAgent:
             # Check if already completed
             if task_id and not task_id.endswith('_prereq'):
                 daily_task = self.daily_planner._find_task(task_id)
+                # Session 122: Debug logging for task flow
+                logging.info(f"🔍 Task check: id={task_id}, type={task_type}, daily_task={daily_task is not None}, status={daily_task.status if daily_task else 'N/A'}, skill_override={getattr(daily_task, 'skill_override', None) if daily_task else 'N/A'}")
+
                 if daily_task and daily_task.status in ("completed", "skipped"):
                     continue
 

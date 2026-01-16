@@ -583,6 +583,8 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         )
         
         # Mining prerequisites: pickaxe + energy > 60% + not too late in day
+        # Session 122: Debug logging
+        logger.info(f"⛏️ Mining check: has_pickaxe={has_pickaxe}, energy_pct={energy_pct:.0f}%, hour={hour}")
         if has_pickaxe and energy_pct > 60 and hour < 14:
             # Get combat level to suggest appropriate mine depth
             combat_level = player.get("combatLevel", 0)
@@ -599,6 +601,9 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 skill_override="auto_mine",  # Session 122: Batch mining
                 notes=f"Batch mining: {target_floors} floors, auto-combat, retreats if low health",
             ))
+            logger.info(f"⛏️ Mining task ADDED: {target_floors} floors, skill_override=auto_mine")
+        else:
+            logger.info(f"⛏️ Mining task SKIPPED: conditions not met")
 
     def _generate_social_tasks(self, state: Dict[str, Any]) -> None:
         """Generate social/exploration tasks (lower priority)."""
