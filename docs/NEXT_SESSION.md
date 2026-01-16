@@ -1,172 +1,163 @@
-# Session 124: Test Mining After Fix
+# Session 124: Fix Mining Execution
 
 **Last Updated:** 2026-01-15 Session 123 by Claude
-**Status:** Fixed clearing loop blocking mining - ready for testing
+**Status:** Mining task created but not executing - needs diagnosis
 
 ---
 
-## Session 123 Fix
-
-### Problem: Agent Stuck in Clearing Loop
-
-The agent was stuck on "clear debris" and never transitioned to mining.
-
-**Root Cause:** The `_generate_maintenance_tasks()` function created a standalone "clear debris" task with **no `skill_override`**. This caused it to run through VLM-based execution which got stuck in an infinite loop.
-
-**Fix:** Removed the standalone `clear_debris` task. Crops grow fine around debris. If debris clearing is needed later, it should be added to `_batch_farm_chores`.
-
-```
-Commit: ada2ef6 Session 123: Remove standalone clear_debris task blocking mining
-```
-
----
-
-## Session 122 Summary
-
-### Major Feature: Batch Mining (`auto_mine`)
-
-Similar to `auto_farm_chores`, added `auto_mine` for automated mining:
-
-**`_batch_mine_session(target_floors=5)`**
-```
-Loop per floor:
-1. Check health/energy → retreat if low (<25% health, <15% energy)
-2. Check monsters → attack nearby (dist <= 3) OR hunt on infested floors
-3. Check ladder → use it to descend
-4. Find rocks → move adjacent, equip pickaxe, break
-5. Repeat until target floors reached
-```
-
-**Key Features:**
-| Feature | Implementation |
-|---------|---------------|
-| **Safety** | Retreats to surface if health < 25% or energy < 15% |
-| **Food** | Auto-eats food when low health |
-| **Combat** | 3x weapon swings, moves toward monsters when hunting |
-| **Infested floors** | Detects and hunts ALL monsters (wiki: must kill all for ladder) |
-| **Ore priority** | Sorts rocks by distance, prioritizes ore over stone |
-
-**Helper Functions:**
-- `_try_eat_food()` - Find and eat food from inventory
-- `_move_adjacent_and_face()` - Navigate to rock/monster and face it
-- `_direction_to_target()` - Get cardinal direction
+## Session 123 Summary
 
 ### Fixes Applied
 
 | Fix | File | Description |
 |-----|------|-------------|
-| Goal-aware skills | `unified_agent.py` | "mine" keyword highlights mining skills |
-| Mining task execution | `daily_planner.py` | `skill_override="auto_mine"` |
-| Missing npcs table | `game_knowledge.py` | Graceful handling if table doesn't exist |
+| Remove clear_debris task | `daily_planner.py` | Standalone clear task had no skill_override, caused infinite VLM loop |
+| Skip prereqs for batch tasks | `prereq_resolver.py` | Tasks with `skill_override` now skip prereq checking entirely |
+| Add skill_override to ResolvedTask | `prereq_resolver.py` | Pass through batch mode to resolved queue |
+| Check resolved task skill_override | `unified_agent.py` | Task executor checks both daily_task and resolved_task for skill_override |
+| Weapon-optional mining | `unified_agent.py` | Combat is skipped if no weapon - agent flees instead |
+| Debug logging | `unified_agent.py` | Added `📋 Task queue:` logging (but not appearing in output) |
 
-### Mining Mechanics (from Stardew Wiki)
+### Session 123 Commits
 
-| Mechanic | Details |
-|----------|---------|
-| **Ladder spawn** | 95% on load, 15% per monster, 2% per rock |
-| **Infested floors** | Must kill ALL monsters for ladder |
-| **Floor sections** | 1-39 (copper), 41-79 (iron), 81-119 (gold) |
-| **Elevator** | Unlocks every 5 floors |
+```
+5582e88 Session 123: Add debug logging for task queue diagnosis
+ca6780a Session 123: Make mining combat optional when no weapon
+f1abcd3 Session 123: Fix prereq resolver adding clear_debris blocking mining
+ada2ef6 Session 123: Remove standalone clear_debris task blocking mining
+d2d767f Session 123: Update docs with clearing fix
+```
 
 ---
 
-## Session 122 Commits
+## Current Issue: Mining Not Executing
+
+### Symptoms
+
+1. Agent IS in the Mine (`Mine at tile (20, 12)`)
+2. But hint says "ALL FARMING DONE! Use action 'go_to_bed'" (WRONG!)
+3. Debug logging `📋 Task queue:` NOT appearing in output
+4. Agent has Hoe equipped in Mine (should have Pickaxe)
+
+### Root Cause Analysis
+
+The `_get_done_farming_hint()` function is being called even when at the Mine, and:
+1. It doesn't check current location
+2. It doesn't check pending daily planner tasks
+3. It defaults to "go to bed" when no farm work is found
+
+The debug logging at line 7602 should show task queue status, but it's not appearing. This suggests:
+- Either `task_executor.is_active()` is returning True (blocking the code path)
+- Or the code changes weren't reloaded
+
+### Code Flow Issue
 
 ```
-9fd1165 Session 122: Improve mining monster handling for infested floors
-1dba777 Fix: Handle missing npcs table gracefully
-5e80396 Session 122: Add batch mining system (auto_mine)
-bef4f82 Session 122: Fix mining task - add skill_override to warp to mines
-fafb669 Session 122: Fix mining - goal-aware skill context
+tick() at line 7592:
+  elif self.task_executor:
+    if executor_active:
+      logging.debug(...)  # DEBUG level - might not show
+    elif not executor_active:
+      logging.info(📋 Task queue: ...)  # Should show but doesn't
+      if self._try_start_daily_task():
+        ...execute batch...
 ```
 
 ---
 
 ## Session 124 Priorities
 
-### 1. Test Mining After Fix
+### 1. Diagnose Why Task Queue Logging Not Showing
 
-```bash
-# Test mining goal
-python src/python-agent/unified_agent.py --goal "Do farm chores and go mining"
-
-# Watch for:
-# - ⛏️ BATCH MINING - Target: X floors
-# - ⛏️ Floor N: X rocks, Y monsters
-# - ⛏️ Mined Copper ore at (x,y)
-# - ⛏️ MINING COMPLETE: ores=X, rocks=Y, floors=Z
+```python
+# Add INFO level log BEFORE the executor check to confirm code is reached
+logging.info("🔍 STEP 2b: Checking task executor...")
 ```
 
-### 2. Verify Combat Works
+Or check if task_executor.is_active() is returning True unexpectedly.
 
-- Monsters should be attacked when nearby
-- On infested floors: actively hunt all monsters
-- Health check should trigger food eating or retreat
+### 2. Fix Hint Context Awareness
 
-### 3. Tune Parameters (if needed)
+`_get_done_farming_hint()` should:
+- Return early if not on Farm
+- Check for pending mining/other tasks before suggesting bed
+- Suggest appropriate actions based on location
 
-Current settings:
-- `MIN_HEALTH_PCT = 25` - retreat threshold
-- `MIN_ENERGY_PCT = 15` - retreat threshold
-- `MAX_ROCKS_PER_FLOOR = 30` - prevent infinite loops
-- `target_floors = 3-10` - based on combat level
+```python
+def _get_done_farming_hint(self, state: dict, surroundings: dict) -> str:
+    location = state.get("location", {}).get("name", "") if state else ""
+
+    # Not on Farm - don't give farming hints
+    if location != "Farm":
+        if "Mine" in location:
+            return ">>> ⛏️ IN MINES! Break rocks to find ladder. <<<"
+        return ""  # No hint for other locations
+
+    # Check pending daily tasks before suggesting bed
+    if self.daily_planner:
+        pending = [t for t in self.daily_planner.tasks if t.status == "pending"]
+        mining_task = next((t for t in pending if t.category == "mining"), None)
+        if mining_task:
+            return ">>> ⛏️ GO MINING! Use warp_to_mine skill <<<"
+
+    # ... rest of existing logic
+```
+
+### 3. Verify Batch Mining Triggers
+
+Once task queue is being processed, verify:
+- Mining task has `skill_override="auto_mine"`
+- `_try_start_daily_task()` detects and sets `_pending_batch`
+- `execute_skill("auto_mine", {})` is called
+- `_batch_mine_session()` runs
 
 ---
 
 ## Quick Reference
 
-### Mining SMAPI Endpoint
-
+### Test Command
 ```bash
-curl localhost:8790/mining | jq
+python src/python-agent/unified_agent.py --goal "Do farm chores and go mining"
 ```
 
-### Batch Mining Flow
-
+### Expected Log Sequence
 ```
-Daily Planner creates task:
-  category="mining"
-  skill_override="auto_mine"
-
-_try_start_daily_task() detects skill_override
-  → Sets _pending_batch
-
-tick() executes batch:
-  → execute_skill("auto_mine", {})
-  → _batch_mine_session(5)
-    → Warp to Mine if needed
-    → Enter level 1
-    → Loop: monsters → ladder → rocks
-    → Return results
+📋 Task queue: X resolved, Y pending tasks
+📋 Pending: mining_N_1 (mining) skill_override=auto_mine
+🔍 Task check: id=mining_N_1, skill_override=auto_mine
+🚀 BATCH MODE: Task mining_N_1 uses skill_override=auto_mine
+🚀 Executing batch: auto_mine
+⛏️ BATCH MINING - Target: 5 floors
 ```
 
 ### Key Files
 
-| File | Session 122 Changes |
-|------|---------------------|
-| `unified_agent.py` | `_batch_mine_session()`, `auto_mine` handler, goal-aware skills |
-| `daily_planner.py` | Mining task with `skill_override="auto_mine"` |
-| `game_knowledge.py` | Graceful NPCs table handling |
+| File | What to Check |
+|------|---------------|
+| `unified_agent.py:7592` | Task executor check and queue logging |
+| `unified_agent.py:1758` | `_get_done_farming_hint()` - needs location awareness |
+| `unified_agent.py:5777` | `_try_start_daily_task()` - batch detection |
+| `unified_agent.py:4315` | `_batch_mine_session()` - actual mining logic |
 
 ---
 
-## Known Issues
+## Architecture Note
 
-1. **Combat untested** - Weapon equipping and swing_weapon action need verification
-2. **Monster movement** - Monsters move between state refreshes
-3. **Pathfinding in mines** - May need warp fallback like farm refill fix
+The agent has two parallel systems that need coordination:
 
-## Resolved Issues
+1. **Vision/Hint System** - Provides context hints to VLM (`_get_done_farming_hint`)
+2. **Task Executor System** - Runs daily planner tasks (`_try_start_daily_task`)
 
-1. ~~**Clearing loop blocks mining**~~ - Fixed Session 123: Removed standalone clear_debris task
+Currently these are not coordinated:
+- Hint system doesn't know about pending tasks
+- Task executor doesn't override hints
+- VLM follows hints instead of waiting for task executor
+
+**Solution**: Either:
+- A) Make hints aware of pending tasks
+- B) Make task executor suppress hints when batch is running
+- C) Both
 
 ---
 
-## Sources
-
-- [Mining - Stardew Valley Wiki](https://stardewvalleywiki.com/Mining)
-- [The Mines - Stardew Valley Wiki](https://stardewvalleywiki.com/The_Mines)
-
----
-
--- Claude
+-- Claude (Session 123)
