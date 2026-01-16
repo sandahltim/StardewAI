@@ -1862,7 +1862,15 @@ class ModBridgeController:
             else:
                 return f">>> ✅ WATERING DONE! CLEAR DEBRIS: {debris_type} {dist} tiles {direction.upper()}. Move closer, then use {skill} <<<"
 
-        # Default - find debris on farm
+        # Session 124: MINING TAKES PRIORITY over debris clearing!
+        # Check for pending mining task BEFORE suggesting debris clearing
+        if self.daily_planner:
+            pending = [t for t in self.daily_planner.tasks if t.status == "pending"]
+            mining_task = next((t for t in pending if t.category == "mining"), None)
+            if mining_task and hour < 16:
+                return ">>> ⛏️ FARM DONE! GO MINING! Use skill: warp_to_mine <<<"
+
+        # Default - find debris on farm (only if no mining task)
         objects = state.get("location", {}).get("objects", []) if state else []
         debris_types = ["Weeds", "Stone", "Twig", "Wood"]
         debris_nearby = [o for o in objects if o.get("name") in debris_types]
@@ -1886,14 +1894,6 @@ class ModBridgeController:
                 dirs.append(f"{abs(dx)} EAST")
             direction_str = " then ".join(dirs) if dirs else "nearby"
             return f">>> ✅ WATERING DONE! CLEAR DEBRIS: {debris_name} {direction_str}. Move there, then use {skill} <<<"
-
-        # Session 124: Time-aware hints - don't suggest bed at 9:50 AM!
-        # Check for pending mining task before suggesting bed
-        if self.daily_planner:
-            pending = [t for t in self.daily_planner.tasks if t.status == "pending"]
-            mining_task = next((t for t in pending if t.category == "mining"), None)
-            if mining_task and hour < 16:
-                return ">>> ⛏️ FARM DONE! GO MINING! Use skill: warp_to_mine <<<"
 
         # Only suggest bed if it's actually late or low energy
         if hour >= 18 or energy_pct <= 40:
