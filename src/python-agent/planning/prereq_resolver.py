@@ -74,6 +74,7 @@ class ResolvedTask:
     prereq_for: Optional[str] = None  # Which task this is a prereq for
     params: Dict[str, Any] = field(default_factory=dict)
     estimated_time: int = 10
+    skill_override: Optional[str] = None  # Session 123: Pass through batch skill override
 
 
 @dataclass
@@ -160,6 +161,19 @@ class PrereqResolver:
         for task in tasks:
             task_id = task.id if hasattr(task, 'id') else str(task)
             task_desc = task.description if hasattr(task, 'description') else str(task)
+            skill_override = getattr(task, 'skill_override', None)
+
+            # Session 123: Skip prereq checking for batch tasks (they handle everything)
+            if skill_override:
+                logger.info(f"   ⚡ Batch task: {task_desc} (skill_override={skill_override})")
+                resolved_queue.append(ResolvedTask(
+                    original_task_id=task_id,
+                    task_type=self._infer_task_type(task_desc) or "batch",
+                    description=task_desc,
+                    estimated_time=task.estimated_time if hasattr(task, 'estimated_time') else 10,
+                    skill_override=skill_override,
+                ))
+                continue
 
             # Determine task type from description
             task_type = self._infer_task_type(task_desc)

@@ -5834,18 +5834,26 @@ class StardewAgent:
                 is_prereq = resolved_task.get('is_prereq', False)
                 task_params = resolved_task.get('params', {})
 
+            # Session 123: Check resolved task's skill_override first (from prereq resolver)
+            resolved_skill_override = None
+            if hasattr(resolved_task, 'skill_override'):
+                resolved_skill_override = resolved_task.skill_override
+            elif isinstance(resolved_task, dict):
+                resolved_skill_override = resolved_task.get('skill_override')
+
             # Check if already completed
             if task_id and not task_id.endswith('_prereq'):
                 daily_task = self.daily_planner._find_task(task_id)
                 # Session 122: Debug logging for task flow
-                logging.info(f"🔍 Task check: id={task_id}, type={task_type}, daily_task={daily_task is not None}, status={daily_task.status if daily_task else 'N/A'}, skill_override={getattr(daily_task, 'skill_override', None) if daily_task else 'N/A'}")
+                logging.info(f"🔍 Task check: id={task_id}, type={task_type}, daily_task={daily_task is not None}, status={daily_task.status if daily_task else 'N/A'}, skill_override={resolved_skill_override or getattr(daily_task, 'skill_override', None) if daily_task else resolved_skill_override}")
 
                 if daily_task and daily_task.status in ("completed", "skipped"):
                     continue
 
                 # SKILL_OVERRIDE: Batch operations bypass TaskExecutor entirely
-                if daily_task and hasattr(daily_task, 'skill_override') and daily_task.skill_override:
-                    batch_skill = daily_task.skill_override
+                # Check both resolved task and daily task for skill_override
+                batch_skill = resolved_skill_override or (daily_task.skill_override if daily_task and hasattr(daily_task, 'skill_override') else None)
+                if batch_skill:
                     logging.info(f"🚀 BATCH MODE: Task {task_id} uses skill_override={batch_skill}")
 
                     # Mark task as started
