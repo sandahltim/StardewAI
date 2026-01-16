@@ -1,118 +1,99 @@
-# Session 123: Mining Testing & Integration
+# Session 123: Test Batch Mining
 
 **Last Updated:** 2026-01-15 Session 122 by Claude
-**Status:** Mining infrastructure ready - needs end-to-end testing
+**Status:** Batch mining implemented - ready for testing
 
 ---
 
-## Session 121 Summary (Completed)
+## Session 122 Summary
 
-### Fixes Applied
+### Major Feature: Batch Mining (`auto_mine`)
 
-| Fix | Description |
-|-----|-------------|
-| **Refill warp fallback** | When `move_to` fails (A* blocked), use direct warp to water source |
-| **Water verification** | Double-check water level before each watering attempt |
-| **Verification delays** | Tiles: 1.2s, water: 1.0s, others: 0.5s |
-| **Auto-craft essentials** | Daily planner generates scarecrow/chest tasks when materials available |
+Similar to `auto_farm_chores`, added `auto_mine` for automated mining:
 
-### Commits
+**`_batch_mine_session(target_floors=5)`**
 ```
-a166b15 Session 121: Fix refill - verify arrival and use warp fallback
-d9c4a90 Session 121: Fix watering/refill loops, add auto-craft essentials
+Loop per floor:
+1. Check health/energy → retreat if low (<25% health, <15% energy)
+2. Check monsters → attack nearby (dist <= 3) OR hunt on infested floors
+3. Check ladder → use it to descend
+4. Find rocks → move adjacent, equip pickaxe, break
+5. Repeat until target floors reached
 ```
 
----
+**Key Features:**
+| Feature | Implementation |
+|---------|---------------|
+| **Safety** | Retreats to surface if health < 25% or energy < 15% |
+| **Food** | Auto-eats food when low health |
+| **Combat** | 3x weapon swings, moves toward monsters when hunting |
+| **Infested floors** | Detects and hunts ALL monsters (wiki: must kill all for ladder) |
+| **Ore priority** | Sorts rocks by distance, prioritizes ore over stone |
 
-## Session 122 Summary (Completed)
-
-### Problem: "Go mine" chose "clear debris" instead
-
-**Root Causes Found:**
-1. `TASK_TO_SKILL` missing mining mapping - TaskExecutor didn't know what skill to use
-2. Duplicate skills: `go_to_mines` (mining.yaml) vs `warp_to_mine` (navigation.yaml)
-3. 8-skill limit per category hid mining skills in crowded navigation category
-4. No goal-awareness - VLM didn't prioritize mining skills when user said "mine"
+**Helper Functions:**
+- `_try_eat_food()` - Find and eat food from inventory
+- `_move_adjacent_and_face()` - Navigate to rock/monster and face it
+- `_direction_to_target()` - Get cardinal direction
 
 ### Fixes Applied
 
 | Fix | File | Description |
 |-----|------|-------------|
-| Added mining mapping | `task_executor.py:121` | `"mining": "warp_to_mine"` |
-| Goal-aware skill context | `unified_agent.py:3041-3120` | Keywords like "mine" highlight mining/combat/navigation categories |
-| Priority categories | `unified_agent.py:3096-3116` | Goal-relevant categories show first with more skills (12 vs 6) |
+| Goal-aware skills | `unified_agent.py` | "mine" keyword highlights mining skills |
+| Mining task execution | `daily_planner.py` | `skill_override="auto_mine"` |
+| Missing npcs table | `game_knowledge.py` | Graceful handling if table doesn't exist |
 
-### Code Changes
+### Mining Mechanics (from Stardew Wiki)
 
-**task_executor.py:**
-```python
-TASK_TO_SKILL = {
-    ...
-    # Mining - Session 122
-    "mining": "warp_to_mine",  # First step: get to mine
-}
+| Mechanic | Details |
+|----------|---------|
+| **Ladder spawn** | 95% on load, 15% per monster, 2% per rock |
+| **Infested floors** | Must kill ALL monsters for ladder |
+| **Floor sections** | 1-39 (copper), 41-79 (iron), 81-119 (gold) |
+| **Elevator** | Unlocks every 5 floors |
+
+---
+
+## Session 122 Commits
+
 ```
-
-**unified_agent.py - Goal keywords:**
-```python
-GOAL_KEYWORDS = {
-    "mine": ["mining", "combat", "navigation"],
-    "mining": ["mining", "combat", "navigation"],
-    "ore": ["mining"],
-    "copper": ["mining"],
-    ...
-}
-```
-
-**VLM now sees:**
-```
-AVAILABLE SKILLS (use skill name as action type):
-  [MINING] ⭐ RELEVANT TO YOUR GOAL
-    - break_rock - Break a rock with the pickaxe
-    - mine_copper_ore - Mine a copper ore node
-    ...
-  [NAVIGATION] ⭐ RELEVANT TO YOUR GOAL
-    - warp_to_mine - Teleport to the Mine entrance
-    ...
+9fd1165 Session 122: Improve mining monster handling for infested floors
+1dba777 Fix: Handle missing npcs table gracefully
+5e80396 Session 122: Add batch mining system (auto_mine)
+bef4f82 Session 122: Fix mining task - add skill_override to warp to mines
+fafb669 Session 122: Fix mining - goal-aware skill context
 ```
 
 ---
 
 ## Session 123 Priorities
 
-### 1. Test Mining End-to-End
+### 1. Test Batch Mining
 
 ```bash
-# Run with mining goal
-python src/python-agent/unified_agent.py --goal "Go mining for copper ore"
+# Test mining goal
+python src/python-agent/unified_agent.py --goal "Do farm chores and go mining"
 
-# Expected behavior:
-# 1. VLM sees mining skills highlighted
-# 2. Calls warp_to_mine to get to mines
-# 3. Once in mine, calls break_rock, use_ladder, etc.
+# Watch for:
+# - ⛏️ BATCH MINING - Target: X floors
+# - ⛏️ Floor N: X rocks, Y monsters
+# - ⛏️ Mined Copper ore at (x,y)
+# - ⛏️ MINING COMPLETE: ores=X, rocks=Y, floors=Z
 ```
 
-### 2. Verify Skill Context Shows Mining
+### 2. Verify Combat Works
 
-Look in logs for:
-```
-📚 Skill context: X available
-[MINING] ⭐ RELEVANT TO YOUR GOAL
-```
+- Monsters should be attacked when nearby
+- On infested floors: actively hunt all monsters
+- Health check should trigger food eating or retreat
 
-### 3. Add Batch Mining Support (if needed)
+### 3. Tune Parameters (if needed)
 
-If VLM struggles in mines, consider adding `_batch_mine_floor()` similar to `_batch_farm_chores()`:
-- Get rocks from `/mining` endpoint
-- Mine in row-by-row order (closest first)
-- Watch for monsters (combat or retreat)
-- Find ladder when floor cleared
-
-### 4. Combat Handling
-
-- Monitor `/mining` for monsters near player
-- Auto-attack if monster within 2 tiles
-- Retreat if health < 25% or no food
+Current settings:
+- `MIN_HEALTH_PCT = 25` - retreat threshold
+- `MIN_ENERGY_PCT = 15` - retreat threshold
+- `MAX_ROCKS_PER_FLOOR = 30` - prevent infinite loops
+- `target_floors = 3-10` - based on combat level
 
 ---
 
@@ -124,56 +105,47 @@ If VLM struggles in mines, consider adding `_batch_mine_floor()` similar to `_ba
 curl localhost:8790/mining | jq
 ```
 
-Returns:
-```json
-{
-  "location": "UndergroundMine",
-  "floor": 5,
-  "floorType": "normal",
-  "ladderFound": false,
-  "rocks": [{"tileX": 10, "tileY": 8, "type": "Copper", "health": 2}],
-  "monsters": [{"name": "Green Slime", "tileX": 5, "tileY": 12, "health": 20}]
-}
+### Batch Mining Flow
+
+```
+Daily Planner creates task:
+  category="mining"
+  skill_override="auto_mine"
+
+_try_start_daily_task() detects skill_override
+  → Sets _pending_batch
+
+tick() executes batch:
+  → execute_skill("auto_mine", {})
+  → _batch_mine_session(5)
+    → Warp to Mine if needed
+    → Enter level 1
+    → Loop: monsters → ladder → rocks
+    → Return results
 ```
 
-### Available Mining Skills
+### Key Files
 
-| Skill | Category | Description |
-|-------|----------|-------------|
-| `warp_to_mine` | navigation | Teleport to Mine entrance |
-| `enter_mine_level_X` | mining | Use elevator (1, 5, 10, 40, 80, 120) |
-| `use_ladder` | mining | Descend via ladder/shaft |
-| `break_rock` | mining | Pickaxe on rock (needs target_direction) |
-| `mine_copper_ore` | mining | Multi-hit mining for copper |
-| `attack` | combat | Swing weapon in direction |
-| `eat_for_health` | combat | Eat food to restore health |
-
-### Mining Floor Reference
-
-| Levels | Type | Ore |
-|--------|------|-----|
-| 1-39 | Normal | Copper |
-| 40-79 | Frozen | Iron |
-| 80-119 | Lava | Gold |
-| 120+ | Skull Cavern | Iridium |
+| File | Session 122 Changes |
+|------|---------------------|
+| `unified_agent.py` | `_batch_mine_session()`, `auto_mine` handler, goal-aware skills |
+| `daily_planner.py` | Mining task with `skill_override="auto_mine"` |
+| `game_knowledge.py` | Graceful NPCs table handling |
 
 ---
 
-## Key Files Changed (Session 122)
+## Known Issues
 
-| File | Changes |
-|------|---------|
-| `src/python-agent/execution/task_executor.py` | Added `"mining": "warp_to_mine"` |
-| `src/python-agent/unified_agent.py` | Goal-aware skill context |
+1. **Combat untested** - Weapon equipping and swing_weapon action need verification
+2. **Monster movement** - Monsters move between state refreshes
+3. **Pathfinding in mines** - May need warp fallback like farm refill fix
 
 ---
 
-## Pathfinding Note
+## Sources
 
-Pathfinding correctly avoids placed objects (chests, scarecrows, fences) via `TilePathfinder.IsTilePassable()`:
-- Checks `location.objects` + `!obj.isPassable()`
-- Checks ResourceClumps (stumps, logs, boulders)
-- NPCs are passable (player can push through)
+- [Mining - Stardew Valley Wiki](https://stardewvalleywiki.com/Mining)
+- [The Mines - Stardew Valley Wiki](https://stardewvalleywiki.com/The_Mines)
 
 ---
 
