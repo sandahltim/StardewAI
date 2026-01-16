@@ -421,8 +421,13 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         elif money >= 20:
             chore_parts.append("buy+plant seeds")
 
+        # Session 125: Diagnostic logging for task creation
+        logger.info(f"📊 Farm task check: crops={len(crops)}, harvestable={len(harvestable)}, unwatered={len(unwatered)}, seeds={total_seeds}, money={money}, rainy={is_rainy}")
+        logger.info(f"📊 Chore parts: {chore_parts}")
+        
         if chore_parts or (money >= 20 and not is_rainy):
             # Always add farm chores task - batch handles buying seeds if needed
+            logger.info(f"✅ Creating farm_chores task with skill_override=auto_farm_chores")
             desc = f"Farm chores: {', '.join(chore_parts)}" if chore_parts else "Farm chores (check crops)"
             self.tasks.append(DailyTask(
                 id=f"farm_chores_{self.current_day}",
