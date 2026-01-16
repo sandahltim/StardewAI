@@ -582,9 +582,10 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         )
         
         # Mining prerequisites: pickaxe + energy > 60% + not too late in day
-        # Session 122: Debug logging
+        # Session 125: Relaxed hour check - allow mining until 6 PM (was 2 PM)
+        # At 5 PM with 74% energy and nothing else to do, should still mine
         logger.info(f"⛏️ Mining check: has_pickaxe={has_pickaxe}, energy_pct={energy_pct:.0f}%, hour={hour}")
-        if has_pickaxe and energy_pct > 60 and hour < 14:
+        if has_pickaxe and energy_pct > 60 and hour < 18:
             # Get combat level to suggest appropriate mine depth
             combat_level = player.get("combatLevel", 0)
             target_floors = max(3, min(combat_level + 2, 10))  # 3-10 floors based on level

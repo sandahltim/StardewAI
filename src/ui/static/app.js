@@ -1682,8 +1682,8 @@ function init() {
 
   const updateDailySummary = (payload) => {
     if (!dailySummaryMeta || !dailySummaryYesterday || !dailySummaryLessons || !dailySummaryGoals) return;
-    if (!payload || payload.status === "no_summary") {
-      dailySummaryMeta.textContent = "No summary yet.";
+    if (!payload || payload.status === "no_summary" || payload.status === "error") {
+      dailySummaryMeta.textContent = payload?.message || "No summary yet.";
       dailySummaryYesterday.innerHTML = "<li>Complete a day to generate a summary.</li>";
       dailySummaryLessons.innerHTML = "<li>None</li>";
       dailySummaryGoals.innerHTML = "<li>None</li>";
@@ -2063,8 +2063,12 @@ function init() {
 
   const updateVerificationStatus = (payload) => {
     if (!verificationMeta || !verificationRecent || !verificationFailures) return;
-    const status = payload?.status || "no_data";
-    if (!payload || status === "no_data" || status === "error") {
+    const status = payload?.status ?? null;
+    const hasCounts = ["tilled", "planted", "watered"].some((key) => {
+      const stats = payload?.[key];
+      return typeof stats === "object" && stats !== null;
+    });
+    if (!payload || (status === "no_data" || status === "error") || (!hasCounts && status !== "ok")) {
       verificationMeta.textContent = payload?.message || "Verification tracking not available yet.";
       verificationRecent.innerHTML = "<li>None</li>";
       verificationFailures.innerHTML = "<li>None</li>";

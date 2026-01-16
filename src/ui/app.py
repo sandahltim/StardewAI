@@ -359,7 +359,7 @@ def _read_verification_status() -> Dict[str, Any]:
         return defaults
     try:
         data = json.loads(VERIFICATION_STATUS_PATH.read_text())
-    except json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         defaults["status"] = "error"
         defaults["message"] = "Verification status file is invalid."
         return defaults
@@ -1195,7 +1195,7 @@ def get_farm_layout() -> Dict[str, Any]:
     try:
         # First get current farm state from SMAPI
         farm_state = _proxy_smapi("farm")
-        if farm_state.get("status") == "error":
+        if farm_state.get("success") is False:
             return {
                 "status": "smapi_unavailable",
                 "message": "Cannot get farm state from SMAPI",
