@@ -5219,9 +5219,15 @@ class StardewAgent:
         data = farm_state.get("data") or farm_state
         
         # Get blocked positions
+        # Session 129: Don't block tilled-but-empty tiles - we want to PLANT there!
         existing_tilled = {(t.get("x"), t.get("y")) for t in data.get("tilledTiles", [])}
         existing_crops = {(c.get("x"), c.get("y")) for c in data.get("crops", [])}
-        permanent_blocked = existing_tilled | existing_crops
+        # Only block tiles that already have crops (not empty tilled tiles)
+        permanent_blocked = existing_crops.copy()
+        # Track empty tilled tiles as PLANTING TARGETS
+        empty_tilled = existing_tilled - existing_crops
+        if empty_tilled:
+            logging.info(f"🌱 Found {len(empty_tilled)} empty tilled tiles ready for planting")
         
         objects_list = data.get("objects", [])
         objects_by_pos = {(o.get("x"), o.get("y")): o for o in objects_list}
@@ -5277,25 +5283,50 @@ class StardewAgent:
         else:
             logging.info(f"🌱 Tillable validation: {len(tillable_area)} valid positions in area")
         
-        # Generate grid positions - skip anything we can't clear
-        # (permanent_blocked = already tilled/planted, clump_blocked = need upgraded tools)
+        # Session 129: PRIORITIZE already-tilled empty tiles for planting
+        # Then fall back to tillable tiles that need to be tilled first
         unclearable = permanent_blocked | clump_blocked
         grid_positions = []
-        for row in range(count // GRID_WIDTH + 2):
-            for col in range(GRID_WIDTH):
+        
+        # First: Use already-tilled empty tiles (no tilling needed, just plant!)
+        if empty_tilled:
+            # Sort by distance from player for efficiency
+            if player_pos:
+                sorted_tilled = sorted(empty_tilled, 
+                    key=lambda t: abs(t[0] - player_pos[0]) + abs(t[1] - player_pos[1]))
+            else:
+                sorted_tilled = list(empty_tilled)
+            
+            for pos in sorted_tilled:
                 if len(grid_positions) >= count:
                     break
-                x = start_x + col
-                y = start_y + row
-                # Session 118: Must be tillable (if endpoint available) AND not blocked
-                is_tillable = (tillable_area is None) or ((x, y) in tillable_area)
-                if is_tillable and (x, y) not in unclearable:
-                    grid_positions.append((x, y))
-            if len(grid_positions) >= count:
-                break
+                if pos not in unclearable:
+                    grid_positions.append(pos)
+            
+            if grid_positions:
+                logging.info(f"🌱 Using {len(grid_positions)} pre-tilled positions for planting")
+        
+        # Second: If not enough tilled tiles, find new positions to till
+        if len(grid_positions) < count:
+            for row in range(count // GRID_WIDTH + 2):
+                for col in range(GRID_WIDTH):
+                    if len(grid_positions) >= count:
+                        break
+                    x = start_x + col
+                    y = start_y + row
+                    pos = (x, y)
+                    # Skip if already in our list or blocked
+                    if pos in grid_positions or pos in unclearable or pos in empty_tilled:
+                        continue
+                    # Session 118: Must be tillable (if endpoint available)
+                    is_tillable = (tillable_area is None) or (pos in tillable_area)
+                    if is_tillable:
+                        grid_positions.append(pos)
+                if len(grid_positions) >= count:
+                    break
         
         if not grid_positions:
-            logging.warning("🌱 No grid positions available")
+            logging.warning(f"🌱 No grid positions available (empty_tilled={len(empty_tilled)}, unclearable={len(unclearable)})")
             return (0, 0)
         
         logging.info(f"🌱 Processing {len(grid_positions)} positions")
