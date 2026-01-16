@@ -3488,6 +3488,18 @@ class StardewAgent:
                 logging.info("✅ auto_farm_chores: nothing to do (farm is tidy)")
                 return True  # Success even if nothing to do
 
+        # Session 122: Batch mining
+        if skill_name == "auto_mine":
+            target_floors = params.get("floors", 5)
+            results = await self._batch_mine_session(target_floors)
+            total = results["ores_mined"] + results["rocks_broken"]
+            if results["floors_descended"] > 0 or total > 0:
+                logging.info(f"✅ auto_mine: {results['floors_descended']} floors, {results['ores_mined']} ores, {results['rocks_broken']} rocks")
+                return True
+            else:
+                logging.info("✅ auto_mine: nothing mined (possibly retreated)")
+                return True
+
         if skill_name == "auto_plant_seeds":
             planted = await self._batch_plant_seeds(params.get("seed_type"))
             if planted > 0:
@@ -4296,6 +4308,250 @@ class StardewAgent:
         logging.info("🏠 ═══════════════════════════════════════")
 
         return results
+
+    # =========================================================================
+    # BATCH MINING - Session 122
+    # =========================================================================
+
+    async def _batch_mine_session(self, target_floors: int = 5) -> dict:
+        """Execute mining session: descend floors, break rocks, collect ore.
+
+        Session 122: Batch mining similar to batch farm chores.
+
+        Args:
+            target_floors: How many floors to descend (default 5)
+
+        Returns dict with counts:
+            - rocks_broken: Regular stones broken
+            - ores_mined: Copper/Iron/Gold/Iridium mined
+            - monsters_killed: Monsters defeated
+            - floors_descended: Floors cleared and descended
+        """
+        results = {"rocks_broken": 0, "ores_mined": 0, "monsters_killed": 0, "floors_descended": 0}
+
+        logging.info("⛏️ ═══════════════════════════════════════")
+        logging.info(f"⛏️ BATCH MINING - Target: {target_floors} floors")
+        logging.info("⛏️ ═══════════════════════════════════════")
+
+        # Safety limits
+        MAX_ROCKS_PER_FLOOR = 30
+        MIN_HEALTH_PCT = 25
+        MIN_ENERGY_PCT = 15
+
+        # Ensure we're in the mines
+        self._refresh_state_snapshot()
+        if not self.last_state:
+            logging.warning("⛏️ No state available")
+            return results
+
+        location = self.last_state.get("location", {}).get("name", "")
+        if "Mine" not in location and "UndergroundMine" not in location:
+            logging.info(f"⛏️ Not in mines (at {location}), warping...")
+            self.controller.execute(Action("warp", {"location": "Mine"}, "warp to mines"))
+            await asyncio.sleep(0.3)
+            # Enter level 1
+            self.controller.execute(Action("enter_mine_level", {"level": 1}, "enter mine level 1"))
+            await asyncio.sleep(0.5)
+            self._refresh_state_snapshot()
+
+        while results["floors_descended"] < target_floors:
+            floor_rocks = 0
+
+            # Get fresh state
+            self._refresh_state_snapshot()
+            if not self.last_state:
+                break
+
+            player = self.last_state.get("player", {})
+            health = player.get("health", 100)
+            max_health = player.get("maxHealth", 100)
+            energy = player.get("energy", 100)
+            max_energy = player.get("maxEnergy", 270)
+            health_pct = (health / max_health * 100) if max_health > 0 else 0
+            energy_pct = (energy / max_energy * 100) if max_energy > 0 else 0
+            player_x = player.get("tileX", 0)
+            player_y = player.get("tileY", 0)
+
+            # Safety check: retreat if low health/energy
+            if health_pct < MIN_HEALTH_PCT:
+                logging.warning(f"⛏️ LOW HEALTH ({health_pct:.0f}%) - trying to eat")
+                # Try to eat food
+                ate = await self._try_eat_food()
+                if not ate:
+                    logging.warning("⛏️ No food! Retreating to surface")
+                    self.controller.execute(Action("enter_mine_level", {"level": 0}, "retreat to surface"))
+                    break
+
+            if energy_pct < MIN_ENERGY_PCT:
+                logging.warning(f"⛏️ LOW ENERGY ({energy_pct:.0f}%) - retreating")
+                self.controller.execute(Action("enter_mine_level", {"level": 0}, "retreat to surface"))
+                break
+
+            # Get mining state
+            mining = self.controller.get_mining() if hasattr(self.controller, 'get_mining') else None
+            if not mining:
+                logging.warning("⛏️ Can't get mining state")
+                break
+
+            floor = mining.get("floor", 0)
+            rocks = mining.get("rocks", [])
+            monsters = mining.get("monsters", [])
+            ladder_found = mining.get("ladderFound", False)
+            shaft_found = mining.get("shaftFound", False)
+
+            logging.info(f"⛏️ Floor {floor}: {len(rocks)} rocks, {len(monsters)} monsters, ladder={ladder_found}")
+
+            # Priority 1: Handle nearby monsters
+            for monster in monsters:
+                mx, my = monster.get("x", monster.get("tileX", 0)), monster.get("y", monster.get("tileY", 0))
+                dist = abs(mx - player_x) + abs(my - player_y)
+                if dist <= 3:
+                    logging.info(f"⛏️ Monster nearby! {monster.get('name', 'unknown')} at ({mx},{my}), dist={dist}")
+                    # Move toward and attack
+                    direction = self._direction_to_target(player_x, player_y, mx, my)
+                    # Equip weapon (select from inventory)
+                    self.controller.execute(Action("select_item_type", {"value": "Weapon"}, "equip weapon"))
+                    await asyncio.sleep(0.1)
+                    # Attack
+                    self.controller.execute(Action("swing_weapon", {"direction": direction}, f"attack {direction}"))
+                    await asyncio.sleep(0.3)
+                    results["monsters_killed"] += 1  # Optimistic count
+
+            # Priority 2: Use ladder if found
+            if ladder_found or shaft_found:
+                logging.info(f"⛏️ {'Ladder' if ladder_found else 'Shaft'} found! Descending...")
+                self.controller.execute(Action("use_ladder", {}, "use ladder"))
+                await asyncio.sleep(0.5)
+                results["floors_descended"] += 1
+                continue
+
+            # Priority 3: Mine rocks
+            if not rocks:
+                logging.info("⛏️ No rocks on floor - waiting for ladder spawn or moving on")
+                await asyncio.sleep(0.5)
+                continue
+
+            # Sort by distance - mine closest first
+            rocks_sorted = sorted(rocks, key=lambda r: abs(r.get("x", r.get("tileX", 0)) - player_x) + abs(r.get("y", r.get("tileY", 0)) - player_y))
+
+            for rock in rocks_sorted[:5]:  # Process up to 5 rocks per iteration
+                rx = rock.get("x", rock.get("tileX", 0))
+                ry = rock.get("y", rock.get("tileY", 0))
+                rock_type = rock.get("type", "Stone")
+
+                # Move adjacent to rock
+                moved = await self._move_adjacent_and_face(rx, ry)
+                if not moved:
+                    logging.debug(f"⛏️ Couldn't reach rock at ({rx},{ry})")
+                    continue
+
+                # Equip pickaxe and break rock
+                self.controller.execute(Action("equip_tool", {"tool": "Pickaxe"}, "equip pickaxe"))
+                await asyncio.sleep(0.1)
+
+                # Determine hits needed based on rock type
+                hits = 1
+                if rock_type == "Copper":
+                    hits = 2
+                elif rock_type == "Iron":
+                    hits = 3
+                elif rock_type in ("Gold", "Iridium"):
+                    hits = 4
+
+                for _ in range(hits):
+                    self.controller.execute(Action("use_tool", {}, "swing pickaxe"))
+                    await asyncio.sleep(0.25)
+
+                if rock_type in ("Copper", "Iron", "Gold", "Iridium"):
+                    results["ores_mined"] += 1
+                    logging.info(f"⛏️ Mined {rock_type} ore at ({rx},{ry})")
+                else:
+                    results["rocks_broken"] += 1
+
+                floor_rocks += 1
+                if floor_rocks >= MAX_ROCKS_PER_FLOOR:
+                    logging.info(f"⛏️ Hit rock limit ({MAX_ROCKS_PER_FLOOR}) for this floor")
+                    break
+
+            # Brief pause between rock batches
+            await asyncio.sleep(0.2)
+
+        logging.info("⛏️ ═══════════════════════════════════════")
+        logging.info(f"⛏️ MINING COMPLETE: ores={results['ores_mined']}, rocks={results['rocks_broken']}, floors={results['floors_descended']}")
+        logging.info("⛏️ ═══════════════════════════════════════")
+
+        return results
+
+    async def _try_eat_food(self) -> bool:
+        """Try to eat food from inventory to restore health."""
+        self._refresh_state_snapshot()
+        if not self.last_state:
+            return False
+
+        inventory = self.last_state.get("inventory", [])
+        # Look for edible items
+        FOOD_ITEMS = ["Salad", "Cheese", "Egg", "Milk", "Bread", "Cookie", "Pizza",
+                      "Salmon", "Sardine", "Parsnip", "Potato", "Cauliflower"]
+
+        for i, item in enumerate(inventory):
+            if not item:
+                continue
+            name = item.get("name", "")
+            if any(food.lower() in name.lower() for food in FOOD_ITEMS):
+                logging.info(f"⛏️ Eating {name} from slot {i}")
+                self.controller.execute(Action("select_slot", {"slot": i}, f"select {name}"))
+                await asyncio.sleep(0.1)
+                self.controller.execute(Action("eat", {}, f"eat {name}"))
+                await asyncio.sleep(0.3)
+                return True
+        return False
+
+    async def _move_adjacent_and_face(self, target_x: int, target_y: int) -> bool:
+        """Move to a tile adjacent to target and face it."""
+        self._refresh_state_snapshot()
+        if not self.last_state:
+            return False
+
+        player = self.last_state.get("player", {})
+        px, py = player.get("tileX", 0), player.get("tileY", 0)
+
+        # Try adjacent positions: south, north, east, west of target
+        adjacent = [
+            (target_x, target_y + 1, "north"),  # Stand south, face north
+            (target_x, target_y - 1, "south"),  # Stand north, face south
+            (target_x + 1, target_y, "west"),   # Stand east, face west
+            (target_x - 1, target_y, "east"),   # Stand west, face east
+        ]
+
+        # Sort by distance from player
+        adjacent.sort(key=lambda a: abs(a[0] - px) + abs(a[1] - py))
+
+        for adj_x, adj_y, face_dir in adjacent:
+            # Try to move there
+            self.controller.execute(Action("move_to", {"x": adj_x, "y": adj_y}, f"move to ({adj_x},{adj_y})"))
+            await asyncio.sleep(0.3)
+
+            # Check if we arrived
+            self._refresh_state_snapshot()
+            if self.last_state:
+                player = self.last_state.get("player", {})
+                new_x, new_y = player.get("tileX", 0), player.get("tileY", 0)
+                if new_x == adj_x and new_y == adj_y:
+                    # Face the target
+                    self.controller.execute(Action("face", {"direction": face_dir}, f"face {face_dir}"))
+                    await asyncio.sleep(0.1)
+                    return True
+
+        return False
+
+    def _direction_to_target(self, px: int, py: int, tx: int, ty: int) -> str:
+        """Get cardinal direction from player to target."""
+        dx = tx - px
+        dy = ty - py
+        if abs(dx) > abs(dy):
+            return "east" if dx > 0 else "west"
+        else:
+            return "south" if dy > 0 else "north"
 
     async def _batch_till_and_plant(self, count: int, seed_slot: int) -> tuple:
         """Combined till+plant+water operation for maximum efficiency.
