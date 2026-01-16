@@ -1,60 +1,103 @@
-# Session 125: Verify Mining Batch Execution
+# Session 125: Test Mining Execution & Combat
 
 **Last Updated:** 2026-01-15 Session 124 by Claude
-**Status:** Hint system fixed, diagnostic logging added - ready for testing
+**Status:** Major fixes applied - ready for testing
 
 ---
 
 ## Session 124 Summary
 
-### Fixes Applied
+### What Was Fixed
 
-| Fix | File | Description |
-|-----|------|-------------|
-| Location-aware hints | `unified_agent.py:1763-1770` | `_get_done_farming_hint()` returns early if not on Farm |
-| Mine-specific hint | `unified_agent.py:1765-1767` | Returns "Break rocks to find ladder" when in Mine |
-| Diagnostic logging | `unified_agent.py:7600` | Shows day1_clearing, has_executor, has_planner state |
-| Task start tracing | `unified_agent.py:5798-5803` | Logs early returns from `_try_start_daily_task()` |
-| Day mismatch logging | `unified_agent.py:5816` | INFO-level log when waiting for daily plan |
-| Queue fallback logging | `unified_agent.py:5842` | INFO-level log when resolved_queue is empty |
+| Issue | Fix | File |
+|-------|-----|------|
+| "Go to bed" hint in Mine | Location check returns mining hint | `unified_agent.py:1765` |
+| "Go to bed" at 9:50 AM | Time check + pending task awareness | `unified_agent.py:1893-1901` |
+| Task flow invisible | Added INFO-level diagnostic logging | `unified_agent.py:7600, 5798-5842` |
+| Fixed 3 swings for all monsters | Monster-type-aware swing counts | `unified_agent.py:4334-4380` |
+| No dodge mechanics | Kiting for dangerous monsters | `unified_agent.py:4414-4456` |
+| "Flee if no weapon" got cornered | Smart retreat with multiple escape routes | `unified_agent.py:4458-4498` |
+| No weapon pickup | Auto-pickup from ground/containers | `unified_agent.py:4500-4552` |
 
 ### Session 124 Commits
 
 ```
-332f441 Session 124: Fix hint system for Mine location + add diagnostics
+2eb7890 Session 124: Implement tactical combat system for mining
+ac0d1f7 Session 124: Fix hint to not suggest bed at 9:50 AM
+7540b28 Session 124: Update handoff doc with fixes and diagnostics
 4e7241a Session 124: Add comprehensive task flow diagnostics
+332f441 Session 124: Fix hint system for Mine location + add diagnostics
 ```
 
 ---
 
-## What Changed
+## New Combat System
 
-### 1. Hint System Now Location-Aware
+### Monster Knowledge (MONSTER_DATA)
 
-**Before:** Agent in Mine got hint "ALL FARMING DONE! Use action 'go_to_bed'" (wrong!)
+```python
+# 20+ monster types with tactics
+"Green Slime": {"danger": 1, "speed": "slow", "swings": 2, "kite": False}
+"Serpent":     {"danger": 5, "speed": "very_fast", "swings": 6, "kite": True}
+"Shadow Shaman": {"danger": 4, "attack": "ranged", "swings": 4, "kite": True}
+```
 
-**After:** Agent in Mine gets hint ">>> ⛏️ IN MINES! Break rocks to find ladder. Use Pickaxe on rocks. <<<"
+### Combat Methods
+
+| Method | Purpose |
+|--------|---------|
+| `_get_monster_tactics(name)` | Get danger/swings/kite for monster type |
+| `_combat_engage(monster, x, y, has_weapon)` | Main combat dispatcher |
+| `_combat_kite(monster, x, y, tactics)` | Hit-and-run for danger >= 4 |
+| `_combat_retreat(mx, my, px, py, name)` | Smart escape when weaponless |
+| `_try_pickup_weapon()` | Search ground/containers for weapons |
+
+### Combat Flow
+
+```
+Monster detected
+    ↓
+Check weapon inventory
+    ↓ (no weapon)
+_try_pickup_weapon() → break nearby barrels/crates
+    ↓
+Still no weapon? → _combat_retreat() (smart escape)
+Has weapon? → _combat_engage()
+    ↓
+danger >= 4 and kite=True? → _combat_kite() (hit-and-run)
+danger < 4? → standard attack (monster-specific swings)
+```
+
+---
+
+## Hint System Improvements
+
+### Location Awareness
 
 ```python
 # At start of _get_done_farming_hint():
-location = state.get("location", {}).get("name", "") if state else ""
 if "Mine" in location:
-    return ">>> ⛏️ IN MINES! Break rocks to find ladder. Use Pickaxe on rocks. <<<"
-if location and location != "Farm":
+    return ">>> ⛏️ IN MINES! Break rocks to find ladder. <<<"
+if location != "Farm":
     return ""  # No farming hints outside farm
 ```
 
-### 2. Comprehensive Task Flow Logging
+### Time & Task Awareness
 
-Now logs at every decision point in task execution:
+```python
+# Before suggesting bed:
+if self.daily_planner:
+    mining_task = next((t for t in pending if t.category == "mining"), None)
+    if mining_task and hour < 16:
+        return ">>> ⛏️ FARM DONE! GO MINING! <<<"
 
-| Log Message | Meaning |
-|-------------|---------|
-| `🔍 STEP 2b: day1_clearing=X, has_executor=Y, has_planner=Z` | Code path reached, shows system state |
-| `🎯 _try_start_daily_task: early return (executor=X, planner=Y)` | Missing executor or planner |
-| `🎯 _try_start_daily_task: waiting for daily plan (day X, last_planned=Y)` | Day mismatch issue |
-| `🎯 _try_start_daily_task: no resolved queue, falling back to legacy` | No resolved tasks |
-| `🎯 _try_start_daily_task: X items in resolved queue` | Normal processing |
+# Only suggest bed if actually late
+if hour >= 18 or energy_pct <= 40:
+    return ">>> go to bed <<<"
+
+# Otherwise suggest exploration
+return ">>> Explore, forage, fish, or visit town. <<<"
+```
 
 ---
 
@@ -65,81 +108,109 @@ Now logs at every decision point in task execution:
 python src/python-agent/unified_agent.py --goal "Do farm chores and go mining"
 ```
 
-### Expected Log Sequence (Success)
+### Expected Logs - Task Flow
+
 ```
 🔍 STEP 2b: day1_clearing=False, has_executor=True, has_planner=True
 🎯 _try_start_daily_task: 3 items in resolved queue
-🔍 Task check: id=mining_N_1, type=mining, daily_task=True, status=pending, skill_override=auto_mine
-🚀 BATCH MODE: Task mining_N_1 uses skill_override=auto_mine
+🔍 Task check: id=mining_5_1, skill_override=auto_mine
+🚀 BATCH MODE: Task mining_5_1 uses skill_override=auto_mine
 🚀 Executing batch: auto_mine
-⛏️ ═══════════════════════════════════════
-⛏️ BATCH MINING - Target: 5 floors
-⛏️ ═══════════════════════════════════════
 ```
 
-### Diagnosing Problems
+### Expected Logs - Combat
 
-| Log Pattern | Problem | Fix |
-|-------------|---------|-----|
-| No `🔍 STEP 2b` log | Code path not reached | Check earlier returns in tick() |
-| `day1_clearing=True` | Day 1 mode still active | Check `_day1_clearing_active` flag |
-| `has_executor=False` or `has_planner=False` | Not initialized | Check `__init__` |
-| `waiting for daily plan` | `_last_planned_day` mismatch | Check `new_day()` was called |
-| `no resolved queue` | PrereqResolver issue | Check `_resolve_prerequisites()` |
-| Queue has items but no batch | Mining task not in queue | Check `_generate_maintenance_tasks()` |
+```
+⛏️ Floor 3: 12 rocks, 2 monsters, ladder=False
+⚔️ Combat: Bat (danger=2, dist=3)
+⚔️ Combat: Green Slime (danger=1, dist=5)
+```
+
+### Expected Logs - Kiting (Dangerous Monster)
+
+```
+⚔️ Combat: Serpent (danger=5, dist=4)
+⚔️ Kiting Serpent (danger=5)
+⚔️ Serpent still alive - continue kiting
+```
+
+### Expected Logs - No Weapon
+
+```
+⛏️ No weapon! Searching for one...
+📦 Breaking Barrel at (12,8) for loot
+⚔️ Got a weapon from container!
+⛏️ Armed and ready!
+```
+
+### Expected Logs - Smart Retreat
+
+```
+🏃 No weapon! Smart retreat from Bug
+🏃 Escaped west
+```
 
 ---
 
-## If Still Not Working
+## If Mining Still Not Executing
 
-### Priority 1: Check Mining Task Creation
+### Check 1: Diagnostic Logs Appearing?
 
-The mining task is created in `daily_planner.py:588`:
-```python
-self.tasks.append(DailyTask(
-    id=f"mining_{self.current_day}_1",
-    ...
-    skill_override="auto_mine",
-))
-logger.info(f"⛏️ Mining task ADDED: {target_floors} floors, skill_override=auto_mine")
-```
+Look for `🔍 STEP 2b:` log. If missing:
+- Agent wasn't restarted after code changes
+- Code path returning before STEP 2b (check earlier returns in `_tick()`)
 
-Look for this log at day start. If missing, check prerequisites:
-- `has_pickaxe=True` (player must have pickaxe)
+### Check 2: Day Mismatch?
+
+If you see `waiting for daily plan (day X, last_planned=Y)`:
+- `new_day()` wasn't called for current day
+- Check daily planner initialization
+
+### Check 3: Empty Resolved Queue?
+
+If you see `no resolved queue, falling back to legacy`:
+- PrereqResolver not creating queue
+- Check `_resolve_prerequisites()` logs
+
+### Check 4: Mining Task Not Created?
+
+Look for `⛏️ Mining task ADDED:` at day start. If missing, check:
+- `has_pickaxe=True` (player needs pickaxe)
 - `energy_pct > 60` (over 60% energy)
 - `hour < 14` (before 2pm)
 
-### Priority 2: Check PrereqResolver
+---
 
-Mining tasks should go straight to `resolved_queue` without prereq processing:
-```python
-if skill_override:
-    logger.info(f"   ⚡ Batch task: {task_desc} (skill_override={skill_override})")
-    resolved_queue.append(ResolvedTask(..., skill_override=skill_override))
-```
+## Key Files Quick Reference
 
-Look for `⚡ Batch task:` log when daily plan is created.
-
-### Priority 3: Add Batch Pending Check
-
-If `_try_start_daily_task()` returns True but batch doesn't execute, add logging in tick():
-```python
-if self._try_start_daily_task():
-    logging.info(f"🎯 _try_start_daily_task returned True, _pending_batch={self._pending_batch}")
-```
+| File | Line | What |
+|------|------|------|
+| `unified_agent.py` | 1763-1770 | Location-aware hint |
+| `unified_agent.py` | 1893-1901 | Time-aware hint |
+| `unified_agent.py` | 4334-4380 | MONSTER_DATA |
+| `unified_agent.py` | 4382-4412 | `_combat_engage()` |
+| `unified_agent.py` | 4414-4456 | `_combat_kite()` |
+| `unified_agent.py` | 4458-4498 | `_combat_retreat()` |
+| `unified_agent.py` | 4500-4552 | `_try_pickup_weapon()` |
+| `unified_agent.py` | 5786-5944 | `_try_start_daily_task()` |
+| `unified_agent.py` | 7600 | STEP 2b diagnostic |
+| `daily_planner.py` | 572-598 | Mining task creation |
 
 ---
 
-## Key Files Reference
+## Next Session Priorities
 
-| File | Line | Purpose |
-|------|------|---------|
-| `unified_agent.py` | 1763-1770 | Location-aware hint (Session 124 fix) |
-| `unified_agent.py` | 5786 | `_try_start_daily_task()` entry |
-| `unified_agent.py` | 7600 | STEP 2b diagnostic logging |
-| `unified_agent.py` | 4325 | `_batch_mine_session()` |
-| `daily_planner.py` | 572-598 | Mining task creation |
-| `prereq_resolver.py` | 163-174 | Batch task handling |
+1. **Test the fixes** - Restart agent and verify:
+   - Diagnostic logs appear
+   - Mining task triggers after farm chores
+   - Combat system works (kiting, retreat, weapon pickup)
+
+2. **If mining still broken** - Follow troubleshooting above
+
+3. **Combat tuning** - After testing, may need to adjust:
+   - Swing counts per monster
+   - Kite distance/timing
+   - Retreat direction selection
 
 ---
 
