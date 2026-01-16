@@ -1887,7 +1887,20 @@ class ModBridgeController:
             direction_str = " then ".join(dirs) if dirs else "nearby"
             return f">>> ✅ WATERING DONE! CLEAR DEBRIS: {debris_name} {direction_str}. Move there, then use {skill} <<<"
 
-        return ">>> ✅ ALL FARMING DONE! Use action 'go_to_bed' to end day. <<<"
+        # Session 124: Time-aware hints - don't suggest bed at 9:50 AM!
+        # Check for pending mining task before suggesting bed
+        if self.daily_planner:
+            pending = [t for t in self.daily_planner.tasks if t.status == "pending"]
+            mining_task = next((t for t in pending if t.category == "mining"), None)
+            if mining_task and hour < 16:
+                return ">>> ⛏️ FARM DONE! GO MINING! Use skill: warp_to_mine <<<"
+
+        # Only suggest bed if it's actually late or low energy
+        if hour >= 18 or energy_pct <= 40:
+            return ">>> ✅ ALL FARMING DONE! Use action 'go_to_bed' to end day. <<<"
+
+        # Daytime with nothing to do - suggest exploring
+        return ">>> ✅ FARM CHORES DONE! Explore, forage, fish, or visit town. <<<"
 
     def _calc_adjacent_hint(self, dx: int, dy: int, action: str = "water") -> str:
         """
