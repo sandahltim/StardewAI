@@ -1760,6 +1760,15 @@ class ModBridgeController:
         if not state:
             return ">>> ALL CROPS WATERED! ✓ Go to bed or explore. <<<"
 
+        # Session 124: Location awareness - don't give farm hints outside Farm
+        location = state.get("location", {}).get("name", "") if state else ""
+        if "Mine" in location:
+            # In mines - give mining hint, not farming hint
+            return ">>> ⛏️ IN MINES! Break rocks to find ladder. Use Pickaxe on rocks. <<<"
+        if location and location != "Farm":
+            # Not on farm - no farming hints (let other systems handle)
+            return ""
+
         hour = state.get("time", {}).get("hour", 12)
         energy = state.get("player", {}).get("energy", 100)
         energy_pct = (energy / state.get("player", {}).get("maxEnergy", 270) * 100) if state.get("player", {}).get("maxEnergy", 270) > 0 else 100
@@ -7587,6 +7596,8 @@ Recent: {recent}"""
 
         # STEP 2b: Try to start a task from daily planner if executor is idle
         # Skip task executor on Day 1 - Day 1 clearing handles everything
+        # Session 124: Diagnostic logging BEFORE executor check
+        logging.info(f"🔍 STEP 2b: day1_clearing={self._day1_clearing_active}, has_executor={self.task_executor is not None}, has_planner={self.daily_planner is not None}")
         if self._day1_clearing_active:
             pass  # Day 1 clearing is exclusive
         elif self.task_executor:
