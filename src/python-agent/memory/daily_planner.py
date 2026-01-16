@@ -36,6 +36,13 @@ try:
 except ImportError:
     HAS_FARM_PLANNER = False
 
+# Session 130: Import inventory manager for storage decisions
+try:
+    from planning.inventory_manager import get_inventory_manager
+    HAS_INVENTORY_MANAGER = True
+except ImportError:
+    HAS_INVENTORY_MANAGER = False
+
 # Import constants for default locations
 try:
     from constants import DEFAULT_LOCATIONS
@@ -640,6 +647,31 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                         notes=f"Materials: {wood_count}/50 wood",
                     ))
                     logger.info(f"📋 Added task: Craft chest (have {wood_count} wood)")
+
+        # Session 130: INVENTORY MANAGEMENT - organize when getting full
+        if HAS_INVENTORY_MANAGER and has_chest_placed:
+            inv_manager = get_inventory_manager()
+            if inv_manager.needs_organization(inventory):
+                summary = inv_manager.get_storage_summary(inventory)
+                store_count = summary.get("store_count", 0)
+                sell_count = summary.get("sell_count", 0)
+
+                self.tasks.append(DailyTask(
+                    id=f"organize_inventory_{self.current_day}",
+                    description=f"Organize inventory ({store_count} to store, {sell_count} to sell)",
+                    category="storage",
+                    priority=TaskPriority.HIGH.value,  # High - can't pick up more items!
+                    target_location="Farm",
+                    estimated_time=10,
+                    skill_override="organize_inventory",
+                    notes=f"Store: {', '.join(summary.get('store_items', [])[:3])}...",
+                ))
+                logger.info(f"📋 Added task: Organize inventory ({store_count} to store)")
+        elif not has_chest_placed and HAS_INVENTORY_MANAGER:
+            # Check if inventory is full but no chest - warn
+            inv_manager = get_inventory_manager()
+            if inv_manager.needs_organization(inventory):
+                logger.warning("📋 Inventory needs organization but no chest on farm! Need to craft one first.")
 
     def _generate_maintenance_tasks(self, state: Dict[str, Any]) -> None:
         """Generate farm maintenance tasks.
