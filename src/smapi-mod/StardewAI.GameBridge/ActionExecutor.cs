@@ -1431,23 +1431,33 @@ public class ActionExecutor
             new Point(playerTile.X + 1, playerTile.Y)
         };
 
+        // Session 129: Helper to check for ladder/shaft in an object
+        StardewValley.Object CheckTileForLadder(Vector2 key)
+        {
+            // Check property (uppercase Objects) - pre-existing objects
+            if (mine.Objects.TryGetValue(key, out var obj))
+            {
+                if (obj.Name == "Ladder" || obj.Name == "Shaft")
+                    return obj;
+            }
+            // Also check field (lowercase objects) - runtime spawned objects
+            if (mine.objects.TryGetValue(key, out var obj2))
+            {
+                if (obj2.Name == "Ladder" || obj2.Name == "Shaft")
+                    return obj2;
+            }
+            return null;
+        }
+
         foreach (var tile in checkTiles)
         {
             var key = new Vector2(tile.X, tile.Y);
-            if (mine.Objects.TryGetValue(key, out var obj))
+            var obj = CheckTileForLadder(key);
+            if (obj != null)
             {
-                if (obj.Name == "Ladder")
-                {
-                    ladderPos = tile;
-                    isShaft = false;
-                    break;
-                }
-                else if (obj.Name == "Shaft")
-                {
-                    ladderPos = tile;
-                    isShaft = true;
-                    break;
-                }
+                ladderPos = tile;
+                isShaft = obj.Name == "Shaft";
+                break;
             }
         }
 
