@@ -135,6 +135,7 @@ class DailyPlanner:
         reason_fn: Optional[callable] = None,
         farm_state: Optional[Dict[str, Any]] = None,
         surroundings: Optional[Dict[str, Any]] = None,
+        total_inventory: Optional[Dict[str, int]] = None,
     ) -> str:
         """
         Called when a new game day starts. Generates the daily plan.
@@ -146,6 +147,7 @@ class DailyPlanner:
             reason_fn: Optional async function(prompt) -> str for VLM reasoning
             farm_state: Farm-specific state (crops, objects) from /farm endpoint
             surroundings: Optional surroundings data with water/landmark locations
+            total_inventory: Session 134 - Dict of item_name -> count including chests
 
         Returns:
             Elias's morning plan as a string (for VLM context)
@@ -162,7 +164,7 @@ class DailyPlanner:
         # Generate tasks based on game state (rule-based baseline)
         # Use farm_state if available (works when player is in FarmHouse)
         self._generate_farming_tasks(game_state, farm_state)
-        self._generate_crafting_tasks(game_state, farm_state)  # Session 121: Auto-craft essentials
+        self._generate_crafting_tasks(game_state, farm_state, total_inventory)  # Session 134: Pass total inventory
         self._generate_maintenance_tasks(game_state, farm_state)
         self._generate_social_tasks(game_state)
 
@@ -497,10 +499,17 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         self,
         state: Dict[str, Any],
         farm_state: Optional[Dict[str, Any]] = None,
+        total_inventory: Optional[Dict[str, int]] = None,
     ) -> None:
         """Generate crafting tasks for essential items.
 
         Session 121: Auto-craft scarecrow and chest when materials available.
+        Session 134: Uses total_inventory (player + chests) for material counts.
+
+        Args:
+            state: Current game state
+            farm_state: Farm-specific state
+            total_inventory: Optional dict of item_name -> total_count (including chests)
 
         Essential items:
         - Scarecrow: Protects crops from crows (need 50 wood, 1 coal, 20 fiber)
@@ -514,25 +523,38 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         farm_data = farm_state or {}
         farm_objects = farm_data.get("objects", [])
 
-        # Session 130: Count materials AND check for crafted items in inventory
-        wood_count = 0
-        coal_count = 0
-        fiber_count = 0
-        has_scarecrow_item = False  # Crafted scarecrow in inventory
-        has_chest_item = False      # Crafted chest in inventory
+        # Session 134: Use total_inventory (includes chests) if provided
+        # Otherwise fall back to just player inventory
+        if total_inventory:
+            wood_count = total_inventory.get("Wood", 0)
+            coal_count = total_inventory.get("Coal", 0)
+            fiber_count = total_inventory.get("Fiber", 0)
+            logger.info(f"📋 Using total inventory: {wood_count} wood, {coal_count} coal, {fiber_count} fiber")
+        else:
+            wood_count = 0
+            coal_count = 0
+            fiber_count = 0
+            for item in inventory:
+                if not item:
+                    continue
+                name = item.get("name", "").lower()
+                stack = item.get("stack", 1)
+                if name == "wood":
+                    wood_count += stack
+                elif name == "coal":
+                    coal_count += stack
+                elif name == "fiber":
+                    fiber_count += stack
+
+        # Check for crafted items in player inventory (not chest - need to place them)
+        has_scarecrow_item = False
+        has_chest_item = False
 
         for item in inventory:
             if not item:
                 continue
             name = item.get("name", "").lower()
-            stack = item.get("stack", 1)
-            if name == "wood":
-                wood_count += stack
-            elif name == "coal":
-                coal_count += stack
-            elif name == "fiber":
-                fiber_count += stack
-            elif "scarecrow" in name:
+            if "scarecrow" in name:
                 has_scarecrow_item = True
             elif name == "chest":
                 has_chest_item = True
@@ -615,7 +637,8 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                     coal_count -= 1
                     fiber_count -= 20
                 else:
-                    # Can't craft - log what's missing
+                    # Can't craft - create gathering tasks for missing materials
+                    # Session 134: Add gathering tasks like we do for chest
                     missing = []
                     if wood_count < 50:
                         missing.append(f"wood ({wood_count}/50)")
@@ -624,6 +647,40 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                     if fiber_count < 20:
                         missing.append(f"fiber ({fiber_count}/20)")
                     logger.info(f"📋 Need scarecrow #{i+1} but missing: {', '.join(missing)}")
+
+                    # Add gathering tasks for missing materials
+                    if wood_count < 50:
+                        wood_needed = 50 - wood_count
+                        self.tasks.append(DailyTask(
+                            id=f"gather_wood_scarecrow_{self.current_day}",
+                            description=f"Chop trees for scarecrow wood ({wood_count}/50)",
+                            category="gathering",
+                            priority=TaskPriority.HIGH.value,
+                            target_location="Farm",
+                            estimated_time=15,
+                            skill_override="gather_wood",
+                            notes=f"Need 50 wood for scarecrow. Have {wood_count}, need {wood_needed} more.",
+                        ))
+                        logger.info(f"📋 Added task: Gather wood for scarecrow ({wood_needed} needed)")
+
+                    if fiber_count < 20:
+                        fiber_needed = 20 - fiber_count
+                        self.tasks.append(DailyTask(
+                            id=f"gather_fiber_{self.current_day}",
+                            description=f"Cut weeds for fiber ({fiber_count}/20)",
+                            category="gathering",
+                            priority=TaskPriority.HIGH.value,
+                            target_location="Farm",
+                            estimated_time=10,
+                            skill_override="gather_fiber",
+                            notes=f"Need 20 fiber for scarecrow. Have {fiber_count}, need {fiber_needed} more.",
+                        ))
+                        logger.info(f"📋 Added task: Gather fiber for scarecrow ({fiber_needed} needed)")
+
+                    if coal_count < 1:
+                        # Coal comes from mining or buying - note it but mining handles this
+                        logger.info(f"📋 Need coal for scarecrow - will get from mining")
+
                     break  # Can't craft more without materials
 
         # CHEST: HIGH priority - needed for mining and inventory management

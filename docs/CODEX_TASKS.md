@@ -2,7 +2,256 @@
 
 **Owner:** Codex (UI/Memory)
 **Updated by:** Claude (PM)
-**Last Updated:** 2026-01-14 Session 108
+**Last Updated:** 2026-01-16 Session 135
+
+---
+
+## 🔥 CRITICAL: Codebase Modularization (Session 135)
+
+### TASK: Extract Helper Modules from unified_agent.py
+
+**Priority:** CRITICAL - Blocking all future development
+**Assigned:** 2026-01-16 Session 135
+**Status:** 🔲 Not Started
+
+#### Background
+
+`unified_agent.py` has grown to **10,345 lines** with **115 methods** and **150+ duplicated patterns**. Session 135 analysis revealed the code is unmaintainable - fixes in one place get missed in duplicated code elsewhere.
+
+See full analysis: `docs/REFACTORING_PLAN.md`
+
+#### Phase 1: Helper Modules (Start Here)
+
+Create `src/python-agent/helpers/` directory with utility modules that eliminate duplicated patterns.
+
+**1. Create `helpers/inventory.py`**
+
+```python
+"""Centralized inventory operations - eliminates 8+ duplicate patterns."""
+
+def find_item_in_inventory(inventory: list, name: str) -> dict | None:
+    """Find item by name (case-insensitive)."""
+    for item in inventory:
+        if item and item.get("name", "").lower() == name.lower():
+            return item
+    return None
+
+def count_materials(inventory: list, names: list[str]) -> dict[str, int]:
+    """Count multiple materials in one pass."""
+    counts = {name: 0 for name in names}
+    for item in inventory:
+        if item:
+            item_name = item.get("name", "").lower()
+            for name in names:
+                if item_name == name.lower():
+                    counts[name] = item.get("stack", 0)
+    return counts
+
+def find_item_slot(inventory: list, name: str) -> int | None:
+    """Get slot index for item by name."""
+    for i, item in enumerate(inventory):
+        if item and item.get("name", "").lower() == name.lower():
+            return i
+    return None
+
+def find_seeds(inventory: list) -> list[dict]:
+    """Find all seed items."""
+    return [item for item in inventory if item and "seed" in item.get("name", "").lower()]
+```
+
+**2. Create `helpers/objects.py`**
+
+```python
+"""Object finding in locations - eliminates 4+ duplicate patterns."""
+
+def find_object_by_name(objects: list, name: str) -> tuple[int, int] | None:
+    """Find object position by name (case-insensitive)."""
+    for obj in objects:
+        if obj.get("name", "").lower() == name.lower():
+            x = obj.get("x", obj.get("tileX"))
+            y = obj.get("y", obj.get("tileY"))
+            return (x, y)
+    return None
+
+def find_chest(location_data: dict) -> tuple[int, int] | None:
+    """Find chest position in location."""
+    objects = location_data.get("objects", [])
+    return find_object_by_name(objects, "chest")
+```
+
+**3. Create `helpers/navigation.py`**
+
+```python
+"""Direction and navigation utilities - eliminates 4+ duplicate patterns."""
+
+def direction_to_target(px: int, py: int, tx: int, ty: int) -> str:
+    """Calculate cardinal direction from source to target."""
+    dx = tx - px
+    dy = ty - py
+    if abs(dx) > abs(dy):
+        return "east" if dx > 0 else "west"
+    else:
+        return "south" if dy > 0 else "north"
+
+def get_adjacent_tiles(x: int, y: int) -> list[tuple[int, int, str]]:
+    """Get (x, y, facing_direction) for tiles adjacent to target."""
+    return [
+        (x, y + 1, "north"),  # Stand south, face north
+        (x, y - 1, "south"),  # Stand north, face south
+        (x + 1, y, "west"),   # Stand east, face west
+        (x - 1, y, "east"),   # Stand west, face east
+    ]
+```
+
+**4. Create `helpers/state.py`**
+
+```python
+"""Safe state extraction - eliminates 150+ defensive patterns."""
+
+def get_inventory(state: dict | None) -> list:
+    """Safely extract inventory from state."""
+    if not state:
+        return []
+    return state.get("inventory", [])
+
+def get_player_position(state: dict | None) -> tuple[int, int]:
+    """Safely extract player position."""
+    if not state:
+        return (0, 0)
+    player = state.get("player", {})
+    return (player.get("tileX", 0), player.get("tileY", 0))
+
+def get_location_data(state: dict | None) -> dict:
+    """Safely extract location data."""
+    if not state:
+        return {}
+    return state.get("location", {})
+
+def get_location_name(state: dict | None) -> str:
+    """Safely extract location name."""
+    return get_location_data(state).get("name", "")
+```
+
+**5. Create `helpers/__init__.py`**
+
+```python
+"""Helper utilities for unified_agent.py modularization."""
+
+from .inventory import (
+    find_item_in_inventory,
+    count_materials,
+    find_item_slot,
+    find_seeds,
+)
+from .objects import find_object_by_name, find_chest
+from .navigation import direction_to_target, get_adjacent_tiles
+from .state import (
+    get_inventory,
+    get_player_position,
+    get_location_data,
+    get_location_name,
+)
+
+__all__ = [
+    "find_item_in_inventory",
+    "count_materials",
+    "find_item_slot",
+    "find_seeds",
+    "find_object_by_name",
+    "find_chest",
+    "direction_to_target",
+    "get_adjacent_tiles",
+    "get_inventory",
+    "get_player_position",
+    "get_location_data",
+    "get_location_name",
+]
+```
+
+#### Phase 2: Add Unit Tests
+
+**Create `tests/test_helpers/test_inventory.py`**
+
+```python
+import pytest
+from helpers.inventory import find_item_in_inventory, count_materials, find_item_slot
+
+def test_find_item_by_name():
+    inv = [{"name": "Wood", "stack": 50}, {"name": "Stone", "stack": 25}]
+    item = find_item_in_inventory(inv, "wood")
+    assert item["stack"] == 50
+
+def test_find_item_case_insensitive():
+    inv = [{"name": "Parsnip Seeds", "stack": 5}]
+    item = find_item_in_inventory(inv, "PARSNIP SEEDS")
+    assert item is not None
+
+def test_count_materials():
+    inv = [
+        {"name": "Wood", "stack": 50},
+        {"name": "Coal", "stack": 3},
+        {"name": "Fiber", "stack": 20},
+    ]
+    counts = count_materials(inv, ["wood", "coal", "fiber"])
+    assert counts == {"wood": 50, "coal": 3, "fiber": 20}
+
+def test_find_item_slot():
+    inv = [{"name": "Hoe", "stack": 1}, {"name": "Watering Can", "stack": 1}]
+    slot = find_item_slot(inv, "watering can")
+    assert slot == 1
+```
+
+#### Files to Create
+
+```
+src/python-agent/
+├── helpers/
+│   ├── __init__.py
+│   ├── inventory.py
+│   ├── objects.py
+│   ├── navigation.py
+│   └── state.py
+└── tests/
+    └── test_helpers/
+        ├── __init__.py
+        ├── test_inventory.py
+        ├── test_objects.py
+        ├── test_navigation.py
+        └── test_state.py
+```
+
+#### Test Command
+
+```bash
+cd /home/tim/StardewAI
+source venv/bin/activate
+python -m pytest src/python-agent/tests/test_helpers/ -v
+```
+
+#### Acceptance Criteria
+
+- [ ] All 4 helper modules created with functions as specified
+- [ ] `helpers/__init__.py` exports all functions
+- [ ] Unit tests created for each module
+- [ ] All tests pass
+- [ ] No external dependencies (pure Python)
+
+#### Impact
+
+| Pattern | Current Duplications | After Helpers |
+|---------|---------------------|---------------|
+| Inventory item search | 8+ | 0 |
+| Material counting | 6+ | 0 |
+| Object finding | 4+ | 0 |
+| State extraction | 150+ | 0 |
+
+#### Next Steps (After Phase 1)
+
+Phase 2: Extract `modules/vlm_interface.py` (UnifiedVLM class)
+Phase 3: Extract `modules/game_state.py` (get_* methods)
+Phase 4: Extract `modules/batch_skills.py` (all _batch_* methods)
+
+See `docs/REFACTORING_PLAN.md` for complete extraction sequence.
 
 ---
 

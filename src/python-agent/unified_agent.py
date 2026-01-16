@@ -3441,7 +3441,8 @@ class StardewAgent:
         
         # Session 125: Batch skills are handled specially, not in skills_dict
         # Session 131: Added gather_wood for chest prerequisite
-        BATCH_SKILLS = {"auto_farm_chores", "auto_mine", "gather_wood"}
+        # Session 134: Added gather_fiber for scarecrow, organize_inventory for storage
+        BATCH_SKILLS = {"auto_farm_chores", "auto_mine", "gather_wood", "gather_fiber", "organize_inventory", "craft_chest", "auto_place_chest", "craft_scarecrow", "auto_place_scarecrow"}
         if skill_name not in BATCH_SKILLS:
             if not self.skill_executor or skill_name not in self.skills_dict:
                 logging.warning(f"Skill not found or executor not ready: {skill_name}")
@@ -3637,16 +3638,108 @@ class StardewAgent:
                 return True
 
         # Session 131: Gather wood for chest crafting
+        # Session 134: Return False if target not reached (task stays in queue for retry)
         if skill_name == "gather_wood":
             logging.info(f"🎯 Executing batch skill: gather_wood")
             target_wood = params.get("target", 50)  # Default 50 for chest
             results = await self._batch_gather_wood(target_wood)
-            if results["wood_gathered"] > 0:
-                logging.info(f"✅ gather_wood: gathered {results['wood_gathered']} wood, chopped {results['trees_chopped']} trees, cleared {results['debris_cleared']} debris")
+
+            # Check if we reached the target
+            self._refresh_state_snapshot()
+            inventory = self.last_state.get("inventory", []) if self.last_state else []
+            current_wood = 0
+            for item in inventory:
+                if item and item.get("name", "").lower() == "wood":
+                    current_wood = item.get("stack", 0)
+                    break
+
+            if current_wood >= target_wood:
+                logging.info(f"✅ gather_wood: reached target! Have {current_wood}/{target_wood} wood")
+                return True
+            elif results["wood_gathered"] > 0:
+                logging.info(f"⚠️ gather_wood: gathered {results['wood_gathered']} wood but still at {current_wood}/{target_wood} - task stays in queue")
+                return False  # Task not complete - retry later
+            else:
+                logging.warning(f"🪓 gather_wood: no wood gathered, have {current_wood}/{target_wood} - need trees/debris")
+                return False  # No progress - maybe need to try later
+
+        # Session 134: Gather fiber for scarecrow crafting
+        if skill_name == "gather_fiber":
+            logging.info(f"🎯 Executing batch skill: gather_fiber")
+            target_fiber = params.get("target", 20)  # Default 20 for scarecrow
+            results = await self._batch_gather_fiber(target_fiber)
+
+            # Check if we reached the target
+            self._refresh_state_snapshot()
+            inventory = self.last_state.get("inventory", []) if self.last_state else []
+            current_fiber = 0
+            for item in inventory:
+                if item and item.get("name", "").lower() == "fiber":
+                    current_fiber = item.get("stack", 0)
+                    break
+
+            if current_fiber >= target_fiber:
+                logging.info(f"✅ gather_fiber: reached target! Have {current_fiber}/{target_fiber} fiber")
+                return True
+            elif results["fiber_gathered"] > 0:
+                logging.info(f"⚠️ gather_fiber: gathered {results['fiber_gathered']} fiber but still at {current_fiber}/{target_fiber} - task stays in queue")
+                return False  # Task not complete - retry later
+            else:
+                logging.warning(f"🌿 gather_fiber: no fiber gathered, have {current_fiber}/{target_fiber} - need weeds")
+                return False  # No progress - maybe need to try later
+
+        # Session 134: Organize inventory - store excess items in chest
+        if skill_name == "organize_inventory":
+            logging.info(f"🎯 Executing batch skill: organize_inventory")
+            results = await self._batch_organize_inventory()
+            if results["items_stored"] > 0:
+                logging.info(f"✅ organize_inventory: stored {results['items_stored']} items")
                 return True
             else:
-                logging.info("✅ gather_wood: no wood gathered (possibly no trees/debris)")
+                logging.info("✅ organize_inventory: nothing to store")
+                return True  # Success even if nothing to store
+
+        # Session 135: Craft and place chest
+        if skill_name == "craft_chest":
+            logging.info(f"🎯 Executing batch skill: craft_chest")
+            success = await self._batch_craft_chest()
+            if success:
+                logging.info("✅ craft_chest: Chest crafted successfully")
                 return True
+            else:
+                logging.warning("❌ craft_chest: Failed to craft chest (missing materials?)")
+                return False
+
+        if skill_name == "auto_place_chest":
+            logging.info(f"🎯 Executing batch skill: auto_place_chest")
+            success = await self._batch_place_chest()
+            if success:
+                logging.info("✅ auto_place_chest: Chest placed successfully")
+                return True
+            else:
+                logging.warning("❌ auto_place_chest: Failed to place chest")
+                return False
+
+        # Session 135: Craft and place scarecrow
+        if skill_name == "craft_scarecrow":
+            logging.info(f"🎯 Executing batch skill: craft_scarecrow")
+            success = await self._batch_craft_scarecrow()
+            if success:
+                logging.info("✅ craft_scarecrow: Scarecrow crafted successfully")
+                return True
+            else:
+                logging.warning("❌ craft_scarecrow: Failed to craft scarecrow (missing materials?)")
+                return False
+
+        if skill_name == "auto_place_scarecrow":
+            logging.info(f"🎯 Executing batch skill: auto_place_scarecrow")
+            success = await self._batch_place_scarecrow()
+            if success:
+                logging.info("✅ auto_place_scarecrow: Scarecrow placed successfully")
+                return True
+            else:
+                logging.warning("❌ auto_place_scarecrow: Failed to place scarecrow")
+                return False
 
         skill = self.skills_dict[skill_name]
         logging.info(f"🎯 Executing skill: {skill_name} ({skill.description})")
@@ -5746,6 +5839,544 @@ Respond with ONLY your inner monologue, nothing else."""
 
         return results
 
+    # SESSION 134: Fiber Gathering for Scarecrow Crafting
+    # =========================================================================
+
+    async def _batch_gather_fiber(self, target_fiber: int = 20) -> dict:
+        """Gather fiber by cutting weeds on farm with scythe.
+
+        Args:
+            target_fiber: How much fiber to gather (default 20 for scarecrow)
+
+        Returns dict with counts:
+            - fiber_gathered: Total fiber collected
+            - weeds_cut: Number of weeds cut
+        """
+        results = {"fiber_gathered": 0, "weeds_cut": 0}
+
+        logging.info("🌿 ═══════════════════════════════════════")
+        logging.info(f"🌿 GATHER FIBER - Target: {target_fiber} fiber")
+        logging.info("🌿 ═══════════════════════════════════════")
+
+        # Ensure we're on the farm
+        self._refresh_state_snapshot()
+        if not self.last_state:
+            logging.warning("🌿 No state available")
+            return results
+
+        location = self.last_state.get("location", {}).get("name", "")
+        if location != "Farm":
+            logging.info("🌿 Warping to farm...")
+            self.controller.execute(Action("warp", {"location": "Farm"}, "warp to farm"))
+            await asyncio.sleep(0.6)
+            self._refresh_state_snapshot()
+
+        # Get current fiber count
+        def get_fiber_count() -> int:
+            inventory = self.last_state.get("inventory", []) if self.last_state else []
+            for item in inventory:
+                if item and item.get("name", "").lower() == "fiber":
+                    return item.get("stack", 0)
+            return 0
+
+        initial_fiber = get_fiber_count()
+        logging.info(f"🌿 Starting with {initial_fiber} fiber")
+
+        # Safety limits
+        MAX_ACTIONS = 40
+        MIN_ENERGY_PCT = 20
+        action_count = 0
+
+        # Get farm objects - weeds are in objects list
+        location_data = self.last_state.get("location", {}) if self.last_state else {}
+        objects = location_data.get("objects", [])
+
+        # Find weeds (they give fiber when cut with scythe)
+        WEED_NAMES = {"weed", "weeds"}
+        weeds = []
+        for obj in objects:
+            obj_name = obj.get("name", "").lower()
+            obj_type = obj.get("type", "").lower()
+
+            if any(w in obj_name for w in WEED_NAMES) or any(w in obj_type for w in WEED_NAMES):
+                x = obj.get("x", obj.get("tileX"))
+                y = obj.get("y", obj.get("tileY"))
+                if x is not None and y is not None:
+                    weeds.append((x, y, obj_name or "weed"))
+
+        logging.info(f"🌿 Found {len(weeds)} weeds on farm")
+
+        if not weeds:
+            logging.warning("🌿 No weeds found on farm!")
+            return results
+
+        # Get player position for sorting
+        player = self.last_state.get("player", {}) if self.last_state else {}
+        px, py = player.get("tileX", 0), player.get("tileY", 0)
+
+        # Sort by distance
+        weeds.sort(key=lambda w: abs(w[0] - px) + abs(w[1] - py))
+
+        # Cut weeds
+        for x, y, name in weeds:
+            # Check if we have enough fiber
+            self._refresh_state_snapshot()
+            current_fiber = get_fiber_count()
+            if current_fiber >= target_fiber:
+                logging.info(f"🌿 ✓ Reached target! Have {current_fiber} fiber")
+                break
+
+            # Check energy
+            player = self.last_state.get("player", {}) if self.last_state else {}
+            energy = player.get("energy", 100)
+            max_energy = player.get("maxEnergy", 270)
+            energy_pct = (energy / max_energy * 100) if max_energy > 0 else 0
+            if energy_pct < MIN_ENERGY_PCT:
+                logging.warning(f"🌿 Low energy ({energy_pct:.0f}%) - stopping")
+                break
+
+            # Check action limit
+            if action_count >= MAX_ACTIONS:
+                logging.info(f"🌿 Hit action limit ({MAX_ACTIONS})")
+                break
+
+            # Move adjacent and face the weed
+            logging.debug(f"🌿 Moving to weed at ({x},{y})")
+            moved = await self._move_adjacent_and_face(x, y)
+            if not moved:
+                logging.debug(f"🌿 Couldn't reach weed at ({x},{y}) - skipping")
+                continue
+
+            # Equip scythe and cut
+            self.controller.execute(Action("equip_tool", {"tool": "Scythe"}, "equip scythe"))
+            await asyncio.sleep(0.1)
+
+            # Cut the weed (1-2 swings usually enough)
+            for _ in range(2):
+                self.controller.execute(Action("use_tool", {}, "cut weed"))
+                await asyncio.sleep(0.15)
+
+            # Walk over to collect drops
+            self.controller.execute(Action("move_to", {"x": x, "y": y}, "collect"))
+            await asyncio.sleep(0.1)
+
+            action_count += 1
+            results["weeds_cut"] += 1
+
+        # Update final count
+        self._refresh_state_snapshot()
+        final_fiber = get_fiber_count()
+        results["fiber_gathered"] = final_fiber - initial_fiber
+
+        logging.info("🌿 ═══════════════════════════════════════")
+        logging.info(f"🌿 GATHER COMPLETE: +{results['fiber_gathered']} fiber")
+        logging.info(f"🌿   Weeds cut: {results['weeds_cut']}")
+        logging.info(f"🌿   Total fiber now: {final_fiber}")
+        logging.info("🌿 ═══════════════════════════════════════")
+
+        return results
+
+    # SESSION 134: Inventory Organization - Store Excess Items
+    # =========================================================================
+
+    async def _batch_organize_inventory(self) -> dict:
+        """Store excess items in chest to free inventory space.
+
+        Uses InventoryManager to decide what to store:
+        - Materials (wood, stone, coal, fiber, sap) beyond keep amounts
+        - Seeds, ores, bars, gems, monster loot
+        - Keeps tools, food, and essential crafting amounts
+
+        Returns dict with counts:
+            - items_stored: Total items deposited
+            - types_stored: List of item names stored
+        """
+        results = {"items_stored": 0, "types_stored": []}
+
+        logging.info("📦 ═══════════════════════════════════════")
+        logging.info("📦 ORGANIZE INVENTORY - Store excess items")
+        logging.info("📦 ═══════════════════════════════════════")
+
+        # Ensure we're on the farm
+        self._refresh_state_snapshot()
+        if not self.last_state:
+            logging.warning("📦 No state available")
+            return results
+
+        location = self.last_state.get("location", {}).get("name", "")
+        if location != "Farm":
+            logging.info("📦 Warping to farm...")
+            self.controller.execute(Action("warp", {"location": "Farm"}, "warp to farm"))
+            await asyncio.sleep(0.6)
+            self._refresh_state_snapshot()
+
+        # Find chest
+        location_data = self.last_state.get("location", {}) if self.last_state else {}
+        objects = location_data.get("objects", [])
+        chest_pos = None
+        for obj in objects:
+            if obj.get("name", "").lower() == "chest":
+                chest_pos = (obj.get("x", obj.get("tileX")), obj.get("y", obj.get("tileY")))
+                break
+
+        if not chest_pos:
+            logging.warning("📦 No chest found on farm - can't organize inventory")
+            return results
+
+        logging.info(f"📦 Found chest at {chest_pos}")
+
+        # Get inventory manager decision on what to store
+        try:
+            from planning.inventory_manager import get_inventory_manager
+            inv_manager = get_inventory_manager()
+        except ImportError:
+            logging.warning("📦 Inventory manager not available")
+            return results
+
+        inventory = self.last_state.get("inventory", []) if self.last_state else []
+        items_to_store = inv_manager.get_items_to_store(inventory)
+
+        if not items_to_store:
+            logging.info("📦 No items need storing")
+            return results
+
+        logging.info(f"📦 Items to store: {len(items_to_store)}")
+        for slot, item in items_to_store[:5]:  # Log first 5
+            logging.info(f"   📦 Slot {slot}: {item.get('name')} x{item.get('stack', 1)}")
+
+        # Move to chest
+        moved = await self._move_adjacent_and_face(chest_pos[0], chest_pos[1])
+        if not moved:
+            logging.warning("📦 Couldn't reach chest")
+            return results
+
+        # Determine facing direction
+        self._refresh_state_snapshot()
+        player = self.last_state.get("player", {}) if self.last_state else {}
+        px, py = player.get("tileX", 0), player.get("tileY", 0)
+
+        if chest_pos[1] > py:
+            face_dir = "south"
+        elif chest_pos[1] < py:
+            face_dir = "north"
+        elif chest_pos[0] > px:
+            face_dir = "east"
+        else:
+            face_dir = "west"
+
+        # Open chest
+        self.controller.execute(Action("open_chest", {"direction": face_dir}, "open chest"))
+        await asyncio.sleep(0.3)
+
+        # Deposit items
+        for slot, item in items_to_store:
+            item_name = item.get("name", "unknown")
+            stack = item.get("stack", 1)
+
+            # Check how much to keep
+            keep_amount = inv_manager.material_keep.get(item_name, 0)
+            deposit_amount = stack - keep_amount if stack > keep_amount else stack
+
+            if deposit_amount > 0:
+                logging.info(f"📦 Depositing {item_name} x{deposit_amount} (keeping {keep_amount})")
+                self.controller.execute(Action("deposit_item", {
+                    "slot": slot,
+                    "quantity": deposit_amount
+                }, f"deposit {item_name}"))
+                await asyncio.sleep(0.15)
+                results["items_stored"] += 1
+                results["types_stored"].append(item_name)
+
+        # Close chest
+        self.controller.execute(Action("close_chest", {}, "close chest"))
+        await asyncio.sleep(0.2)
+
+        logging.info("📦 ═══════════════════════════════════════")
+        logging.info(f"📦 ORGANIZE COMPLETE: {results['items_stored']} items stored")
+        logging.info(f"📦   Types: {results['types_stored'][:5]}{'...' if len(results['types_stored']) > 5 else ''}")
+        logging.info("📦 ═══════════════════════════════════════")
+
+        return results
+
+    # Session 135: Craft and place chest/scarecrow batch methods
+    async def _batch_craft_chest(self) -> bool:
+        """Craft a chest (requires 50 wood).
+        
+        Returns True if crafted successfully, False otherwise.
+        """
+        logging.info("📦 ═══════════════════════════════════════")
+        logging.info("📦 CRAFT CHEST - 50 Wood Required")
+        logging.info("📦 ═══════════════════════════════════════")
+
+        # Check materials
+        self._refresh_state_snapshot()
+        inventory = self.last_state.get("inventory", []) if self.last_state else []
+        wood_count = 0
+        for item in inventory:
+            if item and item.get("name", "").lower() == "wood":
+                wood_count = item.get("stack", 0)
+                break
+
+        if wood_count < 50:
+            logging.warning(f"📦 Not enough wood: {wood_count}/50")
+            return False
+
+        # Craft the chest
+        result = self.controller.execute(Action("craft", {"item": "Chest", "quantity": 1}, "craft chest"))
+        await asyncio.sleep(0.3)
+
+        # Verify it was crafted (should be in inventory now)
+        self._refresh_state_snapshot()
+        inventory = self.last_state.get("inventory", []) if self.last_state else []
+        for item in inventory:
+            if item and item.get("name", "").lower() == "chest":
+                logging.info("📦 Chest crafted successfully!")
+                return True
+
+        logging.warning("📦 Craft command sent but chest not found in inventory")
+        return False
+
+    async def _batch_place_chest(self) -> bool:
+        """Place a chest near the farmhouse.
+        
+        Looks for chest in inventory, moves to a suitable tile near the house,
+        and places it.
+        
+        Returns True if placed successfully, False otherwise.
+        """
+        logging.info("📦 ═══════════════════════════════════════")
+        logging.info("📦 PLACE CHEST - Near Farmhouse")
+        logging.info("📦 ═══════════════════════════════════════")
+
+        # Ensure we're on the farm
+        self._refresh_state_snapshot()
+        if not self.last_state:
+            logging.warning("📦 No state available")
+            return False
+
+        location = self.last_state.get("location", {}).get("name", "")
+        if location != "Farm":
+            logging.info("📦 Warping to farm...")
+            self.controller.execute(Action("warp", {"location": "Farm"}, "warp to farm"))
+            await asyncio.sleep(0.6)
+            self._refresh_state_snapshot()
+
+        # Find chest in inventory
+        inventory = self.last_state.get("inventory", []) if self.last_state else []
+        chest_slot = None
+        for i, item in enumerate(inventory):
+            if item and item.get("name", "").lower() == "chest":
+                chest_slot = i
+                break
+
+        if chest_slot is None:
+            logging.warning("📦 No chest in inventory")
+            return False
+
+        # Chest placement near farmhouse (east of door)
+        # Farmhouse door is around (64, 15), place chest at (65, 15)
+        target_x, target_y = 65, 15
+
+        # Move to adjacent tile and face the target
+        moved = await self._move_adjacent_and_face(target_x, target_y)
+        if not moved:
+            logging.warning("📦 Couldn't reach chest placement location")
+            return False
+
+        # Select the chest
+        self.controller.execute(Action("select_slot", {"slot": chest_slot}, "select chest"))
+        await asyncio.sleep(0.1)
+
+        # Get facing direction
+        self._refresh_state_snapshot()
+        player = self.last_state.get("player", {}) if self.last_state else {}
+        px, py = player.get("tileX", 0), player.get("tileY", 0)
+
+        if target_y > py:
+            face_dir = "south"
+        elif target_y < py:
+            face_dir = "north"
+        elif target_x > px:
+            face_dir = "east"
+        else:
+            face_dir = "west"
+
+        # Place the chest
+        logging.info(f"📦 Placing chest at ({target_x}, {target_y}), facing {face_dir}")
+        self.controller.execute(Action("place_item", {"direction": face_dir}, "place chest"))
+        await asyncio.sleep(0.3)
+
+        # Verify placement
+        self._refresh_state_snapshot()
+        location_data = self.last_state.get("location", {}) if self.last_state else {}
+        objects = location_data.get("objects", [])
+        for obj in objects:
+            if obj.get("name", "").lower() == "chest":
+                logging.info(f"📦 Chest placed at ({obj.get('x')}, {obj.get('y')})!")
+                return True
+
+        logging.warning("📦 Place command sent but chest not found on farm")
+        return False
+
+    async def _batch_craft_scarecrow(self) -> bool:
+        """Craft a scarecrow (requires 50 wood + 1 coal + 20 fiber).
+        
+        Returns True if crafted successfully, False otherwise.
+        """
+        logging.info("🎃 ═══════════════════════════════════════")
+        logging.info("🎃 CRAFT SCARECROW - 50 Wood + 1 Coal + 20 Fiber")
+        logging.info("🎃 ═══════════════════════════════════════")
+
+        # Check materials
+        self._refresh_state_snapshot()
+        inventory = self.last_state.get("inventory", []) if self.last_state else []
+        wood_count = 0
+        coal_count = 0
+        fiber_count = 0
+
+        for item in inventory:
+            if not item:
+                continue
+            name = item.get("name", "").lower()
+            stack = item.get("stack", 0)
+            if name == "wood":
+                wood_count = stack
+            elif name == "coal":
+                coal_count = stack
+            elif name == "fiber":
+                fiber_count = stack
+
+        logging.info(f"🎃 Materials: Wood={wood_count}/50, Coal={coal_count}/1, Fiber={fiber_count}/20")
+
+        if wood_count < 50 or coal_count < 1 or fiber_count < 20:
+            missing = []
+            if wood_count < 50:
+                missing.append(f"wood ({wood_count}/50)")
+            if coal_count < 1:
+                missing.append(f"coal ({coal_count}/1)")
+            if fiber_count < 20:
+                missing.append(f"fiber ({fiber_count}/20)")
+            logging.warning(f"🎃 Missing materials: {', '.join(missing)}")
+            return False
+
+        # Craft the scarecrow
+        result = self.controller.execute(Action("craft", {"item": "Scarecrow", "quantity": 1}, "craft scarecrow"))
+        await asyncio.sleep(0.3)
+
+        # Verify it was crafted
+        self._refresh_state_snapshot()
+        inventory = self.last_state.get("inventory", []) if self.last_state else []
+        for item in inventory:
+            if item and item.get("name", "").lower() == "scarecrow":
+                logging.info("🎃 Scarecrow crafted successfully!")
+                return True
+
+        logging.warning("🎃 Craft command sent but scarecrow not found in inventory")
+        return False
+
+    async def _batch_place_scarecrow(self) -> bool:
+        """Place a scarecrow in the center of crops for maximum protection.
+        
+        Scarecrow protects 8 tiles in all directions (17x17 area).
+        Finds a good location based on crop positions.
+        
+        Returns True if placed successfully, False otherwise.
+        """
+        logging.info("🎃 ═══════════════════════════════════════")
+        logging.info("🎃 PLACE SCARECROW - Protect Crops")
+        logging.info("🎃 ═══════════════════════════════════════")
+
+        # Ensure we're on the farm
+        self._refresh_state_snapshot()
+        if not self.last_state:
+            logging.warning("🎃 No state available")
+            return False
+
+        location = self.last_state.get("location", {}).get("name", "")
+        if location != "Farm":
+            logging.info("🎃 Warping to farm...")
+            self.controller.execute(Action("warp", {"location": "Farm"}, "warp to farm"))
+            await asyncio.sleep(0.6)
+            self._refresh_state_snapshot()
+
+        # Find scarecrow in inventory
+        inventory = self.last_state.get("inventory", []) if self.last_state else []
+        scarecrow_slot = None
+        for i, item in enumerate(inventory):
+            if item and item.get("name", "").lower() == "scarecrow":
+                scarecrow_slot = i
+                break
+
+        if scarecrow_slot is None:
+            logging.warning("🎃 No scarecrow in inventory")
+            return False
+
+        # Get farm data to find crop center
+        farm_data = None
+        if hasattr(self.controller, "get_farm"):
+            farm_data = self.controller.get_farm()
+
+        # Calculate crop center or use default location
+        target_x, target_y = 60, 16  # Default: near typical crop area
+
+        if farm_data:
+            crops = farm_data.get("crops", [])
+            if crops:
+                # Find center of all crops
+                total_x, total_y = 0, 0
+                for crop in crops:
+                    total_x += crop.get("x", 0)
+                    total_y += crop.get("y", 0)
+                center_x = total_x // len(crops)
+                center_y = total_y // len(crops)
+                target_x, target_y = center_x, center_y
+                logging.info(f"🎃 Calculated crop center: ({target_x}, {target_y}) from {len(crops)} crops")
+            else:
+                logging.info(f"🎃 No crops found, using default location ({target_x}, {target_y})")
+        else:
+            logging.info(f"🎃 No farm data, using default location ({target_x}, {target_y})")
+
+        # Move to adjacent tile and face the target
+        moved = await self._move_adjacent_and_face(target_x, target_y)
+        if not moved:
+            logging.warning("🎃 Couldn't reach scarecrow placement location")
+            return False
+
+        # Select the scarecrow
+        self.controller.execute(Action("select_slot", {"slot": scarecrow_slot}, "select scarecrow"))
+        await asyncio.sleep(0.1)
+
+        # Get facing direction
+        self._refresh_state_snapshot()
+        player = self.last_state.get("player", {}) if self.last_state else {}
+        px, py = player.get("tileX", 0), player.get("tileY", 0)
+
+        if target_y > py:
+            face_dir = "south"
+        elif target_y < py:
+            face_dir = "north"
+        elif target_x > px:
+            face_dir = "east"
+        else:
+            face_dir = "west"
+
+        # Place the scarecrow
+        logging.info(f"🎃 Placing scarecrow at ({target_x}, {target_y}), facing {face_dir}")
+        self.controller.execute(Action("place_item", {"direction": face_dir}, "place scarecrow"))
+        await asyncio.sleep(0.3)
+
+        # Verify placement
+        self._refresh_state_snapshot()
+        location_data = self.last_state.get("location", {}) if self.last_state else {}
+        objects = location_data.get("objects", [])
+        for obj in objects:
+            if obj.get("name", "").lower() == "scarecrow":
+                logging.info(f"🎃 Scarecrow placed at ({obj.get('x')}, {obj.get('y')})!")
+                return True
+
+        logging.warning("🎃 Place command sent but scarecrow not found on farm")
+        return False
+
     async def _try_eat_food(self) -> bool:
         """Try to eat food from inventory to restore health."""
         self._refresh_state_snapshot()
@@ -5785,7 +6416,9 @@ Respond with ONLY your inner monologue, nothing else."""
         FARMING_TOOLS = ["Hoe", "Scythe", "Watering Can"]
         stored = []
 
-        logging.info("🧰 Storing farming tools before mining...")
+        logging.info("🧰 ═══════════════════════════════════════")
+        logging.info("🧰 STORE FARMING TOOLS - Before Mining")
+        logging.info("🧰 ═══════════════════════════════════════")
 
         # Ensure we're on the farm
         self._refresh_state_snapshot()
@@ -5841,6 +6474,10 @@ Respond with ONLY your inner monologue, nothing else."""
 
         # Find and deposit farming tools
         inventory = self.last_state.get("inventory", []) if self.last_state else []
+
+        # Session 134: Log what tools are in inventory before storing
+        inv_tools = [item.get("name") for item in inventory if item and any(t.lower() in item.get("name", "").lower() for t in FARMING_TOOLS)]
+        logging.info(f"🧰 Tools in inventory: {inv_tools}")
 
         for slot, item in enumerate(inventory):
             if not item:
@@ -7305,9 +7942,21 @@ Respond with ONLY your inner monologue, nothing else."""
         # Get next task from resolved queue
         resolved_queue = getattr(self.daily_planner, 'resolved_queue', [])
         if not resolved_queue:
-            # Session 124: INFO level to see this
-            logging.info("🎯 _try_start_daily_task: no resolved queue, falling back to legacy")
-            return self._try_start_daily_task_legacy()  # Fallback to old method
+            # Session 134: Try to regenerate crafting tasks before falling back
+            logging.info("🎯 _try_start_daily_task: resolved queue empty, checking crafting needs...")
+            if self._regenerate_crafting_tasks():
+                # Tasks were added - re-get the queue
+                resolved_queue = getattr(self.daily_planner, 'resolved_queue', [])
+                if resolved_queue:
+                    logging.info(f"🎯 Regenerated {len(resolved_queue)} tasks - continuing")
+                    # Fall through to process the new queue
+                else:
+                    logging.info("🎯 _try_start_daily_task: no resolved queue after regeneration, falling back to legacy")
+                    return self._try_start_daily_task_legacy()
+            else:
+                # Session 124: INFO level to see this
+                logging.info("🎯 _try_start_daily_task: no tasks to regenerate, falling back to legacy")
+                return self._try_start_daily_task_legacy()  # Fallback to old method
 
         logging.info(f"🎯 _try_start_daily_task: {len(resolved_queue)} items in resolved queue")
 
@@ -7482,6 +8131,102 @@ Respond with ONLY your inner monologue, nothing else."""
                     pass
 
         return False
+
+    def _regenerate_crafting_tasks(self) -> bool:
+        """
+        Mid-day regeneration of crafting tasks when queue is empty.
+
+        Session 134: When all tasks complete, recheck if we need:
+        - gather_wood (if chest needed and wood < 50)
+        - craft_chest (if wood >= 50 and no chest)
+        - craft_scarecrow (if materials available and crops unprotected)
+
+        Returns True if new tasks were added, False otherwise.
+        """
+        if not self.daily_planner:
+            return False
+
+        # Get current state
+        state = self.controller.get_state() if hasattr(self.controller, "get_state") else None
+        if not state:
+            return False
+
+        # Get farm state for crafting checks
+        farm_state = None
+        if hasattr(self.controller, 'get_farm'):
+            farm_state = self.controller.get_farm()
+
+        # Check for existing crafting tasks (don't duplicate)
+        existing_task_ids = {t.id for t in self.daily_planner.tasks}
+        # Session 134: Added gather_fiber, organize_inventory
+        crafting_ids = {"gather_wood", "gather_fiber", "craft_chest", "place_chest", "craft_scarecrow", "place_scarecrow", "organize_inventory"}
+        has_crafting = any(any(c in tid for c in crafting_ids) for tid in existing_task_ids)
+        if has_crafting:
+            logging.debug("📋 Crafting tasks already exist, skipping regeneration")
+            return False
+
+        # Count tasks before regeneration
+        tasks_before = len(self.daily_planner.tasks)
+
+        # Session 134: Get total inventory (player + chests) for crafting checks
+        total_inv = self.get_total_inventory()
+        logging.info(f"📋 Total inventory: Wood={total_inv.get('Wood', 0)}, Coal={total_inv.get('Coal', 0)}, Fiber={total_inv.get('Fiber', 0)}")
+
+        # Re-run crafting task generation
+        logging.info("📋 Regenerating crafting tasks (queue empty)...")
+        self.daily_planner._generate_crafting_tasks(state, farm_state, total_inv)
+
+        tasks_after = len(self.daily_planner.tasks)
+        new_tasks = tasks_after - tasks_before
+
+        if new_tasks > 0:
+            logging.info(f"📋 Added {new_tasks} new crafting task(s)")
+
+            # Re-resolve prerequisites for new tasks
+            surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
+            self.daily_planner._resolve_prerequisites(state, surroundings, farm_state)
+            return True
+
+        logging.debug("📋 No new crafting tasks needed")
+        return False
+
+    def get_total_inventory(self) -> Dict[str, int]:
+        """
+        Get combined inventory from player inventory AND all chests.
+
+        Session 134: For crafting decisions, we need to know total available
+        materials including those stored in chests.
+
+        Returns:
+            Dict mapping item name -> total count across inventory + chests
+        """
+        totals: Dict[str, int] = {}
+
+        # Get player inventory
+        self._refresh_state_snapshot()
+        if self.last_state:
+            inventory = self.last_state.get("inventory", [])
+            for item in inventory:
+                if item:
+                    name = item.get("name", "")
+                    stack = item.get("stack", 1)
+                    if name:
+                        totals[name] = totals.get(name, 0) + stack
+
+        # Get chest contents
+        if hasattr(self.controller, 'get_storage'):
+            storage = self.controller.get_storage()
+            if storage and storage.get("chests"):
+                for chest in storage["chests"]:
+                    items = chest.get("items", [])
+                    for item in items:
+                        if item:
+                            name = item.get("name", "")
+                            stack = item.get("stack", 1)
+                            if name:
+                                totals[name] = totals.get(name, 0) + stack
+
+        return totals
 
     def _get_task_executor_context(self) -> str:
         """Get context string for VLM about current task execution."""
@@ -7949,9 +8694,11 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
                 farm_state = None
                 if hasattr(self.controller, 'get_farm'):
                     farm_state = self.controller.get_farm()
+                # Session 134: Get total inventory (player + chests) for crafting
+                total_inv = self.get_total_inventory()
                 # Pass surroundings for water location detection
                 plan_summary = self.daily_planner.start_new_day(
-                    day, season, state, reason_fn, farm_state, self.last_surroundings
+                    day, season, state, reason_fn, farm_state, self.last_surroundings, total_inv
                 )
                 logging.info(f"📋 Daily plan:\n{plan_summary}")
                 self._last_planned_day = day
@@ -9123,6 +9870,8 @@ Recent: {recent}"""
                                 self.daily_planner._reset_task_status(batch['task_id'])
                         except Exception as e:
                             logging.error(f"❌ Batch {batch['skill']} failed: {e}")
+                            # Session 134: Reset task on exception too
+                            self.daily_planner._reset_task_status(batch['task_id'])
 
                         return  # Done with this tick
                     # else: Task started - executor will handle it next iteration
