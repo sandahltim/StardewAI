@@ -4755,12 +4755,63 @@ class StardewAgent:
             if not rocks:
                 # Session 125: Floor 0 is the entrance - descend to floor 1
                 if floor == 0:
-                    logging.info("⛏️ At mine entrance (floor 0) - descending to floor 1")
+                    # Track attempts to prevent infinite loop
+                    if not hasattr(self, '_floor0_attempts'):
+                        self._floor0_attempts = 0
+                    self._floor0_attempts += 1
+                    
+                    if self._floor0_attempts > 5:
+                        logging.error("⛏️ Failed to descend from floor 0 after 5 attempts - aborting mining")
+                        self._floor0_attempts = 0
+                        break
+                    
+                    logging.info(f"⛏️ At mine entrance (floor 0) - descending to floor 1 (attempt {self._floor0_attempts})")
+                    
+                    # Try to walk to and use the ladder at mine entrance
+                    # Mine entrance ladder is typically at specific coordinates
+                    # First try use_ladder, then try enter_mine_level
+                    self.controller.execute(Action("use_ladder", {}, "use entrance ladder"))
+                    await asyncio.sleep(0.5)
+                    
+                    # Check if we moved
+                    self._refresh_state_snapshot()
+                    mining_check = self.controller.get_mining() if hasattr(self.controller, 'get_mining') else None
+                    if mining_check and mining_check.get("floor", 0) > 0:
+                        self._floor0_attempts = 0  # Reset counter
+                        continue
+                    
+                    # Try enter_mine_level as fallback
                     self.controller.execute(Action("enter_mine_level", {"level": 1}, "enter mine level 1"))
                     await asyncio.sleep(0.5)
                     continue
                 
-                logging.info("⛏️ No rocks on floor - waiting for ladder spawn or moving on")
+                # Session 125: Floor cleared but no ladder - handle stuck state
+                if not monsters:
+                    # No rocks, no monsters, no ladder = stuck
+                    logging.warning(f"⛏️ Floor {floor} cleared but no ladder! Checking for staircase...")
+                    
+                    # Try to use a staircase item if we have one
+                    inventory = self.last_state.get("inventory", []) if self.last_state else []
+                    has_staircase = any(
+                        item and item.get("name") == "Staircase"
+                        for item in inventory if item
+                    )
+                    
+                    if has_staircase:
+                        logging.info("⛏️ Using staircase to descend")
+                        self.controller.execute(Action("use_item", {"item": "Staircase"}, "use staircase"))
+                        await asyncio.sleep(0.5)
+                        results["floors_descended"] += 1
+                        continue
+                    else:
+                        # No staircase - give up on this floor, return to surface
+                        logging.warning(f"⛏️ Stuck on floor {floor} with no staircase - returning to surface")
+                        self.controller.execute(Action("enter_mine_level", {"level": 0}, "retreat to surface"))
+                        await asyncio.sleep(0.5)
+                        break
+                
+                # Still have monsters - they might drop ladder when killed
+                logging.info("⛏️ No rocks but monsters remain - hunting for ladder spawn")
                 await asyncio.sleep(0.5)
                 continue
 
