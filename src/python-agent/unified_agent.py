@@ -7589,36 +7589,48 @@ Recent: {recent}"""
         # Skip task executor on Day 1 - Day 1 clearing handles everything
         if self._day1_clearing_active:
             pass  # Day 1 clearing is exclusive
-        elif self.task_executor and not self.task_executor.is_active():
-            if self._try_start_daily_task():
-                # Check if batch operation is pending
-                if hasattr(self, '_pending_batch') and self._pending_batch:
-                    batch = self._pending_batch
-                    self._pending_batch = None  # Clear before execution
+        elif self.task_executor:
+            executor_active = self.task_executor.is_active()
+            executor_state = self.task_executor.state.value if hasattr(self.task_executor.state, 'value') else str(self.task_executor.state)
+            if executor_active:
+                logging.debug(f"📋 Task executor active: state={executor_state}")
+            elif not executor_active:
+                # Session 123: Debug logging for task queue
+                if self.daily_planner:
+                    queue = getattr(self.daily_planner, 'resolved_queue', [])
+                    pending = [t for t in self.daily_planner.tasks if t.status == "pending"]
+                    logging.info(f"📋 Task queue: {len(queue)} resolved, {len(pending)} pending tasks")
+                    for t in pending[:3]:
+                        logging.info(f"   📋 Pending: {t.id} ({t.category}) skill_override={getattr(t, 'skill_override', None)}")
+                if self._try_start_daily_task():
+                    # Check if batch operation is pending
+                    if hasattr(self, '_pending_batch') and self._pending_batch:
+                        batch = self._pending_batch
+                        self._pending_batch = None  # Clear before execution
 
-                    logging.info(f"🚀 Executing batch: {batch['skill']}")
-                    self.vlm_status = f"Batch: {batch['skill']}"
-                    self._send_ui_status()
+                        logging.info(f"🚀 Executing batch: {batch['skill']}")
+                        self.vlm_status = f"Batch: {batch['skill']}"
+                        self._send_ui_status()
 
-                    try:
-                        success = await self.execute_skill(batch['skill'], {})
-                        if success:
-                            logging.info(f"✅ Batch {batch['skill']} completed")
-                            self.daily_planner.complete_task(batch['task_id'])
-                        else:
-                            logging.warning(f"⚠️ Batch {batch['skill']} returned False")
-                        # Remove from queue
-                        queue = batch['queue']
-                        for j, rt in enumerate(queue):
-                            rt_id = rt.original_task_id if hasattr(rt, 'original_task_id') else rt.get('original_task_id', '')
-                            if rt_id == batch['task_id']:
-                                queue.pop(j)
-                                break
-                    except Exception as e:
-                        logging.error(f"❌ Batch {batch['skill']} failed: {e}")
+                        try:
+                            success = await self.execute_skill(batch['skill'], {})
+                            if success:
+                                logging.info(f"✅ Batch {batch['skill']} completed")
+                                self.daily_planner.complete_task(batch['task_id'])
+                            else:
+                                logging.warning(f"⚠️ Batch {batch['skill']} returned False")
+                            # Remove from queue
+                            queue = batch['queue']
+                            for j, rt in enumerate(queue):
+                                rt_id = rt.original_task_id if hasattr(rt, 'original_task_id') else rt.get('original_task_id', '')
+                                if rt_id == batch['task_id']:
+                                    queue.pop(j)
+                                    break
+                        except Exception as e:
+                            logging.error(f"❌ Batch {batch['skill']} failed: {e}")
 
-                    return  # Done with this tick
-                # else: Task started - executor will handle it next iteration
+                        return  # Done with this tick
+                    # else: Task started - executor will handle it next iteration
 
         if self.task_executor and self.task_executor.is_active() and not self._day1_clearing_active:
             # Get FRESH game state for position and precondition checks
