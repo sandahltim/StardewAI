@@ -7532,6 +7532,9 @@ Recent: {recent}"""
         """Single tick of the agent loop."""
         now = time.time()
 
+        # Session 124: DIAGNOSTIC - this MUST appear every tick
+        logging.info(f"⏱️ TICK: queue={len(self.action_queue)}, day1={self._day1_clearing_active}, pending_batch={self._pending_batch is not None}")
+
         # Execute queued actions first
         if self.action_queue:
             action = self.action_queue.pop(0)
