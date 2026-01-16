@@ -1,13 +1,13 @@
-# Session 130: Test Mining & Inventory Improvements
+# Session 130: Test All Session 129 Fixes
 
-**Last Updated:** 2026-01-16 Session 129 by Claude
-**Status:** Multiple fixes applied - ready for mining test
+**Last Updated:** 2026-01-16 Session 129 (continued) by Claude
+**Status:** 8 fixes applied - ready for comprehensive test
 
 ---
 
 ## Session 129 Summary
 
-Fixed 4 issues + noted roadmap items:
+Fixed 8 issues + noted roadmap items:
 
 | Issue | Symptom | Root Cause | Fix |
 |-------|---------|------------|-----|
@@ -15,6 +15,11 @@ Fixed 4 issues + noted roadmap items:
 | Not collecting mined items | Ore/geodes left on ground | Only walked to rock position once | Walk circle around rock, collect from all directions |
 | Harvest loop with full inventory | Agent stuck retrying same crop | No inventory check before harvest | Check empty slots, skip if full, stop after 3 skips |
 | No inventory check in mining | Mine until stuck | Kept mining with full backpack | Return to surface when < 2 slots free |
+| **Inventory slot count wrong** | "0 slots free" when not full | SMAPI returns sparse list, not 36 items | Calculate `max_items - len(used_items)` |
+| **No TTS commentary in mining** | Silent batch mining runs | Missing commentary hook | Added `_batch_commentary()` every 30s |
+| **State not refreshing after buy** | Agent confused after buying seeds | 0.5s rate limit on state refresh | Wait 0.6s + reset `last_state_poll = 0` |
+| **Not planting on tilled tiles** | "No grid positions" with 412 tillable | Tilled tiles were BLOCKED not used | Prioritize empty tilled tiles for planting |
+| **UseLadder couldn't find ladders** | `use_ladder` failed on spawned ladders | Only checked `mine.Objects`, not `mine.objects` | Check both collections in UseLadder action |
 
 ### Roadmap Items (Future Sessions)
 - **Inventory management system** - Sort/store items in chests automatically
@@ -47,12 +52,19 @@ python src/python-agent/unified_agent.py --goal "Do farm chores and go mining"
 
 ## Session 130 Testing Checklist
 
-### Mining (Priority Test)
+### Planting (New Fix - Test First)
+- [ ] Agent detects empty tilled tiles (log: "Found X empty tilled tiles")
+- [ ] Agent uses pre-tilled positions for planting (log: "Using X pre-tilled positions")
+- [ ] Seeds planted successfully on tilled tiles
+- [ ] State refreshes after buying seeds (log: "inventory has seeds: [...]")
+
+### Mining
 - [ ] Agent finds ladder on elevator floors (5, 10, 15)
 - [ ] `descend_mine` fallback works when `use_ladder` fails
 - [ ] Log shows: "Elevator floor X - trying descend_mine as fallback"
 - [ ] Agent collects items after mining each rock (walks circle)
 - [ ] Agent returns to surface when inventory < 2 slots free
+- [ ] TTS commentary every ~30 seconds during mining batch
 
 ### Farm Chores
 - [ ] Harvest stops when inventory full (log: "Inventory FULL")
@@ -76,6 +88,11 @@ python src/python-agent/unified_agent.py --goal "Do farm chores and go mining"
 | `unified_agent.py` | 4956-4968 | Re-check for ladder after each rock |
 | `unified_agent.py` | 4867-4910 | Elevator floor fallback + descend_mine retry |
 | `unified_agent.py` | 4325-4370 | Inventory check before harvesting |
+| `unified_agent.py` | 4951-4959 | Sparse inventory slot counting fix |
+| `unified_agent.py` | 4170-4199 | `_batch_commentary()` method for TTS |
+| `unified_agent.py` | 4303-4314 | State refresh after buying seeds |
+| `unified_agent.py` | 5219-5324 | Planting prioritizes empty tilled tiles |
+| `ActionExecutor.cs` | 1434-1462 | UseLadder checks both Objects collections |
 
 ---
 
@@ -117,6 +134,32 @@ Before each harvest:
   → Log message directs to ship/store items
 ```
 
+### Planting Grid Selection (Session 129)
+```
+Old (broken): permanent_blocked = existing_tilled | existing_crops
+  → Blocked all tilled tiles, including empty ones we want to plant on!
+
+New (fixed):
+  → permanent_blocked = existing_crops only
+  → empty_tilled = existing_tilled - existing_crops (targets!)
+  → PRIORITIZE empty_tilled for planting (no tilling needed)
+  → Fall back to new tillable positions if not enough
+  → Sort by distance from player for efficiency
+```
+
+### Inventory Slot Counting (Session 129)
+```
+SMAPI returns SPARSE list: only actual items, not 36 slots with nulls
+
+Old (broken): sum(1 for item in inventory if not item)
+  → Always 0 because sparse list has no None entries
+
+New (fixed):
+  → max_items = player.get("maxItems", 12)  # 12/24/36 based on upgrades
+  → used_slots = len([item for item in inventory if item])
+  → empty_slots = max_items - used_slots
+```
+
 ---
 
 ## Session 128 Fixes (Still Relevant)
@@ -139,4 +182,4 @@ Before each harvest:
 
 ---
 
--- Claude (Session 129)
+-- Claude (Session 129, continued)
