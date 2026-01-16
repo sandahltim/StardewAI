@@ -5795,11 +5795,14 @@ class StardewAgent:
 
         Returns True if a task was started, False otherwise.
         """
+        # Session 124: Trace early returns
         if not self.task_executor or not self.daily_planner:
+            logging.info(f"🎯 _try_start_daily_task: early return (executor={self.task_executor is not None}, planner={self.daily_planner is not None})")
             return False
 
         # Don't start if executor is already active
         if self.task_executor.is_active():
+            logging.debug(f"🎯 _try_start_daily_task: executor active, skip")
             return False
 
         # Don't start tasks if daily plan hasn't been created yet for today
@@ -5810,7 +5813,8 @@ class StardewAgent:
             time_data = data.get("time", {})
             current_day = time_data.get("day", 0)
             if current_day > 0 and current_day != self._last_planned_day:
-                logging.debug(f"🎯 _try_start_daily_task: waiting for daily plan (day {current_day})")
+                # Session 124: Changed to INFO to see this issue
+                logging.info(f"🎯 _try_start_daily_task: waiting for daily plan (day {current_day}, last_planned={self._last_planned_day})")
                 return False
 
         # Session 119: DISABLED cell farming entirely - batch mode (auto_farm_chores) is preferred
@@ -5838,7 +5842,8 @@ class StardewAgent:
         # Get next task from resolved queue
         resolved_queue = getattr(self.daily_planner, 'resolved_queue', [])
         if not resolved_queue:
-            logging.debug("🎯 _try_start_daily_task: no resolved queue")
+            # Session 124: INFO level to see this
+            logging.info("🎯 _try_start_daily_task: no resolved queue, falling back to legacy")
             return self._try_start_daily_task_legacy()  # Fallback to old method
 
         logging.info(f"🎯 _try_start_daily_task: {len(resolved_queue)} items in resolved queue")
