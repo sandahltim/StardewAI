@@ -1352,39 +1352,33 @@ public class ActionExecutor
             };
         }
 
-        // Check if using elevator (must be at mine entrance or in mines)
-        bool atMineEntrance = location?.Name == "Mine" || location is MineShaft;
-        if (!atMineEntrance)
-        {
-            return new ActionResult
-            {
-                Success = false,
-                Error = $"Not at mine entrance (current: {location?.Name ?? "unknown"}). Warp to Mine first.",
-                State = ActionState.Failed
-            };
-        }
+        // Session 125: Simplified - always allow entering mine levels
+        // The agent handles the logic of when to descend
+        _monitor.Log($"EnterMineLevel: Entering level {level} from {location?.Name ?? "unknown"}", LogLevel.Info);
 
-        // Check if level is unlocked (every 5 levels via elevator)
-        int deepestLevel = MineShaft.lowestLevelReached;
-        if (level > 0)
+        // If not in mines at all, warp to mine entrance first
+        if (location?.Name != "Mine" && location is not MineShaft)
         {
-            // Can only use elevator to levels in increments of 5 that player has reached
-            int maxElevatorLevel = (deepestLevel / 5) * 5;
-            if (level > maxElevatorLevel && level != 1)
+            _monitor.Log($"EnterMineLevel: Warping to Mine first", LogLevel.Debug);
+            Game1.warpFarmer("Mine", 13, 10, false);
+
+            // If level > 0, still need to enter the mine level
+            if (level == 0)
             {
                 return new ActionResult
                 {
-                    Success = false,
-                    Error = $"Level {level} not unlocked. Deepest reached: {deepestLevel}. Elevator goes to: {maxElevatorLevel}.",
-                    State = ActionState.Failed
+                    Success = true,
+                    Message = "Warped to mine entrance",
+                    State = ActionState.Complete
                 };
             }
         }
 
-        // Enter the mine level
+        // Enter the mine level directly
+        // Game1.enterMine handles creating the MineShaft location
         Game1.enterMine(level);
 
-        _monitor.Log($"Entering mine level {level}", LogLevel.Info);
+        _monitor.Log($"Entered mine level {level}", LogLevel.Info);
 
         return new ActionResult
         {
