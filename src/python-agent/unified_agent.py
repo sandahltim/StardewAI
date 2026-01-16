@@ -3038,8 +3038,11 @@ class StardewAgent:
         direction_str = " and ".join(dirs) if dirs else "here"
         return f"SPATIAL MAP: TILLED but UNPLANTED tile at {nearest.x},{nearest.y} ({direction_str})."
 
-    def _get_skill_context(self) -> str:
-        """Get available skills for current game state to guide VLM."""
+    def _get_skill_context(self, goal: str = "") -> str:
+        """Get available skills for current game state to guide VLM.
+
+        Session 122: Added goal-awareness to prioritize relevant skills.
+        """
         if not self.skill_context or not self.last_state:
             return ""
         try:
@@ -3051,7 +3054,29 @@ class StardewAgent:
                 "till_soil", "plant_seed", "water_crop", "harvest_crop",
                 "clear_weeds", "clear_stone", "clear_wood"
             }
-            
+
+            # Session 122: Goal-keyword to category/skill mapping
+            goal_lower = goal.lower() if goal else ""
+            GOAL_KEYWORDS = {
+                "mine": ["mining", "combat", "navigation"],
+                "mining": ["mining", "combat", "navigation"],
+                "ore": ["mining"],
+                "copper": ["mining"],
+                "iron": ["mining"],
+                "farm": ["farming", "crafting"],
+                "water": ["farming"],
+                "harvest": ["farming"],
+                "plant": ["farming"],
+                "shop": ["shopping", "navigation"],
+                "pierre": ["shopping", "navigation"],
+            }
+
+            # Find priority categories based on goal
+            priority_categories = set()
+            for keyword, cats in GOAL_KEYWORDS.items():
+                if keyword in goal_lower:
+                    priority_categories.update(cats)
+
             # Group by category for readability
             by_category: Dict[str, List[str]] = {}
             for skill in available:
@@ -3064,14 +3089,31 @@ class StardewAgent:
                     by_category[cat].append(f"{skill.name} (target_direction: north/south/east/west) - {skill.description}")
                 else:
                     by_category[cat].append(f"{skill.name} - {skill.description}")
+
             # Format as compact list - emphasize skill names for VLM selection
             lines = ["AVAILABLE SKILLS (use skill name as action type):"]
+
+            # Session 122: Show priority categories first (more skills allowed)
+            shown_categories = set()
+            for cat in sorted(by_category.keys()):
+                if cat in priority_categories:
+                    shown_categories.add(cat)
+                    skills = by_category[cat]
+                    lines.append(f"  [{cat.upper()}] ⭐ RELEVANT TO YOUR GOAL")
+                    for desc in skills[:12]:  # Show more for priority categories
+                        lines.append(f"    - {desc}")
+                    if len(skills) > 12:
+                        lines.append(f"    ... and {len(skills) - 12} more")
+
+            # Then show other categories
             for cat, skills in sorted(by_category.items()):
+                if cat in shown_categories:
+                    continue
                 lines.append(f"  [{cat.upper()}]")
-                for desc in skills[:8]:  # Allow more skills to show
+                for desc in skills[:6]:  # Fewer for non-priority
                     lines.append(f"    - {desc}")
-                if len(skills) > 8:
-                    lines.append(f"    ... and {len(skills) - 8} more")
+                if len(skills) > 6:
+                    lines.append(f"    ... and {len(skills) - 6} more")
             return "\n".join(lines)
         except Exception as e:
             logging.debug(f"Skill context failed: {e}")
@@ -7426,7 +7468,7 @@ Recent: {recent}"""
             spatial_hint = self._get_spatial_hint()
             if spatial_hint:
                 action_context_parts.append(spatial_hint)
-            skill_context = self._get_skill_context()
+            skill_context = self._get_skill_context(self.goal)  # Session 122: Pass goal for prioritization
             if skill_context:
                 action_context_parts.append(skill_context)
                 logging.info(f"   📚 Skill context: {len(self.skill_context.get_available_skills(self.last_state) if self.skill_context and self.last_state else [])} available")

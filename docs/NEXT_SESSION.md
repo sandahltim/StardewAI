@@ -1,183 +1,179 @@
-# Session 121: Test Unified SMAPI & Batch Fixes
+# Session 123: Mining Testing & Integration
 
-**Last Updated:** 2026-01-15 Session 120 by Claude
-**Status:** Major improvements - ready for full testing
+**Last Updated:** 2026-01-15 Session 122 by Claude
+**Status:** Mining infrastructure ready - needs end-to-end testing
 
 ---
 
-## Session 120 Summary
+## Session 121 Summary (Completed)
 
-### 1. Unified SMAPI Client (MAJOR)
+### Fixes Applied
 
-**Created `src/python-agent/smapi_client.py`** - Single point of access to ALL game data.
+| Fix | Description |
+|-----|-------------|
+| **Refill warp fallback** | When `move_to` fails (A* blocked), use direct warp to water source |
+| **Water verification** | Double-check water level before each watering attempt |
+| **Verification delays** | Tiles: 1.2s, water: 1.0s, others: 0.5s |
+| **Auto-craft essentials** | Daily planner generates scarecrow/chest tasks when materials available |
 
-The SMAPI mod already had all endpoints implemented but Python agent wasn't using them. Now fixed.
+### Commits
+```
+a166b15 Session 121: Fix refill - verify arrival and use warp fallback
+d9c4a90 Session 121: Fix watering/refill loops, add auto-craft essentials
+```
 
-**All Available Endpoints:**
-| Endpoint | Data | Example Use |
-|----------|------|-------------|
-| `/state` | Player, inventory, location, time | Core game loop |
-| `/surroundings` | Directions, nearest water | Navigation, refill |
-| `/farm` | ALL crops, debris, chests | Farming (no distance limit!) |
-| `/skills` | 5 skill levels + XP | Progression tracking |
-| `/npcs` | 39 NPCs + friendship/birthday | Social planning |
-| `/animals` | Farm animals + buildings | Animal care |
-| `/machines` | 264 machines with status | Artisan goods |
-| `/calendar` | Events, birthdays, season | Planning |
-| `/fishing` | Available fish by location | Fishing |
-| `/mining` | Floor, rocks, monsters | Mining |
-| `/storage` | Chests, fridge, silo | Inventory management |
-| `/check-path` | A* pathfinding | Navigation |
-| `/tillable-area` | Tillable tiles | Farm expansion |
+---
 
-**Usage:**
+## Session 122 Summary (Completed)
+
+### Problem: "Go mine" chose "clear debris" instead
+
+**Root Causes Found:**
+1. `TASK_TO_SKILL` missing mining mapping - TaskExecutor didn't know what skill to use
+2. Duplicate skills: `go_to_mines` (mining.yaml) vs `warp_to_mine` (navigation.yaml)
+3. 8-skill limit per category hid mining skills in crowded navigation category
+4. No goal-awareness - VLM didn't prioritize mining skills when user said "mine"
+
+### Fixes Applied
+
+| Fix | File | Description |
+|-----|------|-------------|
+| Added mining mapping | `task_executor.py:121` | `"mining": "warp_to_mine"` |
+| Goal-aware skill context | `unified_agent.py:3041-3120` | Keywords like "mine" highlight mining/combat/navigation categories |
+| Priority categories | `unified_agent.py:3096-3116` | Goal-relevant categories show first with more skills (12 vs 6) |
+
+### Code Changes
+
+**task_executor.py:**
 ```python
-from smapi_client import get_world, SMAPIClient
-
-# Complete world snapshot
-world = get_world()
-print(f"Crops: {len(world.farm.crops)}")
-print(f"NPCs: {len(world.npcs.npcs)}")
-print(f"Machines ready: {len([m for m in world.machines.machines if m.ready_for_harvest])}")
-
-# Via controller (integrated)
-self.controller.get_world_state()  # Summary dict
-self.controller.get_npcs()         # Full NPC list
-self.controller.get_machines()     # All machines
-self.controller.get_calendar()     # Events/birthdays
+TASK_TO_SKILL = {
+    ...
+    # Mining - Session 122
+    "mining": "warp_to_mine",  # First step: get to mine
+}
 ```
 
-### 2. Batch Water Refill Fix
-
-**Problem:** Infinite loop when watering can emptied - skill "succeeded" but didn't actually refill.
-
-**Root Cause:** `go_refill_watering_can` skill uses `pathfind_to: nearest_water` but surroundings data wasn't passed to executor.
-
-**Fixes:**
-- Include surroundings in skill_state (has `nearestWater: {x, y, distance}`)
-- Track refill attempts, max 3 before giving up
-- VERIFY `wateringCanWater` actually increased after refill
-- Log: "Surroundings nearestWater: ..." and "Refilled water can to X"
-
-### 3. Batch Harvest Fix
-
-**Problem:** Didn't verify `move_to` succeeded. If blocked, harvested from wrong position.
-
-**Fix:**
-- Try 4 adjacent positions (south, north, east, west)
-- Verify player reached target before harvesting
-- Log skipped crops that couldn't be reached
-
----
-
-## Commits This Session
-
+**unified_agent.py - Goal keywords:**
+```python
+GOAL_KEYWORDS = {
+    "mine": ["mining", "combat", "navigation"],
+    "mining": ["mining", "combat", "navigation"],
+    "ore": ["mining"],
+    "copper": ["mining"],
+    ...
+}
 ```
-3186a53 Session 120: Update docs with SMAPI client reference
-c85ad2c Session 120: Add unified SMAPI client with complete game data access
-24a1cfe Session 120: Fix batch harvest - verify move and try multiple positions
-2b5a7ce Session 120: Fix batch water refill - include surroundings data
-3ed4d94 Session 120: Fix batch water infinite loop on empty can
+
+**VLM now sees:**
+```
+AVAILABLE SKILLS (use skill name as action type):
+  [MINING] ⭐ RELEVANT TO YOUR GOAL
+    - break_rock - Break a rock with the pickaxe
+    - mine_copper_ore - Mine a copper ore node
+    ...
+  [NAVIGATION] ⭐ RELEVANT TO YOUR GOAL
+    - warp_to_mine - Teleport to the Mine entrance
+    ...
 ```
 
 ---
 
-## Session 121 Priorities
+## Session 123 Priorities
 
-### Testing (All fixes need verification)
-
-1. **TEST batch water refill:**
-   - Let crops grow, water can should empty
-   - Look for: "Surroundings nearestWater: {x: 71, y: 33, ...}"
-   - Look for: "Refilled water can to 40"
-   - Should NOT loop infinitely
-
-2. **TEST batch harvest:**
-   - Let crops mature (parsnips ready)
-   - Look for: "Harvesting X crops"
-   - Should try multiple positions if blocked
-   - Log any "Couldn't reach crop" messages
-
-3. **TEST full day cycle:**
-   - Farm chores → Mine/Explore → Bed
-   - Verify task queue progresses
-   - No "unknown" task types
-
-### Potential Enhancements
-
-4. **Use unified client for planning:**
-   - Daily planner could use `get_world_state()` for full context
-   - Calendar data for event planning
-   - NPC birthdays for social planning
-
-5. **Machine automation:**
-   - `get_machines()` shows 264 machines with status
-   - Could add batch machine collection task
-
----
-
-## Quick Test Commands
+### 1. Test Mining End-to-End
 
 ```bash
-# Run agent with farm goal
-python src/python-agent/unified_agent.py --goal "Do farm chores" 2>&1 | tee /tmp/s121_test.log
+# Run with mining goal
+python src/python-agent/unified_agent.py --goal "Go mining for copper ore"
 
-# Check refill worked
-grep -E "nearestWater|Refilled water can" /tmp/s121_test.log
-
-# Check harvest
-grep -E "Harvesting|Couldn't reach" /tmp/s121_test.log
-
-# Check no infinite loops
-grep -c "refilling" /tmp/s121_test.log  # Should be small number, not hundreds
-
-# Test SMAPI client directly
-python src/python-agent/smapi_client.py
+# Expected behavior:
+# 1. VLM sees mining skills highlighted
+# 2. Calls warp_to_mine to get to mines
+# 3. Once in mine, calls break_rock, use_ladder, etc.
 ```
+
+### 2. Verify Skill Context Shows Mining
+
+Look in logs for:
+```
+📚 Skill context: X available
+[MINING] ⭐ RELEVANT TO YOUR GOAL
+```
+
+### 3. Add Batch Mining Support (if needed)
+
+If VLM struggles in mines, consider adding `_batch_mine_floor()` similar to `_batch_farm_chores()`:
+- Get rocks from `/mining` endpoint
+- Mine in row-by-row order (closest first)
+- Watch for monsters (combat or retreat)
+- Find ladder when floor cleared
+
+### 4. Combat Handling
+
+- Monitor `/mining` for monsters near player
+- Auto-attack if monster within 2 tiles
+- Retreat if health < 25% or no food
 
 ---
 
-## Key Files Changed
+## Quick Reference
+
+### Mining SMAPI Endpoint
+
+```bash
+curl localhost:8790/mining | jq
+```
+
+Returns:
+```json
+{
+  "location": "UndergroundMine",
+  "floor": 5,
+  "floorType": "normal",
+  "ladderFound": false,
+  "rocks": [{"tileX": 10, "tileY": 8, "type": "Copper", "health": 2}],
+  "monsters": [{"name": "Green Slime", "tileX": 5, "tileY": 12, "health": 20}]
+}
+```
+
+### Available Mining Skills
+
+| Skill | Category | Description |
+|-------|----------|-------------|
+| `warp_to_mine` | navigation | Teleport to Mine entrance |
+| `enter_mine_level_X` | mining | Use elevator (1, 5, 10, 40, 80, 120) |
+| `use_ladder` | mining | Descend via ladder/shaft |
+| `break_rock` | mining | Pickaxe on rock (needs target_direction) |
+| `mine_copper_ore` | mining | Multi-hit mining for copper |
+| `attack` | combat | Swing weapon in direction |
+| `eat_for_health` | combat | Eat food to restore health |
+
+### Mining Floor Reference
+
+| Levels | Type | Ore |
+|--------|------|-----|
+| 1-39 | Normal | Copper |
+| 40-79 | Frozen | Iron |
+| 80-119 | Lava | Gold |
+| 120+ | Skull Cavern | Iridium |
+
+---
+
+## Key Files Changed (Session 122)
 
 | File | Changes |
 |------|---------|
-| `src/python-agent/smapi_client.py` | **NEW** - Unified SMAPI client |
-| `src/python-agent/unified_agent.py` | Integrated client, batch fixes |
-| `docs/NEXT_SESSION.md` | This file |
+| `src/python-agent/execution/task_executor.py` | Added `"mining": "warp_to_mine"` |
+| `src/python-agent/unified_agent.py` | Goal-aware skill context |
 
 ---
 
-## Architecture Reference
+## Pathfinding Note
 
-**SMAPI Client Flow:**
-```
-SMAPIClient
-  ├── get_state()        → GameState dataclass
-  ├── get_surroundings() → SurroundingsState (with nearestWater!)
-  ├── get_farm()         → FarmState (ALL crops)
-  ├── get_npcs()         → NpcsState (39 NPCs)
-  ├── get_machines()     → MachinesState (264 machines)
-  ├── get_world_state()  → WorldState (EVERYTHING)
-  └── ... other endpoints
-
-ModBridgeController
-  ├── self.smapi = SMAPIClient()  # Unified client
-  ├── get_state() / get_farm()    # Existing (unchanged)
-  └── get_npcs() / get_machines() # NEW convenience methods
-```
-
-**Batch Farm Chores Flow:**
-```
-_batch_farm_chores()
-  → Phase 0: Buy seeds if needed
-  → Phase 1: Water (calls _batch_water_remaining)
-       → If can empty: refill with surroundings data
-       → Verify water level increased
-  → Phase 2: Harvest (try 4 adjacent positions)
-       → Verify reached position before harvest
-  → Phase 3: Till & Plant
-  → Return results dict
-```
+Pathfinding correctly avoids placed objects (chests, scarecrows, fences) via `TilePathfinder.IsTilePassable()`:
+- Checks `location.objects` + `!obj.isPassable()`
+- Checks ResourceClumps (stumps, logs, boulders)
+- NPCs are passable (player can push through)
 
 ---
 

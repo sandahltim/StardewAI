@@ -117,6 +117,8 @@ class TaskExecutor:
         "navigate": None,  # No skill - just movement to destination
         "refill_watering_can": "refill_watering_can",
         "buy_seeds": "buy_seeds",  # Generic - uses seed_type param from prereq resolver
+        # Mining - Session 122
+        "mining": "warp_to_mine",  # First step: get to mine, then VLM handles break_rock/use_ladder
     }
     
     # Map debris names to clearing skills
