@@ -1862,15 +1862,10 @@ class ModBridgeController:
             else:
                 return f">>> ✅ WATERING DONE! CLEAR DEBRIS: {debris_type} {dist} tiles {direction.upper()}. Move closer, then use {skill} <<<"
 
-        # Session 124: MINING TAKES PRIORITY over debris clearing!
-        # Check for pending mining task BEFORE suggesting debris clearing
-        if self.daily_planner:
-            pending = [t for t in self.daily_planner.tasks if t.status == "pending"]
-            mining_task = next((t for t in pending if t.category == "mining"), None)
-            if mining_task and hour < 16:
-                return ">>> ⛏️ FARM DONE! GO MINING! Use skill: warp_to_mine <<<"
-
-        # Default - find debris on farm (only if no mining task)
+        # Session 125: Removed daily_planner check - controller shouldn't know about planner
+        # Mining is handled by task executor, not hint system
+        
+        # Default - find debris on farm
         objects = state.get("location", {}).get("objects", []) if state else []
         debris_types = ["Weeds", "Stone", "Twig", "Wood"]
         debris_nearby = [o for o in objects if o.get("name") in debris_types]
