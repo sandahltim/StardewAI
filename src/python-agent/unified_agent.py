@@ -4332,6 +4332,273 @@ class StardewAgent:
         return results
 
     # =========================================================================
+    # MONSTER COMBAT SYSTEM - Session 124
+    # =========================================================================
+
+    # Monster type knowledge - tactics vary by enemy
+    MONSTER_DATA = {
+        # Slimes (floors 1-40) - slow, melee, easy
+        "Green Slime": {"danger": 1, "speed": "slow", "attack": "melee", "swings": 2, "kite": False},
+        "Frost Jelly": {"danger": 2, "speed": "slow", "attack": "melee", "swings": 3, "kite": False},
+        "Sludge": {"danger": 3, "speed": "slow", "attack": "melee", "swings": 4, "kite": False},
+        
+        # Bats (floors 10+) - fast, erratic, annoying
+        "Bat": {"danger": 2, "speed": "fast", "attack": "melee", "swings": 2, "kite": False},
+        "Frost Bat": {"danger": 3, "speed": "fast", "attack": "melee", "swings": 3, "kite": False},
+        "Lava Bat": {"danger": 4, "speed": "fast", "attack": "melee", "swings": 4, "kite": True},
+        
+        # Bugs (floors 10-30) - fast, melee
+        "Bug": {"danger": 2, "speed": "fast", "attack": "melee", "swings": 2, "kite": False},
+        "Fly": {"danger": 2, "speed": "fast", "attack": "melee", "swings": 2, "kite": False},
+        "Grub": {"danger": 2, "speed": "medium", "attack": "melee", "swings": 2, "kite": False},
+        
+        # Duggies (floors 5-30) - pop up, surprise attack
+        "Duggy": {"danger": 3, "speed": "medium", "attack": "melee", "swings": 3, "kite": False},
+        
+        # Rock Crabs (floors 30+) - disguised, armored
+        "Rock Crab": {"danger": 3, "speed": "slow", "attack": "melee", "swings": 5, "kite": False},
+        "Lava Crab": {"danger": 4, "speed": "slow", "attack": "melee", "swings": 6, "kite": False},
+        
+        # Ghosts (floors 50+) - phase through walls
+        "Ghost": {"danger": 3, "speed": "medium", "attack": "melee", "swings": 4, "kite": True},
+        
+        # Serpents (floors 80+) - DANGEROUS, fast, aggressive
+        "Serpent": {"danger": 5, "speed": "very_fast", "attack": "melee", "swings": 6, "kite": True},
+        
+        # Shadow creatures (floors 80+)
+        "Shadow Brute": {"danger": 4, "speed": "medium", "attack": "melee", "swings": 5, "kite": True},
+        "Shadow Shaman": {"danger": 4, "speed": "slow", "attack": "ranged", "swings": 4, "kite": True},
+        
+        # Skull Cavern enemies
+        "Mummy": {"danger": 4, "speed": "slow", "attack": "melee", "swings": 5, "kite": False},
+        "Royal Serpent": {"danger": 5, "speed": "very_fast", "attack": "melee", "swings": 8, "kite": True},
+    }
+
+    def _get_monster_tactics(self, monster_name: str) -> dict:
+        """Get combat tactics for a monster type."""
+        # Try exact match first
+        if monster_name in self.MONSTER_DATA:
+            return self.MONSTER_DATA[monster_name]
+        
+        # Try partial match (e.g., "Big Slime" matches "Slime")
+        name_lower = monster_name.lower()
+        for known, data in self.MONSTER_DATA.items():
+            if known.lower() in name_lower or name_lower in known.lower():
+                return data
+        
+        # Unknown monster - use cautious defaults
+        return {"danger": 3, "speed": "medium", "attack": "melee", "swings": 4, "kite": True}
+
+    async def _combat_engage(self, monster: dict, player_x: int, player_y: int, has_weapon: bool) -> str:
+        """
+        Engage a monster with appropriate tactics.
+        
+        Returns: "killed", "fled", "damaged", "no_weapon"
+        """
+        mx = monster.get("x", monster.get("tileX", 0))
+        my = monster.get("y", monster.get("tileY", 0))
+        monster_name = monster.get("name", "Unknown")
+        tactics = self._get_monster_tactics(monster_name)
+        
+        dist = abs(mx - player_x) + abs(my - player_y)
+        
+        logging.info(f"⚔️ Combat: {monster_name} (danger={tactics['danger']}, dist={dist})")
+        
+        if not has_weapon:
+            # No weapon - smart retreat
+            return await self._combat_retreat(mx, my, player_x, player_y, monster_name)
+        
+        # Kiting strategy for dangerous/ranged enemies
+        if tactics["kite"] and tactics["danger"] >= 4:
+            return await self._combat_kite(monster, player_x, player_y, tactics)
+        
+        # Standard engagement
+        # Move closer if needed
+        if dist > 2:
+            self.controller.execute(Action("move_to", {"x": mx, "y": my}, f"approach {monster_name}"))
+            await asyncio.sleep(0.25)
+            self._refresh_state_snapshot()
+            if self.last_state:
+                player = self.last_state.get("player", {})
+                player_x = player.get("tileX", player_x)
+                player_y = player.get("tileY", player_y)
+        
+        # Equip weapon and attack
+        direction = self._direction_to_target(player_x, player_y, mx, my)
+        self.controller.execute(Action("select_item_type", {"value": "Weapon"}, "equip weapon"))
+        await asyncio.sleep(0.1)
+        
+        # Number of swings based on monster type
+        swings = tactics["swings"]
+        for i in range(swings):
+            self.controller.execute(Action("swing_weapon", {"direction": direction}, f"attack {monster_name}"))
+            await asyncio.sleep(0.15)
+        
+        return "killed"
+
+    async def _combat_kite(self, monster: dict, player_x: int, player_y: int, tactics: dict) -> str:
+        """Hit-and-run tactics for dangerous monsters."""
+        mx = monster.get("x", monster.get("tileX", 0))
+        my = monster.get("y", monster.get("tileY", 0))
+        monster_name = monster.get("name", "Unknown")
+        
+        logging.info(f"⚔️ Kiting {monster_name} (danger={tactics['danger']})")
+        
+        # Approach carefully
+        dist = abs(mx - player_x) + abs(my - player_y)
+        if dist > 2:
+            # Move just close enough
+            self.controller.execute(Action("move_to", {"x": mx, "y": my}, f"approach {monster_name}"))
+            await asyncio.sleep(0.2)
+            self._refresh_state_snapshot()
+            if self.last_state:
+                player = self.last_state.get("player", {})
+                player_x = player.get("tileX", player_x)
+                player_y = player.get("tileY", player_y)
+        
+        # Quick attack burst (fewer swings than normal)
+        direction = self._direction_to_target(player_x, player_y, mx, my)
+        self.controller.execute(Action("select_item_type", {"value": "Weapon"}, "equip weapon"))
+        await asyncio.sleep(0.08)
+        
+        # Quick 2-3 swings
+        quick_swings = min(3, tactics["swings"])
+        for _ in range(quick_swings):
+            self.controller.execute(Action("swing_weapon", {"direction": direction}, f"attack"))
+            await asyncio.sleep(0.12)
+        
+        # RETREAT after attacking
+        retreat_dir = self._direction_to_target(mx, my, player_x, player_y)  # Away from monster
+        self.controller.execute(Action("move", {"direction": retreat_dir, "duration": 0.3}, f"kite back"))
+        await asyncio.sleep(0.25)
+        
+        # Check if monster still alive (refresh state)
+        self._refresh_state_snapshot()
+        if self.last_state:
+            mining = self.controller.get_mining() if hasattr(self.controller, 'get_mining') else None
+            if mining:
+                monsters = mining.get("monsters", [])
+                # Check if this monster is still there
+                still_alive = any(
+                    abs(m.get("x", m.get("tileX", 0)) - mx) < 2 and
+                    abs(m.get("y", m.get("tileY", 0)) - my) < 2
+                    for m in monsters
+                )
+                if still_alive:
+                    logging.info(f"⚔️ {monster_name} still alive - continue kiting")
+                    return "damaged"
+        
+        return "killed"
+
+    async def _combat_retreat(self, mx: int, my: int, player_x: int, player_y: int, monster_name: str) -> str:
+        """Smart retreat when weaponless - find safe path."""
+        logging.info(f"🏃 No weapon! Smart retreat from {monster_name}")
+        
+        # Get mining state to find ladder/exit
+        mining = self.controller.get_mining() if hasattr(self.controller, 'get_mining') else None
+        ladder_found = mining.get("ladderFound", False) if mining else False
+        
+        # Priority 1: If ladder exists, run to it
+        if ladder_found:
+            logging.info("🏃 Ladder found! Running to ladder")
+            self.controller.execute(Action("use_ladder", {}, "escape via ladder"))
+            await asyncio.sleep(0.3)
+            return "fled"
+        
+        # Priority 2: Find direction away from monster AND towards open space
+        # Get surroundings to find clear paths
+        directions = ["north", "south", "east", "west"]
+        monster_dir = self._direction_to_target(player_x, player_y, mx, my)
+        
+        # Remove direction towards monster
+        safe_dirs = [d for d in directions if d != monster_dir]
+        
+        # Try each safe direction
+        for escape_dir in safe_dirs:
+            self.controller.execute(Action("move", {"direction": escape_dir, "duration": 0.4}, f"retreat {escape_dir}"))
+            await asyncio.sleep(0.35)
+            
+            # Check if we moved
+            self._refresh_state_snapshot()
+            if self.last_state:
+                new_x = self.last_state.get("player", {}).get("tileX", player_x)
+                new_y = self.last_state.get("player", {}).get("tileY", player_y)
+                if new_x != player_x or new_y != player_y:
+                    logging.info(f"🏃 Escaped {escape_dir}")
+                    return "fled"
+        
+        # All directions blocked - we're cornered
+        logging.warning(f"🏃 CORNERED! No escape from {monster_name}")
+        
+        # Last resort: try to warp out
+        self.controller.execute(Action("enter_mine_level", {"level": 0}, "emergency exit"))
+        await asyncio.sleep(0.3)
+        return "fled"
+
+    async def _try_pickup_weapon(self) -> bool:
+        """Check for and pickup weapons from ground/chests."""
+        mining = self.controller.get_mining() if hasattr(self.controller, 'get_mining') else None
+        if not mining:
+            return False
+        
+        # Check for dropped items (weapons on ground)
+        items = mining.get("items", [])
+        for item in items:
+            item_name = item.get("name", "")
+            # Common weapon drops
+            if any(w in item_name for w in ["Sword", "Club", "Dagger", "Hammer"]):
+                ix = item.get("x", item.get("tileX", 0))
+                iy = item.get("y", item.get("tileY", 0))
+                logging.info(f"⚔️ Found weapon: {item_name} at ({ix},{iy})")
+                
+                # Move to pickup
+                self.controller.execute(Action("move_to", {"x": ix, "y": iy}, f"pickup {item_name}"))
+                await asyncio.sleep(0.3)
+                self.controller.execute(Action("interact", {}, "pickup"))
+                await asyncio.sleep(0.2)
+                return True
+        
+        # Check for chests
+        objects = mining.get("objects", [])
+        for obj in objects:
+            obj_name = obj.get("name", "")
+            if "Chest" in obj_name or obj_name == "Barrel" or obj_name == "Crate":
+                ox = obj.get("x", obj.get("tileX", 0))
+                oy = obj.get("y", obj.get("tileY", 0))
+                
+                # Get current player position
+                self._refresh_state_snapshot()
+                if not self.last_state:
+                    continue
+                    
+                player_x = self.last_state.get("player", {}).get("tileX", 0)
+                player_y = self.last_state.get("player", {}).get("tileY", 0)
+                dist = abs(ox - player_x) + abs(oy - player_y)
+                
+                if dist <= 5:  # Only go for nearby containers
+                    logging.info(f"📦 Breaking {obj_name} at ({ox},{oy}) for loot")
+                    
+                    # Move adjacent and break
+                    await self._move_adjacent_and_face(ox, oy)
+                    self.controller.execute(Action("equip_tool", {"tool": "Pickaxe"}, "equip pickaxe"))
+                    await asyncio.sleep(0.1)
+                    self.controller.execute(Action("use_tool", {}, f"break {obj_name}"))
+                    await asyncio.sleep(0.2)
+                    
+                    # Check if weapon dropped
+                    self._refresh_state_snapshot()
+                    inventory = self.last_state.get("inventory", []) if self.last_state else []
+                    has_weapon = any(
+                        item and item.get("type") == "Weapon"
+                        for item in inventory if item
+                    )
+                    if has_weapon:
+                        logging.info("⚔️ Got a weapon from container!")
+                        return True
+        
+        return False
+
+    # =========================================================================
     # BATCH MINING - Session 122
     # =========================================================================
 
@@ -4427,7 +4694,22 @@ class StardewAgent:
             # On infested floors, ALL monsters must die before ladder appears
             is_infested = len(monsters) > 3 and not ladder_found and len(rocks) < 10
 
-            # Priority 1: Handle monsters
+            # Session 124: Check for weapon availability
+            inventory = self.last_state.get("inventory", []) if self.last_state else []
+            has_weapon = any(
+                item and item.get("type") == "Weapon"
+                for item in inventory if item
+            )
+
+            # Session 124: If no weapon, try to find one first
+            if not has_weapon and monsters:
+                logging.info("⛏️ No weapon! Searching for one...")
+                found_weapon = await self._try_pickup_weapon()
+                if found_weapon:
+                    has_weapon = True
+                    logging.info("⛏️ Armed and ready!")
+
+            # Priority 1: Handle monsters with new combat system
             # - Always attack nearby monsters (dist <= 3)
             # - On infested floors or low rocks: actively hunt monsters
             hunt_monsters = is_infested or (len(rocks) < 5 and len(monsters) > 0)
@@ -4436,48 +4718,28 @@ class StardewAgent:
                 logging.info(f"⛏️ {'INFESTED FLOOR' if is_infested else 'Low rocks'} - hunting {len(monsters)} monsters")
 
             for monster in monsters:
-                mx, my = monster.get("x", monster.get("tileX", 0)), monster.get("y", monster.get("tileY", 0))
+                mx = monster.get("x", monster.get("tileX", 0))
+                my = monster.get("y", monster.get("tileY", 0))
                 dist = abs(mx - player_x) + abs(my - player_y)
 
                 # Attack if nearby OR actively hunting
                 if dist <= 3 or (hunt_monsters and dist <= 8):
-                    logging.info(f"⛏️ Engaging {monster.get('name', 'unknown')} at ({mx},{my}), dist={dist}")
-
-                    # Move closer if needed
-                    if dist > 2:
-                        self.controller.execute(Action("move_to", {"x": mx, "y": my}, f"approach monster"))
-                        await asyncio.sleep(0.3)
+                    # Session 124: Use new tactical combat system
+                    result = await self._combat_engage(monster, player_x, player_y, has_weapon)
+                    
+                    if result == "killed":
+                        results["monsters_killed"] += 1
+                    elif result == "fled":
+                        # We retreated - refresh position
                         self._refresh_state_snapshot()
                         if self.last_state:
                             player = self.last_state.get("player", {})
                             player_x = player.get("tileX", player_x)
                             player_y = player.get("tileY", player_y)
-
-                    # Session 123: Check if we have a weapon before attacking
-                    # Player can find weapons in the mines, so don't require one upfront
-                    inventory = self.last_state.get("inventory", []) if self.last_state else []
-                    has_weapon = any(
-                        item and item.get("type") == "Weapon"
-                        for item in inventory if item
-                    )
-
-                    if has_weapon:
-                        # Equip weapon and attack
-                        direction = self._direction_to_target(player_x, player_y, mx, my)
-                        self.controller.execute(Action("select_item_type", {"value": "Weapon"}, "equip weapon"))
-                        await asyncio.sleep(0.1)
-                        # Multiple swings for tougher monsters
-                        for _ in range(3):
-                            self.controller.execute(Action("swing_weapon", {"direction": direction}, f"attack {direction}"))
-                            await asyncio.sleep(0.2)
-                        results["monsters_killed"] += 1
-                    else:
-                        # No weapon - avoid monster and focus on rocks
-                        logging.info(f"⛏️ No weapon! Avoiding monster at ({mx},{my})")
-                        # Move away from monster
-                        escape_dir = self._direction_to_target(mx, my, player_x, player_y)  # Opposite direction
-                        self.controller.execute(Action("move", {"direction": escape_dir, "duration": 0.3}, f"flee {escape_dir}"))
-                        await asyncio.sleep(0.3)
+                        break  # Exit monster loop, reassess situation
+                    elif result == "damaged":
+                        # Monster still alive (kiting) - will re-engage next iteration
+                        pass
 
             # Priority 2: Use ladder if found
             if ladder_found or shaft_found:
