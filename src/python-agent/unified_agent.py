@@ -4753,6 +4753,13 @@ class StardewAgent:
 
             # Priority 3: Mine rocks
             if not rocks:
+                # Session 125: Floor 0 is the entrance - descend to floor 1
+                if floor == 0:
+                    logging.info("⛏️ At mine entrance (floor 0) - descending to floor 1")
+                    self.controller.execute(Action("enter_mine_level", {"level": 1}, "enter mine level 1"))
+                    await asyncio.sleep(0.5)
+                    continue
+                
                 logging.info("⛏️ No rocks on floor - waiting for ladder spawn or moving on")
                 await asyncio.sleep(0.5)
                 continue
