@@ -4243,7 +4243,8 @@ class StardewAgent:
                 await asyncio.sleep(0.2)
 
             self.controller.execute(Action("warp", {"location": "Farm"}, "warp to Farm"))
-            await asyncio.sleep(0.3)  # Give warp time to complete
+            await asyncio.sleep(0.6)  # Session 126: Must be > 0.5s to bypass state rate limit
+            self.last_state_poll = 0  # Force state refresh by resetting rate limit
             self._refresh_state_snapshot()
             location = self.last_state.get("location", {}) if self.last_state else {}
             loc_name = location.get("name", "")
