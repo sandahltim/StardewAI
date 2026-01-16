@@ -767,20 +767,33 @@ public class ModEntry : Mod
             result.Floor = mine.mineLevel;
             result.FloorType = GetMineFloorType(mine.mineLevel);
 
-            // Session 126: Find ladder/shaft with coordinates
-            foreach (var pair in mine.Objects.Pairs)
+            // Session 129: Find ladder/shaft - check BOTH Objects collections
+            // Ladders spawned from rocks go into mine.objects (lowercase), but 
+            // pre-existing ladders may be in mine.Objects (uppercase)
+            void CheckForLadder(StardewValley.Object obj, Vector2 pos)
             {
-                var obj = pair.Value;
                 if (obj.Name == "Ladder" && !result.LadderFound)
                 {
                     result.LadderFound = true;
-                    result.LadderPosition = new TilePosition { X = (int)pair.Key.X, Y = (int)pair.Key.Y };
+                    result.LadderPosition = new TilePosition { X = (int)pos.X, Y = (int)pos.Y };
                 }
                 else if (obj.Name == "Shaft" && !result.ShaftFound)
                 {
                     result.ShaftFound = true;
-                    result.ShaftPosition = new TilePosition { X = (int)pair.Key.X, Y = (int)pair.Key.Y };
+                    result.ShaftPosition = new TilePosition { X = (int)pos.X, Y = (int)pos.Y };
                 }
+            }
+
+            // Check property (uppercase Objects) for pre-existing ladders
+            foreach (var pair in mine.Objects.Pairs)
+            {
+                CheckForLadder(pair.Value, pair.Key);
+            }
+
+            // Also check field (lowercase objects) - this is where spawned ladders go
+            foreach (var pair in mine.objects.Pairs)
+            {
+                CheckForLadder(pair.Value, pair.Key);
             }
 
             // Read rocks/ores

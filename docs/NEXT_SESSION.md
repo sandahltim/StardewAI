@@ -1,23 +1,25 @@
-# Session 129: Test Full Workflow
+# Session 130: Test Mining & Inventory Improvements
 
-**Last Updated:** 2026-01-16 Session 128 by Claude
-**Status:** Multiple fixes applied - ready for full flow test
+**Last Updated:** 2026-01-16 Session 129 by Claude
+**Status:** Multiple fixes applied - ready for mining test
 
 ---
 
-## Session 128 Summary
+## Session 129 Summary
 
-Fixed 4 issues + 1 noted for later:
+Fixed 4 issues + noted roadmap items:
 
 | Issue | Symptom | Root Cause | Fix |
 |-------|---------|------------|-----|
-| Crop watering infinite loop | Same crop retried forever | Only tried 1 adjacent position, verification failed | Try all 4 positions; track unreachable crops |
-| Mining didn't descend levels | Found ladder but went to farm | Didn't navigate to ladder position | Navigate to ladder; `descend_mine` fallback |
-| No status during batch | UI silent during long batches | No periodic updates | `_batch_status_update()` every 20s |
-| Mined materials left on ground | Ore/stone drops not collected | No pickup step after mining | Walk over rock position to collect |
+| Ladder not found on elevator floors | Agent couldn't descend from floor 5 | SMAPI checked wrong Objects collection | Check BOTH `Objects` AND `objects` collections |
+| Not collecting mined items | Ore/geodes left on ground | Only walked to rock position once | Walk circle around rock, collect from all directions |
+| Harvest loop with full inventory | Agent stuck retrying same crop | No inventory check before harvest | Check empty slots, skip if full, stop after 3 skips |
+| No inventory check in mining | Mine until stuck | Kept mining with full backpack | Return to surface when < 2 slots free |
 
-### Noted for Later
-- **Keep 1-2 food items for mining health** - Don't sell all edible crops if mining planned
+### Roadmap Items (Future Sessions)
+- **Inventory management system** - Sort/store items in chests automatically
+- **Crafting/upgrades integration** - Use blacksmith, craft items
+- **Popup event handling** - Dismiss dialogs, handle festivals
 
 ---
 
@@ -43,96 +45,98 @@ python src/python-agent/unified_agent.py --goal "Do farm chores and go mining"
 
 ---
 
-## Session 129 Testing Checklist
+## Session 130 Testing Checklist
+
+### Mining (Priority Test)
+- [ ] Agent finds ladder on elevator floors (5, 10, 15)
+- [ ] `descend_mine` fallback works when `use_ladder` fails
+- [ ] Log shows: "Elevator floor X - trying descend_mine as fallback"
+- [ ] Agent collects items after mining each rock (walks circle)
+- [ ] Agent returns to surface when inventory < 2 slots free
 
 ### Farm Chores
-- [ ] Watering tries multiple adjacent positions
-- [ ] Unreachable crops logged but don't cause infinite loop
-- [ ] Verification excludes unreachable crops
+- [ ] Harvest stops when inventory full (log: "Inventory FULL")
+- [ ] Agent doesn't loop infinitely on unreachable crops
 - [ ] Status updates appear in UI every ~20s
 
-### Mining
-- [ ] Agent navigates TO ladder position (log: "Ladder at (x,y), navigating")
-- [ ] `use_ladder` or `descend_mine` fallback works
-- [ ] Agent collects dropped materials after mining rocks
-- [ ] Status updates show floor progress
-
-### Ship Task (Session 127 fix)
-- [ ] Ship task typed as `ship_items` (not `harvest_crops`)
+### Ship Task
+- [ ] Ship task triggers after harvest (if harvestable items)
 - [ ] Agent navigates to shipping bin
-- [ ] Items actually shipped
+- [ ] Items shipped, gold increases
 
 ---
 
-## Files Modified Session 128
+## Files Modified Session 129
 
 | File | Line | Change |
 |------|------|--------|
-| `unified_agent.py` | 2621 | Added `_unreachable_crops` set |
-| `unified_agent.py` | 3807 | Store unreachable crops in set |
-| `unified_agent.py` | 3511-3522 | Verification excludes unreachable |
-| `unified_agent.py` | 3887-3920 | Water tries all 4 adjacent positions |
-| `unified_agent.py` | 4154-4167 | `_batch_status_update()` helper |
-| `unified_agent.py` | 4179 | Reset batch timer in farm chores |
-| `unified_agent.py` | 4316, 4326, 4386 | Status updates in phases |
-| `unified_agent.py` | 4694 | Reset batch timer in mining |
-| `unified_agent.py` | 4767 | Mining floor status update |
-| `unified_agent.py` | 4795-4825 | Navigate to ladder + fallback |
-| `unified_agent.py` | 4934-4937 | Collect drops after mining |
-
----
-
-## Session 127 Fixes (Still Relevant)
-
-| Fix | File | Line |
-|-----|------|------|
-| `descend_mine` dispatch | `unified_agent.py` | 2183 |
-| `equip_tool` alias | `unified_agent.py` | 2082 |
-| Ship task if harvestable | `daily_planner.py` | 450 |
-| "fruit" sellable type | `target_generator.py` | 295 |
-| Ship type before harvest | `prereq_resolver.py` | 238 |
+| `ModEntry.cs` | 770-784 | Check both `Objects` and `objects` for ladders |
+| `unified_agent.py` | 4900-4915 | Inventory check before mining |
+| `unified_agent.py` | 4934-4950 | Walk circle to collect items after mining |
+| `unified_agent.py` | 4956-4968 | Re-check for ladder after each rock |
+| `unified_agent.py` | 4867-4910 | Elevator floor fallback + descend_mine retry |
+| `unified_agent.py` | 4325-4370 | Inventory check before harvesting |
 
 ---
 
 ## Architecture Notes
 
-### Batch Status Updates
+### SMAPI Ladder Detection (Session 129)
 ```
-_batch_status_update(phase, progress)
-  → Rate limited to 20s interval
-  → Updates self.vlm_status
-  → Calls _send_ui_status()
+Two collections in MineShaft:
+- mine.Objects (capital O) - property, pre-existing objects
+- mine.objects (lowercase o) - field, runtime spawned objects
+
+Ladders from rocks go into lowercase objects collection.
+Now checking BOTH collections for ladder detection.
 ```
 
-### Mining Ladder Logic (Session 128)
+### Mining Inventory Check
 ```
-if ladder_found:
-  → Get ladder position from mining state
-  → Navigate to adjacent tile
-  → Try use_ladder
-  → If still same floor, fallback to descend_mine
+Before each rock:
+  → Check empty slots
+  → If < 2 free, return to surface
+  → Prevents getting stuck with full inventory
 ```
 
-### Crop Watering Logic (Session 128)
+### Item Collection Pattern
 ```
-For each crop:
-  → Try south, north, east, west positions
-  → If ANY works, water crop
-  → If NONE work, add to _unreachable_crops
+After breaking rock at (rx, ry):
+  → Walk to rock position
+  → Walk circle: south, east, north, west
+  → Return to rock position
+  → Items auto-collected when walked over
+```
 
-Verification:
-  → Exclude _unreachable_crops from count
-  → Pass if remaining unwatered < 50%
+### Harvest Inventory Check
 ```
+Before each harvest:
+  → Count empty inventory slots
+  → If 0 slots: skip crop, increment counter
+  → After 3 skips: stop harvest phase entirely
+  → Log message directs to ship/store items
+```
+
+---
+
+## Session 128 Fixes (Still Relevant)
+
+| Fix | Details |
+|-----|---------|
+| Crop watering tries all 4 positions | Try south, north, east, west before giving up |
+| Unreachable crops tracked | `_unreachable_crops` set excludes from verification |
+| Batch status updates | `_batch_status_update()` every 20s |
+| Mining material pickup | Walk over rock position after mining |
 
 ---
 
 ## Future Improvements
 
-1. **Food reservation** - Keep 1-2 edible items when mining planned
-2. **Ore priority** - Mine copper/iron before regular stone
-3. **Combat kiting** - Better monster handling with weapon
+1. **Inventory management** - Auto-sort, chest storage, sell threshold
+2. **Crafting system** - Use recipes, place items, upgrade tools
+3. **Popup handling** - Dismiss dialogs, festival options
+4. **Food reservation** - Keep 1-2 edible items for mining health
 
 ---
 
--- Claude (Session 128)
+-- Claude (Session 129)

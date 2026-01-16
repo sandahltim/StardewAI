@@ -4327,9 +4327,25 @@ class StardewAgent:
             logging.info(f"🌾 Phase 2: Harvesting {len(harvestable)} crops")
             await self._batch_status_update("Harvesting", f"{len(harvestable)} crops ready")
             skipped_harvest = 0
+            inventory_full_count = 0
+            
             for crop in harvestable:
                 cx, cy = crop.get("x", 0), crop.get("y", 0)
                 crop_name = crop.get("cropName", "crop")
+                
+                # Session 129: Check inventory space BEFORE harvesting
+                # This prevents the infinite loop when inventory is full
+                self._refresh_state_snapshot()
+                inventory = self.last_state.get("inventory", []) if self.last_state else []
+                empty_slots = sum(1 for item in inventory if not item)
+                
+                if empty_slots < 1:
+                    logging.warning(f"🌾 Inventory FULL ({empty_slots} slots) - skipping harvest of {crop_name}")
+                    inventory_full_count += 1
+                    if inventory_full_count >= 3:
+                        logging.warning("🌾 Inventory full - stopping harvest phase (need to ship/store items)")
+                        break  # Stop trying to harvest with full inventory
+                    continue
                 
                 # Session 120: Try multiple adjacent positions to reach crop
                 # Order: south (face north), north (face south), east (face west), west (face east)
@@ -4363,7 +4379,9 @@ class StardewAgent:
                     logging.warning(f"⏭️ Couldn't reach {crop_name} at ({cx},{cy}), skipping")
                     skipped_harvest += 1
             
-            if skipped_harvest > 0:
+            if inventory_full_count > 0:
+                logging.info(f"🌾 Harvested {results['harvested']} crops, {inventory_full_count} skipped (inventory full), {skipped_harvest} unreachable")
+            elif skipped_harvest > 0:
                 logging.info(f"🌾 Harvested {results['harvested']} crops, skipped {skipped_harvest} unreachable")
             else:
                 logging.info(f"🌾 Harvested {results['harvested']} crops")
@@ -4864,12 +4882,28 @@ class StardewAgent:
                     await asyncio.sleep(1.0)  # Give time for floor transition
                     continue
                 
-                # Session 125: Floor cleared but no ladder - handle stuck state
+                # Session 129: Floor cleared but no ladder - handle stuck state
                 if not monsters:
                     # No rocks, no monsters, no ladder = stuck
-                    logging.warning(f"⛏️ Floor {floor} cleared but no ladder! Checking for staircase...")
+                    logging.warning(f"⛏️ Floor {floor} cleared but no ladder! Trying fallbacks...")
                     
-                    # Try to use a staircase item if we have one
+                    # Fallback 1: On elevator floors (5, 10, 15...), try descend_mine directly
+                    # The ladder might exist but SMAPI isn't detecting it
+                    is_elevator_floor = floor > 0 and floor % 5 == 0
+                    if is_elevator_floor:
+                        logging.info(f"⛏️ Elevator floor {floor} - trying descend_mine as fallback")
+                        self.controller.execute(Action("descend_mine", {}, "descend from elevator floor"))
+                        await asyncio.sleep(0.5)
+                        
+                        # Check if we actually descended
+                        new_mining = self.controller.get_mining() if hasattr(self.controller, 'get_mining') else None
+                        new_floor = new_mining.get("floor", floor) if new_mining else floor
+                        if new_floor != floor:
+                            logging.info(f"⛏️ descend_mine worked! Now on floor {new_floor}")
+                            results["floors_descended"] += 1
+                            continue
+                    
+                    # Fallback 2: Try to use a staircase item if we have one
                     inventory = self.last_state.get("inventory", []) if self.last_state else []
                     has_staircase = any(
                         item and item.get("name") == "Staircase"
@@ -4882,12 +4916,24 @@ class StardewAgent:
                         await asyncio.sleep(0.5)
                         results["floors_descended"] += 1
                         continue
-                    else:
-                        # No staircase - give up on this floor, return to surface
-                        logging.warning(f"⛏️ Stuck on floor {floor} with no staircase - returning to surface")
-                        self.controller.execute(Action("enter_mine_level", {"level": 0}, "retreat to surface"))
-                        await asyncio.sleep(0.5)
-                        break
+                    
+                    # Fallback 3: Try descend_mine anyway (last resort)
+                    logging.info("⛏️ Last resort - trying descend_mine")
+                    self.controller.execute(Action("descend_mine", {}, "descend last resort"))
+                    await asyncio.sleep(0.5)
+                    
+                    new_mining = self.controller.get_mining() if hasattr(self.controller, 'get_mining') else None
+                    new_floor = new_mining.get("floor", floor) if new_mining else floor
+                    if new_floor != floor:
+                        logging.info(f"⛏️ descend_mine worked! Now on floor {new_floor}")
+                        results["floors_descended"] += 1
+                        continue
+                    
+                    # Still stuck - give up on this floor, return to surface
+                    logging.warning(f"⛏️ Stuck on floor {floor} - all fallbacks failed, returning to surface")
+                    self.controller.execute(Action("enter_mine_level", {"level": 0}, "retreat to surface"))
+                    await asyncio.sleep(0.5)
+                    break
                 
                 # Still have monsters - they might drop ladder when killed
                 logging.info("⛏️ No rocks but monsters remain - hunting for ladder spawn")
@@ -4901,6 +4947,16 @@ class StardewAgent:
                 rx = rock.get("x", rock.get("tileX", 0))
                 ry = rock.get("y", rock.get("tileY", 0))
                 rock_type = rock.get("type", "Stone")
+
+                # Session 129: Check inventory space before mining
+                self._refresh_state_snapshot()
+                inventory = self.last_state.get("inventory", []) if self.last_state else []
+                empty_slots = sum(1 for item in inventory if not item)
+                if empty_slots < 2:
+                    logging.warning(f"⛏️ Inventory nearly full ({empty_slots} slots) - returning to surface")
+                    self.controller.execute(Action("enter_mine_level", {"level": 0}, "retreat - inventory full"))
+                    await asyncio.sleep(0.5)
+                    return results  # Exit mining entirely
 
                 # Move adjacent to rock
                 moved = await self._move_adjacent_and_face(rx, ry)
@@ -4931,10 +4987,26 @@ class StardewAgent:
                 else:
                     results["rocks_broken"] += 1
 
-                # Session 128: Walk over rock position to collect dropped items
-                # Items drop near the rock and are auto-collected when player walks over them
+                # Session 129: Better item collection - walk over rock position AND circle around
+                # Items drop in cardinal directions from the rock
                 self.controller.execute(Action("move_to", {"x": rx, "y": ry}, "collect drops"))
-                await asyncio.sleep(0.15)  # Brief pause for collection
+                await asyncio.sleep(0.2)
+                # Walk a small circle to pick up scattered items
+                for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+                    self.controller.execute(Action("move_to", {"x": rx + dx, "y": ry + dy}, "sweep drops"))
+                    await asyncio.sleep(0.1)
+                # Return to rock position
+                self.controller.execute(Action("move_to", {"x": rx, "y": ry}, "return"))
+                await asyncio.sleep(0.1)
+
+                # Session 129: Re-check for ladder AFTER each rock (ladder might have spawned)
+                mining_check = self.controller.get_mining() if hasattr(self.controller, 'get_mining') else None
+                if mining_check:
+                    new_ladder = mining_check.get("ladderFound", False)
+                    new_shaft = mining_check.get("shaftFound", False)
+                    if new_ladder or new_shaft:
+                        logging.info(f"⛏️ {'Ladder' if new_ladder else 'Shaft'} spawned after mining!")
+                        break  # Exit rock loop to use ladder in next iteration
 
                 floor_rocks += 1
                 if floor_rocks >= MAX_ROCKS_PER_FLOOR:
