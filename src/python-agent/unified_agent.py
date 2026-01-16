@@ -4303,8 +4303,14 @@ class StardewAgent:
                 # Return to farm
                 logging.info("🏠 Returning to farm...")
                 self.controller.execute(Action("warp", {"location": "Farm"}, "warp to Farm"))
-                await asyncio.sleep(0.15)  # Warp is instant
+                await asyncio.sleep(0.6)  # Session 129: Must be > 0.5s to bypass state rate limit
+                self.last_state_poll = 0  # Force state refresh after buying seeds
                 self._refresh_state_snapshot()
+                
+                # Log the seeds we now have
+                inv_after = self.last_state.get("inventory", []) if self.last_state else []
+                seeds_after = [i.get("name") for i in inv_after if i and "seed" in i.get("name", "").lower()]
+                logging.info(f"🛒 After buying: inventory has seeds: {seeds_after}")
             elif not pierre_open:
                 logging.info(f"🛒 No seeds but Pierre's closed (hour={hour}, day={day_of_week})")
             elif money < 20:
@@ -4440,9 +4446,14 @@ class StardewAgent:
             crops = _refresh_farm_crops()
 
         # --- PHASE 3: TILL & PLANT (combined for efficiency) ---
+        # Session 129: Force state refresh before Phase 3 to catch newly bought seeds
+        self.last_state_poll = 0  # Reset rate limit
+        self._refresh_state_snapshot()
+        
         # Check for seeds - process EACH seed type separately (Session 116 fix)
         inventory = self.last_state.get("inventory", []) if self.last_state else []
         seed_items = [i for i in inventory if i and "seed" in i.get("name", "").lower()]
+        logging.info(f"🌱 Phase 3: Found {len(seed_items)} seed types in inventory: {[s.get('name') for s in seed_items]}")
         
         total_tilled = 0
         total_planted = 0
