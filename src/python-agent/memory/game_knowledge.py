@@ -30,14 +30,19 @@ def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
 
 
 def get_npc_info(name: str) -> Optional[Dict[str, Any]]:
+    """Get NPC info from database. Returns None if table doesn't exist or NPC not found."""
     if not name:
         return None
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM npcs WHERE lower(name) = lower(?)",
-            (name,),
-        ).fetchone()
-    return _row_to_dict(row) if row else None
+    try:
+        with _connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM npcs WHERE lower(name) = lower(?)",
+                (name,),
+            ).fetchone()
+        return _row_to_dict(row) if row else None
+    except sqlite3.OperationalError:
+        # Table doesn't exist yet
+        return None
 
 
 def get_npc_gift_reaction(npc: str, item: str) -> str:
