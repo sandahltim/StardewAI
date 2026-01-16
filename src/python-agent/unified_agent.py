@@ -6722,6 +6722,11 @@ If everything looks normal, just provide commentary. Only say PAUSE if something
             time_data = state.get("time", {})
             day = time_data.get("day", 0)
             season = time_data.get("season", "spring")
+            # Session 125: Force re-plan if day matches but no tasks (recovery)
+            pending_tasks = [t for t in self.daily_planner.tasks if t.status == "pending"]
+            if day > 0 and day == self._last_planned_day and len(pending_tasks) == 0:
+                logging.info(f"📅 Day {day} already planned but 0 pending tasks - forcing re-plan")
+                self._last_planned_day = 0  # Reset to trigger re-plan
             if day > 0 and day != self._last_planned_day:
                 logging.info(f"🌅 New day detected: Day {day} - generating plan...")
 
