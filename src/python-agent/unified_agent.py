@@ -4204,8 +4204,12 @@ class StardewAgent:
 
         # --- PHASE 0: BUY SEEDS IF NEEDED ---
         inventory = self.last_state.get("inventory", [])
-        has_seeds = any(i and "seed" in i.get("name", "").lower() for i in inventory)
-
+        # Session 129: Better logging for seed detection
+        seed_items = [i.get("name", "?") for i in inventory if i and "seed" in i.get("name", "").lower()]
+        has_seeds = len(seed_items) > 0
+        if has_seeds:
+            logging.info(f"🛒 Phase 0: Found seeds in inventory: {seed_items}")
+        
         if not has_seeds:
             player = self.last_state.get("player", {})
             money = player.get("money", 0)
@@ -4215,9 +4219,10 @@ class StardewAgent:
 
             # Pierre's open: 9-17, not Wednesday
             pierre_open = 9 <= hour < 17 and day_of_week != "Wednesday"
+            logging.info(f"🛒 Phase 0: No seeds! hour={hour}, day={day_of_week}, pierre_open={pierre_open}, money={money}g")
 
             if pierre_open and money >= 20:  # Minimum for parsnip seeds
-                logging.info(f"🛒 Phase 0: No seeds! Going to Pierre's ({money}g available)")
+                logging.info(f"🛒 Phase 0: Going to Pierre's ({money}g available)")
 
                 # Get recommended seed
                 seed_skill, seed_reason = get_recommended_seed_skill(self.last_state)
@@ -4335,9 +4340,13 @@ class StardewAgent:
                 
                 # Session 129: Check inventory space BEFORE harvesting
                 # This prevents the infinite loop when inventory is full
+                # Note: Inventory is a SPARSE list of actual items, not slots with nulls
                 self._refresh_state_snapshot()
                 inventory = self.last_state.get("inventory", []) if self.last_state else []
-                empty_slots = sum(1 for item in inventory if not item)
+                player = self.last_state.get("player", {}) if self.last_state else {}
+                max_items = player.get("maxItems", 12)  # Default 12, upgrades to 24/36
+                used_slots = len([item for item in inventory if item])
+                empty_slots = max_items - used_slots
                 
                 if empty_slots < 1:
                     logging.warning(f"🌾 Inventory FULL ({empty_slots} slots) - skipping harvest of {crop_name}")
@@ -4949,9 +4958,13 @@ class StardewAgent:
                 rock_type = rock.get("type", "Stone")
 
                 # Session 129: Check inventory space before mining
+                # Note: Inventory is a SPARSE list of actual items, not 36 slots with nulls
                 self._refresh_state_snapshot()
                 inventory = self.last_state.get("inventory", []) if self.last_state else []
-                empty_slots = sum(1 for item in inventory if not item)
+                player = self.last_state.get("player", {}) if self.last_state else {}
+                max_items = player.get("maxItems", 12)  # Default 12 slots, upgrades to 24/36
+                used_slots = len([item for item in inventory if item])
+                empty_slots = max_items - used_slots
                 if empty_slots < 2:
                     logging.warning(f"⛏️ Inventory nearly full ({empty_slots} slots) - returning to surface")
                     self.controller.execute(Action("enter_mine_level", {"level": 0}, "retreat - inventory full"))
