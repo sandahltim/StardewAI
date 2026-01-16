@@ -4938,6 +4938,18 @@ class StardewAgent:
         grass_positions = {(g.get("x"), g.get("y")) for g in data.get("grassPositions", [])}
         debris = {(d.get("x"), d.get("y")) for d in data.get("debris", [])}
         
+        # Session 125: Identify PERMANENT objects that can't be cleared with tools
+        PERMANENT_OBJECTS = {"Scarecrow", "Sprinkler", "Quality Sprinkler", "Iridium Sprinkler",
+                            "Chest", "Stone Chest", "Furnace", "Recycling Machine", "Seed Maker",
+                            "Crystalarium", "Mayonnaise Machine", "Cheese Press", "Loom",
+                            "Keg", "Preserves Jar", "Bee House", "Cask", "Tapper", "Lightning Rod",
+                            "Slime Incubator", "Worm Bin", "Oil Maker", "Deluxe Scarecrow"}
+        permanent_objects = {(o.get("x"), o.get("y")) for o in objects_list 
+                            if o.get("name") in PERMANENT_OBJECTS}
+        if permanent_objects:
+            logging.info(f"🌱 Skipping {len(permanent_objects)} permanent objects (scarecrows, etc.)")
+        permanent_blocked = permanent_blocked | permanent_objects
+        
         # ResourceClumps = large stumps, logs, boulders (need upgraded tools)
         # These have width x height, so block ALL tiles they occupy
         clump_blocked = set()
@@ -5153,9 +5165,20 @@ class StardewAgent:
         existing_crops = {(c.get("x"), c.get("y")) for c in data.get("crops", [])}
         permanent_blocked = existing_tilled | existing_crops
 
-        # Get clearable objects with their types
+        # Get objects and categorize them
         objects_list = data.get("objects", [])
         objects_by_pos = {(o.get("x"), o.get("y")): o for o in objects_list}
+        
+        # Session 125: Identify PERMANENT objects that can't be cleared with tools
+        # These must be picked up with right-click or removed via inventory
+        PERMANENT_OBJECTS = {"Scarecrow", "Sprinkler", "Quality Sprinkler", "Iridium Sprinkler",
+                            "Chest", "Stone Chest", "Furnace", "Recycling Machine", "Seed Maker",
+                            "Crystalarium", "Mayonnaise Machine", "Cheese Press", "Loom",
+                            "Keg", "Preserves Jar", "Bee House", "Cask", "Tapper", "Lightning Rod",
+                            "Slime Incubator", "Worm Bin", "Oil Maker", "Deluxe Scarecrow"}
+        permanent_objects = {(o.get("x"), o.get("y")) for o in objects_list 
+                            if o.get("name") in PERMANENT_OBJECTS}
+        logging.info(f"🔨 Found {len(permanent_objects)} permanent objects (scarecrows, etc.)")
         
         # Get grass positions (terrain features that need scythe)
         grass_positions = {(g.get("x"), g.get("y")) for g in data.get("grassPositions", [])}
@@ -5163,6 +5186,9 @@ class StardewAgent:
         
         # Debris (resource clumps - big stumps, boulders) - usually can't clear early game
         debris = {(d.get("x"), d.get("y")) for d in data.get("debris", [])}
+        
+        # Add permanent objects to blocked set
+        permanent_blocked = permanent_blocked | permanent_objects
 
         # For grid search, consider all blocked (even clearable like grass)
         all_blocked = permanent_blocked | debris | set(objects_by_pos.keys()) | grass_positions
