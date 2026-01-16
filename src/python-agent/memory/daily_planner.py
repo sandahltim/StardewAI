@@ -564,16 +564,10 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         energy_pct = (energy / max_energy * 100) if max_energy > 0 else 100
         hour = time_data.get("hour", 6)
         
-        # Clear debris - needs some energy
-        if energy_pct > 50:
-            self.tasks.append(DailyTask(
-                id=f"clear_{self.current_day}_1",
-                description="Clear debris from farm",
-                category="farming",
-                priority=TaskPriority.MEDIUM.value,
-                target_location="Farm",
-                estimated_time=30,
-            ))
+        # Session 123: Removed standalone "clear debris" task
+        # It had no skill_override and got stuck in VLM loop, blocking mining
+        # Debris clearing can be done opportunistically; crops grow fine around debris
+        # If needed later, add debris clearing to _batch_farm_chores
         
         # Mining - conditional on having pickaxe and good energy
         # VLM reasoning can reprioritize based on context (weather, goals, etc.)
