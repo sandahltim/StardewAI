@@ -6184,6 +6184,12 @@ class StardewAgent:
 
         logging.info(f"🎯 _try_start_daily_task: {len(resolved_queue)} items in resolved queue")
 
+        # Session 126: Log queue contents to debug task ordering
+        for idx, rt in enumerate(resolved_queue[:5]):  # First 5 tasks
+            rt_id = rt.original_task_id if hasattr(rt, 'original_task_id') else rt.get('original_task_id', '?')
+            rt_skill = rt.skill_override if hasattr(rt, 'skill_override') else rt.get('skill_override', None)
+            logging.info(f"   📋 Queue[{idx}]: {rt_id} (skill_override={rt_skill})")
+
         # Find next task that can be executed
         for i, resolved_task in enumerate(resolved_queue):
             # Get task info (handle both ResolvedTask objects and dicts)
