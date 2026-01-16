@@ -29,6 +29,13 @@ try:
 except ImportError:
     HAS_PREREQ_RESOLVER = False
 
+# Session 130: Import farm planner for coverage-based scarecrow decisions
+try:
+    from planning.farm_planner import get_farm_layout_plan
+    HAS_FARM_PLANNER = True
+except ImportError:
+    HAS_FARM_PLANNER = False
+
 # Import constants for default locations
 try:
     from constants import DEFAULT_LOCATIONS
@@ -490,10 +497,13 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
         farm_data = farm_state or {}
         farm_objects = farm_data.get("objects", [])
 
-        # Count materials in inventory
+        # Session 130: Count materials AND check for crafted items in inventory
         wood_count = 0
         coal_count = 0
         fiber_count = 0
+        has_scarecrow_item = False  # Crafted scarecrow in inventory
+        has_chest_item = False      # Crafted chest in inventory
+
         for item in inventory:
             if not item:
                 continue
@@ -505,62 +515,131 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 coal_count += stack
             elif name == "fiber":
                 fiber_count += stack
-
-        # Check if scarecrow already placed on farm
-        has_scarecrow = any(
-            "scarecrow" in obj.get("name", "").lower()
-            for obj in farm_objects
-        )
+            elif "scarecrow" in name:
+                has_scarecrow_item = True
+            elif name == "chest":
+                has_chest_item = True
 
         # Check if chest already placed on farm
-        has_chest = any(
+        has_chest_placed = any(
             obj.get("name", "").lower() == "chest"
             for obj in farm_objects
         )
 
         # SCARECROW: High priority - crows eat crops!
-        # Recipe: 50 wood, 1 coal, 20 fiber
-        if not has_scarecrow:
-            can_craft_scarecrow = wood_count >= 50 and coal_count >= 1 and fiber_count >= 20
-            if can_craft_scarecrow:
+        # Session 130: Use farm planner for coverage-based decisions
+        scarecrows_needed = 0
+        coverage_pct = 100.0
+
+        if HAS_FARM_PLANNER and farm_state:
+            try:
+                layout_plan = get_farm_layout_plan(farm_state)
+                coverage = layout_plan.get("coverage", {})
+                scarecrows_needed = coverage.get("scarecrows_needed", 0)
+                coverage_pct = coverage.get("percentage", 100.0)
+                total_crops = coverage.get("total_crops", 0)
+                protected = coverage.get("protected_crops", 0)
+
+                if scarecrows_needed > 0:
+                    logger.info(f"📋 Crop coverage: {protected}/{total_crops} ({coverage_pct}%) - need {scarecrows_needed} more scarecrow(s)")
+                else:
+                    logger.debug(f"📋 Crop coverage: {coverage_pct}% - all crops protected")
+            except Exception as e:
+                logger.warning(f"📋 Farm planner error: {e} - falling back to simple check")
+                # Fallback: check if ANY scarecrow exists
+                has_scarecrow_placed = any(
+                    "scarecrow" in obj.get("name", "").lower()
+                    for obj in farm_objects
+                )
+                scarecrows_needed = 0 if has_scarecrow_placed else 1
+        else:
+            # No farm planner - simple existence check
+            has_scarecrow_placed = any(
+                "scarecrow" in obj.get("name", "").lower()
+                for obj in farm_objects
+            )
+            scarecrows_needed = 0 if has_scarecrow_placed else 1
+
+        # Create tasks for each scarecrow needed
+        for i in range(scarecrows_needed):
+            task_id_suffix = f"_{i+1}" if scarecrows_needed > 1 else ""
+
+            if has_scarecrow_item:
+                # Have one in inventory - place it first
                 self.tasks.append(DailyTask(
-                    id=f"craft_scarecrow_{self.current_day}",
-                    description="Craft and place scarecrow (have materials!)",
-                    category="crafting",
-                    priority=TaskPriority.HIGH.value,  # Protect crops from crows
+                    id=f"place_scarecrow_{self.current_day}{task_id_suffix}",
+                    description=f"Place scarecrow ({coverage_pct:.0f}% coverage, need {scarecrows_needed})",
+                    category="placement",
+                    priority=TaskPriority.HIGH.value,
                     target_location="Farm",
-                    estimated_time=5,
-                    skill_override="craft_scarecrow",
-                    notes=f"Materials: {wood_count}/50 wood, {coal_count}/1 coal, {fiber_count}/20 fiber",
+                    estimated_time=3,
+                    skill_override="auto_place_scarecrow",
+                    notes="Scarecrow in inventory - navigates to optimal position",
                 ))
-                logger.info(f"📋 Added task: Craft scarecrow (have {wood_count} wood, {coal_count} coal, {fiber_count} fiber)")
+                logger.info(f"📋 Added task: Place scarecrow #{i+1} (have in inventory)")
+                has_scarecrow_item = False  # Used it
             else:
-                # Log what's missing for debugging
-                missing = []
-                if wood_count < 50:
-                    missing.append(f"wood ({wood_count}/50)")
-                if coal_count < 1:
-                    missing.append(f"coal ({coal_count}/1)")
-                if fiber_count < 20:
-                    missing.append(f"fiber ({fiber_count}/20)")
-                logger.debug(f"📋 Need scarecrow but missing: {', '.join(missing)}")
+                # Need to craft
+                can_craft = wood_count >= 50 and coal_count >= 1 and fiber_count >= 20
+                if can_craft:
+                    self.tasks.append(DailyTask(
+                        id=f"craft_scarecrow_{self.current_day}{task_id_suffix}",
+                        description=f"Craft scarecrow ({coverage_pct:.0f}% coverage)",
+                        category="crafting",
+                        priority=TaskPriority.HIGH.value,
+                        target_location="Farm",
+                        estimated_time=5,
+                        skill_override="craft_scarecrow",
+                        notes=f"Materials: {wood_count}/50 wood, {coal_count}/1 coal, {fiber_count}/20 fiber",
+                    ))
+                    logger.info(f"📋 Added task: Craft scarecrow #{i+1}")
+                    # Deduct materials for next iteration
+                    wood_count -= 50
+                    coal_count -= 1
+                    fiber_count -= 20
+                else:
+                    # Can't craft - log what's missing
+                    missing = []
+                    if wood_count < 50:
+                        missing.append(f"wood ({wood_count}/50)")
+                    if coal_count < 1:
+                        missing.append(f"coal ({coal_count}/1)")
+                    if fiber_count < 20:
+                        missing.append(f"fiber ({fiber_count}/20)")
+                    logger.info(f"📋 Need scarecrow #{i+1} but missing: {', '.join(missing)}")
+                    break  # Can't craft more without materials
 
         # CHEST: Medium priority - inventory management
-        # Recipe: 50 wood
-        if not has_chest:
-            can_craft_chest = wood_count >= 50
-            if can_craft_chest:
+        # Session 130: Check inventory FIRST, then materials
+        if not has_chest_placed:
+            if has_chest_item:
+                # Already have chest in inventory - just need to place it!
                 self.tasks.append(DailyTask(
-                    id=f"craft_chest_{self.current_day}",
-                    description="Craft and place chest for storage (have wood!)",
-                    category="crafting",
+                    id=f"place_chest_{self.current_day}",
+                    description="Place chest from inventory (storage!)",
+                    category="placement",
                     priority=TaskPriority.MEDIUM.value,
                     target_location="Farm",
-                    estimated_time=5,
-                    skill_override="craft_chest",
-                    notes=f"Materials: {wood_count}/50 wood",
+                    estimated_time=3,
+                    skill_override="auto_place_chest",
+                    notes="Chest in inventory - navigates to strategic location",
                 ))
-                logger.info(f"📋 Added task: Craft chest (have {wood_count} wood)")
+                logger.info(f"📋 Added task: Place chest (have one in inventory!)")
+            else:
+                # Don't have chest - check if can craft
+                can_craft = wood_count >= 50
+                if can_craft:
+                    self.tasks.append(DailyTask(
+                        id=f"craft_chest_{self.current_day}",
+                        description="Craft and place chest for storage (have wood!)",
+                        category="crafting",
+                        priority=TaskPriority.MEDIUM.value,
+                        target_location="Farm",
+                        estimated_time=5,
+                        skill_override="craft_chest",
+                        notes=f"Materials: {wood_count}/50 wood",
+                    ))
+                    logger.info(f"📋 Added task: Craft chest (have {wood_count} wood)")
 
     def _generate_maintenance_tasks(self, state: Dict[str, Any]) -> None:
         """Generate farm maintenance tasks.
