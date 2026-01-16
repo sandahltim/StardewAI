@@ -163,7 +163,7 @@ class DailyPlanner:
         # Use farm_state if available (works when player is in FarmHouse)
         self._generate_farming_tasks(game_state, farm_state)
         self._generate_crafting_tasks(game_state, farm_state)  # Session 121: Auto-craft essentials
-        self._generate_maintenance_tasks(game_state)
+        self._generate_maintenance_tasks(game_state, farm_state)
         self._generate_social_tasks(game_state)
 
         # Sort by priority
@@ -616,8 +616,9 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                     logger.info(f"📋 Need scarecrow #{i+1} but missing: {', '.join(missing)}")
                     break  # Can't craft more without materials
 
-        # CHEST: Medium priority - inventory management
+        # CHEST: HIGH priority - needed for mining and inventory management
         # Session 130: Check inventory FIRST, then materials
+        # Session 131: Add wood gathering if insufficient
         if not has_chest_placed:
             if has_chest_item:
                 # Already have chest in inventory - just need to place it!
@@ -625,7 +626,7 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                     id=f"place_chest_{self.current_day}",
                     description="Place chest from inventory (storage!)",
                     category="placement",
-                    priority=TaskPriority.MEDIUM.value,
+                    priority=TaskPriority.HIGH.value,  # Session 131: HIGH priority
                     target_location="Farm",
                     estimated_time=3,
                     skill_override="auto_place_chest",
@@ -640,13 +641,28 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                         id=f"craft_chest_{self.current_day}",
                         description="Craft and place chest for storage (have wood!)",
                         category="crafting",
-                        priority=TaskPriority.MEDIUM.value,
+                        priority=TaskPriority.HIGH.value,  # Session 131: HIGH priority
                         target_location="Farm",
                         estimated_time=5,
                         skill_override="craft_chest",
                         notes=f"Materials: {wood_count}/50 wood",
                     ))
                     logger.info(f"📋 Added task: Craft chest (have {wood_count} wood)")
+                else:
+                    # Session 131: Need to gather wood first!
+                    wood_needed = 50 - wood_count
+                    logger.info(f"📋 Need {wood_needed} more wood for chest (have {wood_count}/50)")
+                    self.tasks.append(DailyTask(
+                        id=f"gather_wood_{self.current_day}",
+                        description=f"Chop trees/stumps for wood ({wood_count}/50 - need {wood_needed} more)",
+                        category="gathering",
+                        priority=TaskPriority.HIGH.value,
+                        target_location="Farm",
+                        estimated_time=15,
+                        skill_override="gather_wood",
+                        notes=f"Need 50 wood total for chest. Have {wood_count}, need {wood_needed} more.",
+                    ))
+                    logger.info(f"📋 Added task: Gather wood for chest ({wood_needed} needed)")
 
         # Session 130: INVENTORY MANAGEMENT - organize when getting full
         if HAS_INVENTORY_MANAGER and has_chest_placed:
@@ -673,59 +689,109 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
             if inv_manager.needs_organization(inventory):
                 logger.warning("📋 Inventory needs organization but no chest on farm! Need to craft one first.")
 
-    def _generate_maintenance_tasks(self, state: Dict[str, Any]) -> None:
-        """Generate farm maintenance tasks.
-        
-        Tasks are added conditionally based on prerequisites:
-        - Clear debris: energy > 50%
-        - Mining: has pickaxe + energy > 60% + VLM can reprioritize
+    def _generate_maintenance_tasks(self, state: Dict[str, Any], farm_state: Optional[Dict[str, Any]] = None) -> None:
+        """Generate farm maintenance tasks (primarily mining).
+
+        Session 131: Mining has strict prerequisites to avoid resource loop:
+        - Has pickaxe + energy > 60%
+        - Chest exists on farm (storage for loot)
+        - At least 4 free inventory slots (stacking helps, tool storage frees more)
+        - Odd day number OR rainy weather (prioritize farming on even/sunny days)
         """
         # Handle SMAPI response structure
         data = state.get("data") or state
         player = data.get("player", {})
         inventory = data.get("inventory", [])
         time_data = data.get("time", {})
-        
+
         energy = player.get("energy", 100)
         max_energy = player.get("maxEnergy", 100)
         energy_pct = (energy / max_energy * 100) if max_energy > 0 else 100
         hour = time_data.get("hour", 6)
-        
-        # Session 123: Removed standalone "clear debris" task
-        # It had no skill_override and got stuck in VLM loop, blocking mining
-        # Debris clearing can be done opportunistically; crops grow fine around debris
-        # If needed later, add debris clearing to _batch_farm_chores
-        
-        # Mining - conditional on having pickaxe and good energy
-        # VLM reasoning can reprioritize based on context (weather, goals, etc.)
+
+        # Session 131: Weather and day checks
+        weather = time_data.get("weather", "sunny").lower()
+        is_rainy = weather in ("rainy", "stormy", "rain", "storm")
+        is_odd_day = self.current_day % 2 == 1
+
+        # Session 131: Chest check - need storage before mining
+        farm_objects = []
+        if farm_state:
+            farm_data = farm_state.get("data") or farm_state
+            farm_objects = farm_data.get("objects") or []
+        has_chest_placed = any(
+            obj.get("name", "").lower() == "chest"
+            for obj in farm_objects
+        )
+
+        # Session 131: Free slots check (sparse inventory - count actual items)
+        # SMAPI returns only actual items, max_items tells us capacity
+        max_items = player.get("maxItems", 12)  # 12 base, upgrades to 24/36
+
+        # Session 131: Smarter slot counting - mining resources stack, so slots with
+        # ore/coal/stone/gems are effectively available for MORE of the same
+        MINING_STACKABLES = {"copper ore", "iron ore", "gold ore", "iridium ore",
+                            "coal", "stone", "quartz", "earth crystal", "frozen tear",
+                            "fire quartz", "amethyst", "aquamarine", "diamond", "emerald",
+                            "jade", "ruby", "topaz"}
+        blocking_slots = 0
+        for item in inventory:
+            if not item:
+                continue
+            item_name = item.get("name", "").lower()
+            # Only count as blocking if NOT a mining stackable
+            if item_name not in MINING_STACKABLES:
+                blocking_slots += 1
+
+        free_slots = max_items - blocking_slots
+        actual_empty = max_items - len([i for i in inventory if i])
+        logger.debug(f"⛏️ Slot calc: {actual_empty} empty + {blocking_slots} blocking = {free_slots} effective free")
+
+        # Mining prerequisites
         has_pickaxe = any(
             item and "pickaxe" in item.get("name", "").lower()
             for item in inventory if item
         )
-        
-        # Mining prerequisites: pickaxe + energy > 60% + not too late in day
-        # Session 125: Relaxed hour check - allow mining until 6 PM (was 2 PM)
-        # At 5 PM with 74% energy and nothing else to do, should still mine
-        logger.info(f"⛏️ Mining check: has_pickaxe={has_pickaxe}, energy_pct={energy_pct:.0f}%, hour={hour}")
-        if has_pickaxe and energy_pct > 60 and hour < 18:
-            # Get combat level to suggest appropriate mine depth
+
+        # Session 131: All mining conditions
+        mining_allowed = is_odd_day or is_rainy
+        has_storage = has_chest_placed
+        has_room = free_slots >= 4  # Session 131: Lowered from 6, stacking helps
+        has_energy = energy_pct > 60
+        time_ok = hour < 18
+
+        logger.info(f"⛏️ Mining check: pickaxe={has_pickaxe}, energy={energy_pct:.0f}%, hour={hour}")
+        logger.info(f"⛏️ Mining gates: chest={has_storage}, slots={free_slots}, day={self.current_day}(odd={is_odd_day}), rain={is_rainy}")
+
+        if not has_pickaxe:
+            logger.info(f"⛏️ Mining SKIPPED: no pickaxe")
+        elif not has_storage:
+            logger.info(f"⛏️ Mining SKIPPED: no chest on farm (build storage first!)")
+        elif not has_room:
+            logger.info(f"⛏️ Mining SKIPPED: only {free_slots} free slots (need 4+, organize inventory first)")
+        elif not mining_allowed:
+            logger.info(f"⛏️ Mining SKIPPED: even day ({self.current_day}) + sunny weather (farm day)")
+        elif not has_energy:
+            logger.info(f"⛏️ Mining SKIPPED: low energy ({energy_pct:.0f}%)")
+        elif not time_ok:
+            logger.info(f"⛏️ Mining SKIPPED: too late ({hour}:00)")
+        else:
+            # All conditions met - add mining task
             combat_level = player.get("combatLevel", 0)
             target_floors = max(3, min(combat_level + 2, 10))  # 3-10 floors based on level
 
-            # Session 122: Use auto_mine for batch mining (like auto_farm_chores)
+            reason = "rainy day" if is_rainy else f"odd day {self.current_day}"
             self.tasks.append(DailyTask(
                 id=f"mining_{self.current_day}_1",
-                description=f"Mine ore in the mines ({target_floors} floors)",
+                description=f"Mine ore in the mines ({target_floors} floors, {reason})",
                 category="mining",
                 priority=TaskPriority.MEDIUM.value,
                 target_location="Mine",
                 estimated_time=60,
-                skill_override="auto_mine",  # Session 122: Batch mining
+                skill_override="auto_mine",
                 notes=f"Batch mining: {target_floors} floors, auto-combat, retreats if low health",
             ))
-            logger.info(f"⛏️ Mining task ADDED: {target_floors} floors, skill_override=auto_mine")
-        else:
-            logger.info(f"⛏️ Mining task SKIPPED: conditions not met")
+            logger.info(f"⛏️ Mining task ADDED: {target_floors} floors ({reason})")
 
     def _generate_social_tasks(self, state: Dict[str, Any]) -> None:
         """Generate social/exploration tasks (lower priority)."""

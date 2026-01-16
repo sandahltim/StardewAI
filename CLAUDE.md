@@ -268,6 +268,28 @@ docs/
 - Action execution has built-in delays (`action_delay`) to match game animation timing
 - The agent runs in a tick-based loop with configurable `think_interval` (default 2s)
 
+### Adding New Actions (CRITICAL)
+
+**New actions must be added in TWO places:**
+
+1. **SMAPI C# mod** (`src/smapi-mod/StardewAI.GameBridge/ActionExecutor.cs`)
+   - Add case to switch statement (~line 78)
+   - Implement the action method
+   - Rebuild with `dotnet build --configuration Release`
+
+2. **Python ModBridgeController** (`src/python-agent/unified_agent.py`)
+   - Add `elif action_type == "your_action":` handler (~line 2160)
+   - Map params and call `self._send_action({...})`
+
+**Session 131 lesson:** The `craft` action existed in C# but had no Python handler, causing chest crafting to fail silently with "Unknown action for ModBridge: craft".
+
+**Checklist for new actions:**
+- [ ] C# switch case added
+- [ ] C# method implemented
+- [ ] Python elif handler added
+- [ ] SMAPI mod rebuilt
+- [ ] Game restarted (if C# changed)
+
 ## Services & Ports
 
 | Service | Port | Purpose |

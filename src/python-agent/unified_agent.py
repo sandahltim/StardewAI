@@ -2160,6 +2160,62 @@ class ModBridgeController:
             elif action_type == "buy_backpack":
                 return self._send_action({"action": "buy_backpack"})
 
+            # Session 131: Crafting action
+            elif action_type == "craft":
+                item = action.params.get("item", "")
+                quantity = action.params.get("quantity", 1)
+                return self._send_action({
+                    "action": "craft",
+                    "item": item,
+                    "quantity": quantity
+                })
+
+            # Session 131: Chest operations
+            elif action_type == "open_chest":
+                direction = normalize_direction(action.params.get("direction", "south"))
+                return self._send_action({
+                    "action": "open_chest",
+                    "direction": direction
+                })
+
+            elif action_type == "close_chest":
+                return self._send_action({"action": "close_chest"})
+
+            elif action_type == "deposit_item":
+                slot = action.params.get("slot", 0)
+                quantity = action.params.get("quantity", -1)  # -1 = all
+                return self._send_action({
+                    "action": "deposit_item",
+                    "slot": slot,
+                    "quantity": quantity
+                })
+
+            elif action_type == "withdraw_item":
+                slot = action.params.get("slot", 0)
+                quantity = action.params.get("quantity", -1)
+                return self._send_action({
+                    "action": "withdraw_item",
+                    "slot": slot,
+                    "quantity": quantity
+                })
+
+            elif action_type == "withdraw_by_name":
+                item = action.params.get("item", "")
+                quantity = action.params.get("quantity", 1)
+                return self._send_action({
+                    "action": "withdraw_by_name",
+                    "item": item,
+                    "quantity": quantity
+                })
+
+            # Session 131: Place item (for placing crafted items like chest/scarecrow)
+            elif action_type == "place_item":
+                direction = normalize_direction(action.params.get("direction", action.params.get("value", "south")))
+                return self._send_action({
+                    "action": "place_item",
+                    "direction": direction
+                })
+
             elif action_type == "upgrade_tool":
                 tool = action.params.get("tool", "")
                 return self._send_action({
@@ -3363,7 +3419,8 @@ class StardewAgent:
                     logging.info(f"   ↳ Using facing direction: {params['target_direction']}")
         
         # Session 125: Batch skills are handled specially, not in skills_dict
-        BATCH_SKILLS = {"auto_farm_chores", "auto_mine"}
+        # Session 131: Added gather_wood for chest prerequisite
+        BATCH_SKILLS = {"auto_farm_chores", "auto_mine", "gather_wood"}
         if skill_name not in BATCH_SKILLS:
             if not self.skill_executor or skill_name not in self.skills_dict:
                 logging.warning(f"Skill not found or executor not ready: {skill_name}")
@@ -3548,7 +3605,19 @@ class StardewAgent:
             else:
                 logging.info("✅ auto_mine: nothing mined (possibly retreated)")
                 return True
-        
+
+        # Session 131: Gather wood for chest crafting
+        if skill_name == "gather_wood":
+            logging.info(f"🎯 Executing batch skill: gather_wood")
+            target_wood = params.get("target", 50)  # Default 50 for chest
+            results = await self._batch_gather_wood(target_wood)
+            if results["wood_gathered"] > 0:
+                logging.info(f"✅ gather_wood: gathered {results['wood_gathered']} wood, chopped {results['trees_chopped']} trees, cleared {results['debris_cleared']} debris")
+                return True
+            else:
+                logging.info("✅ gather_wood: no wood gathered (possibly no trees/debris)")
+                return True
+
         skill = self.skills_dict[skill_name]
         logging.info(f"🎯 Executing skill: {skill_name} ({skill.description})")
 
@@ -4783,11 +4852,15 @@ class StardewAgent:
         MIN_HEALTH_PCT = 25
         MIN_ENERGY_PCT = 15
 
-        # Ensure we're in the mines
+        # Check state availability BEFORE storing tools
         self._refresh_state_snapshot()
         if not self.last_state:
             logging.warning("⛏️ No state available")
             return results
+
+        # Session 131: Store farming tools in chest to free inventory slots
+        # Done AFTER state check to avoid stranding tools on early error
+        stored_tools = await self._store_farming_tools()
 
         location = self.last_state.get("location", {}).get("name", "")
         if "Mine" not in location and "UndergroundMine" not in location:
@@ -5008,6 +5081,9 @@ class StardewAgent:
             # Sort by distance - mine closest first
             rocks_sorted = sorted(rocks, key=lambda r: abs(r.get("x", r.get("tileX", 0)) - player_x) + abs(r.get("y", r.get("tileY", 0)) - player_y))
 
+            # Session 131: Flag for inventory full - breaks both loops
+            inventory_full = False
+
             for rock in rocks_sorted[:5]:  # Process up to 5 rocks per iteration
                 rx = rock.get("x", rock.get("tileX", 0))
                 ry = rock.get("y", rock.get("tileY", 0))
@@ -5025,7 +5101,8 @@ class StardewAgent:
                     logging.warning(f"⛏️ Inventory nearly full ({empty_slots} slots) - returning to surface")
                     self.controller.execute(Action("enter_mine_level", {"level": 0}, "retreat - inventory full"))
                     await asyncio.sleep(0.5)
-                    return results  # Exit mining entirely
+                    inventory_full = True
+                    break  # Break inner loop
 
                 # Move adjacent to rock
                 moved = await self._move_adjacent_and_face(rx, ry)
@@ -5085,9 +5162,161 @@ class StardewAgent:
             # Brief pause between rock batches
             await asyncio.sleep(0.2)
 
+            # Session 131: Check flag to break outer loop
+            if inventory_full:
+                break
+
         logging.info("⛏️ ═══════════════════════════════════════")
         logging.info(f"⛏️ MINING COMPLETE: ores={results['ores_mined']}, rocks={results['rocks_broken']}, floors={results['floors_descended']}")
         logging.info("⛏️ ═══════════════════════════════════════")
+
+        # Session 131: Retrieve farming tools from chest
+        if stored_tools:
+            # Return to surface first if still in mines
+            self._refresh_state_snapshot()
+            location = self.last_state.get("location", {}).get("name", "") if self.last_state else ""
+            if "Mine" in location or "UndergroundMine" in location:
+                logging.info("⛏️ Returning to surface before tool retrieval...")
+                self.controller.execute(Action("enter_mine_level", {"level": 0}, "return to surface"))
+                await asyncio.sleep(0.5)
+
+            await self._retrieve_farming_tools(stored_tools)
+
+        return results
+
+    # =========================================================================
+    # SESSION 131: Wood Gathering for Chest Crafting
+    # =========================================================================
+
+    async def _batch_gather_wood(self, target_wood: int = 50) -> dict:
+        """Gather wood by clearing debris (branches, twigs) and chopping trees on farm.
+
+        Args:
+            target_wood: How much wood to gather (default 50 for chest)
+
+        Returns dict with counts:
+            - wood_gathered: Total wood collected
+            - debris_cleared: Branches/twigs cleared
+            - trees_chopped: Trees fully chopped
+        """
+        results = {"wood_gathered": 0, "debris_cleared": 0, "trees_chopped": 0}
+
+        logging.info("🪓 ═══════════════════════════════════════")
+        logging.info(f"🪓 GATHER WOOD - Target: {target_wood} wood")
+        logging.info("🪓 ═══════════════════════════════════════")
+
+        # Ensure we're on the farm
+        self._refresh_state_snapshot()
+        if not self.last_state:
+            logging.warning("🪓 No state available")
+            return results
+
+        location = self.last_state.get("location", {}).get("name", "")
+        if location != "Farm":
+            logging.info("🪓 Warping to farm...")
+            self.controller.execute(Action("warp", {"location": "Farm"}, "warp to farm"))
+            await asyncio.sleep(0.6)
+            self._refresh_state_snapshot()
+
+        # Get current wood count
+        def get_wood_count() -> int:
+            inventory = self.last_state.get("inventory", []) if self.last_state else []
+            for item in inventory:
+                if item and item.get("name", "").lower() == "wood":
+                    return item.get("stack", 0)
+            return 0
+
+        initial_wood = get_wood_count()
+        logging.info(f"🪓 Starting with {initial_wood} wood")
+
+        # Safety limits
+        MAX_DEBRIS = 50
+        MAX_ENERGY_PCT = 20  # Stop if below 20% energy
+        debris_count = 0
+
+        # Get debris (branches, twigs) from farm objects
+        location_data = self.last_state.get("location", {}) if self.last_state else {}
+        objects = location_data.get("objects", [])
+
+        # Find wood debris (branches, twigs, wood)
+        WOOD_DEBRIS = {"twig", "branch", "wood"}
+        wood_debris = []
+        for obj in objects:
+            obj_name = obj.get("name", "").lower()
+            obj_type = obj.get("type", "").lower()
+            # Match by name or type
+            if any(d in obj_name for d in WOOD_DEBRIS) or obj_type in ("litter", "debris"):
+                x = obj.get("x", obj.get("tileX"))
+                y = obj.get("y", obj.get("tileY"))
+                if x is not None and y is not None:
+                    wood_debris.append((x, y, obj_name))
+
+        logging.info(f"🪓 Found {len(wood_debris)} wood debris on farm")
+
+        # Get player position for sorting
+        player = self.last_state.get("player", {}) if self.last_state else {}
+        px, py = player.get("tileX", 0), player.get("tileY", 0)
+
+        # Sort by distance
+        wood_debris.sort(key=lambda d: abs(d[0] - px) + abs(d[1] - py))
+
+        # Clear debris
+        for x, y, name in wood_debris:
+            # Check if we have enough wood
+            self._refresh_state_snapshot()
+            current_wood = get_wood_count()
+            if current_wood >= target_wood:
+                logging.info(f"🪓 Reached target! Have {current_wood} wood")
+                break
+
+            # Check energy
+            player = self.last_state.get("player", {}) if self.last_state else {}
+            energy = player.get("energy", 100)
+            max_energy = player.get("maxEnergy", 270)
+            energy_pct = (energy / max_energy * 100) if max_energy > 0 else 0
+            if energy_pct < MAX_ENERGY_PCT:
+                logging.warning(f"🪓 Low energy ({energy_pct:.0f}%) - stopping")
+                break
+
+            # Check limits
+            if debris_count >= MAX_DEBRIS:
+                logging.info(f"🪓 Hit debris limit ({MAX_DEBRIS})")
+                break
+
+            # Move adjacent and clear
+            moved = await self._move_adjacent_and_face(x, y)
+            if not moved:
+                logging.debug(f"🪓 Couldn't reach debris at ({x},{y})")
+                continue
+
+            # Equip axe and chop
+            self.controller.execute(Action("equip_tool", {"tool": "Axe"}, "equip axe"))
+            await asyncio.sleep(0.1)
+
+            # Hit debris (usually 1-2 hits)
+            for _ in range(3):
+                self.controller.execute(Action("use_tool", {}, "chop"))
+                await asyncio.sleep(0.2)
+
+            # Walk over to collect drops
+            self.controller.execute(Action("move_to", {"x": x, "y": y}, "collect"))
+            await asyncio.sleep(0.15)
+
+            debris_count += 1
+            results["debris_cleared"] += 1
+
+            # Brief pause
+            await asyncio.sleep(0.1)
+
+        # Update final count
+        self._refresh_state_snapshot()
+        final_wood = get_wood_count()
+        results["wood_gathered"] = final_wood - initial_wood
+
+        logging.info("🪓 ═══════════════════════════════════════")
+        logging.info(f"🪓 GATHER COMPLETE: {results['wood_gathered']} wood gathered, {results['debris_cleared']} debris cleared")
+        logging.info(f"🪓 Total wood now: {final_wood}")
+        logging.info("🪓 ═══════════════════════════════════════")
 
         return results
 
@@ -5114,6 +5343,177 @@ class StardewAgent:
                 await asyncio.sleep(0.3)
                 return True
         return False
+
+    # =========================================================================
+    # SESSION 131: Tool Storage for Mining
+    # =========================================================================
+
+    async def _store_farming_tools(self) -> list:
+        """Store farming tools in chest before mining to free inventory slots.
+
+        Stores: Hoe, Scythe, Watering Can (tools not needed in mines)
+        Keeps: Pickaxe (mining), Axe (stumps in mines)
+
+        Returns list of tool names that were stored (for retrieval later).
+        """
+        FARMING_TOOLS = ["Hoe", "Scythe", "Watering Can"]
+        stored = []
+
+        logging.info("🧰 Storing farming tools before mining...")
+
+        # Ensure we're on the farm
+        self._refresh_state_snapshot()
+        if not self.last_state:
+            logging.warning("🧰 No state available for tool storage")
+            return stored
+
+        location = self.last_state.get("location", {}).get("name", "")
+        if location != "Farm":
+            logging.info("🧰 Warping to farm for tool storage...")
+            self.controller.execute(Action("warp", {"location": "Farm"}, "warp to farm"))
+            await asyncio.sleep(0.6)
+            self._refresh_state_snapshot()
+
+        # Find chest location from farm objects
+        location_data = self.last_state.get("location", {}) if self.last_state else {}
+        objects = location_data.get("objects", [])
+        chest_pos = None
+        for obj in objects:
+            if obj.get("name", "").lower() == "chest":
+                chest_pos = (obj.get("x", obj.get("tileX")), obj.get("y", obj.get("tileY")))
+                break
+
+        if not chest_pos:
+            logging.warning("🧰 No chest found on farm - can't store tools")
+            return stored
+
+        logging.info(f"🧰 Found chest at {chest_pos}")
+
+        # Move adjacent to chest and open it
+        moved = await self._move_adjacent_and_face(chest_pos[0], chest_pos[1])
+        if not moved:
+            logging.warning("🧰 Couldn't reach chest")
+            return stored
+
+        # Open chest (facing direction determined by our position relative to chest)
+        self._refresh_state_snapshot()
+        player = self.last_state.get("player", {}) if self.last_state else {}
+        px, py = player.get("tileX", 0), player.get("tileY", 0)
+
+        # Determine facing direction to chest
+        if chest_pos[1] > py:
+            face_dir = "south"
+        elif chest_pos[1] < py:
+            face_dir = "north"
+        elif chest_pos[0] > px:
+            face_dir = "east"
+        else:
+            face_dir = "west"
+
+        self.controller.execute(Action("open_chest", {"direction": face_dir}, "open chest"))
+        await asyncio.sleep(0.3)
+
+        # Find and deposit farming tools
+        inventory = self.last_state.get("inventory", []) if self.last_state else []
+
+        for slot, item in enumerate(inventory):
+            if not item:
+                continue
+            item_name = item.get("name", "")
+            # Check if this is a farming tool we want to store
+            for tool in FARMING_TOOLS:
+                if tool.lower() in item_name.lower():
+                    logging.info(f"🧰 Depositing {item_name} from slot {slot}")
+                    self.controller.execute(Action("deposit_item", {"slot": slot, "quantity": -1}, f"deposit {item_name}"))
+                    await asyncio.sleep(0.15)
+                    stored.append(item_name)
+                    break
+
+        # Close chest
+        self.controller.execute(Action("close_chest", {}, "close chest"))
+        await asyncio.sleep(0.2)
+
+        logging.info(f"🧰 Stored {len(stored)} tools: {stored}")
+        return stored
+
+    async def _retrieve_farming_tools(self, tool_names: list) -> int:
+        """Retrieve farming tools from chest after mining.
+
+        Args:
+            tool_names: List of tool names to retrieve (from _store_farming_tools)
+
+        Returns number of tools successfully retrieved.
+        """
+        if not tool_names:
+            return 0
+
+        logging.info(f"🧰 Retrieving farming tools: {tool_names}")
+        retrieved = 0
+
+        # Ensure we're on the farm
+        self._refresh_state_snapshot()
+        if not self.last_state:
+            logging.warning("🧰 No state available for tool retrieval")
+            return 0
+
+        location = self.last_state.get("location", {}).get("name", "")
+        if location != "Farm":
+            logging.info("🧰 Warping to farm for tool retrieval...")
+            self.controller.execute(Action("warp", {"location": "Farm"}, "warp to farm"))
+            await asyncio.sleep(0.6)
+            self._refresh_state_snapshot()
+
+        # Find chest location
+        location_data = self.last_state.get("location", {}) if self.last_state else {}
+        objects = location_data.get("objects", [])
+        chest_pos = None
+        for obj in objects:
+            if obj.get("name", "").lower() == "chest":
+                chest_pos = (obj.get("x", obj.get("tileX")), obj.get("y", obj.get("tileY")))
+                break
+
+        if not chest_pos:
+            logging.warning("🧰 No chest found - can't retrieve tools")
+            return 0
+
+        # Move adjacent to chest and open it
+        moved = await self._move_adjacent_and_face(chest_pos[0], chest_pos[1])
+        if not moved:
+            logging.warning("🧰 Couldn't reach chest")
+            return 0
+
+        # Determine facing direction
+        self._refresh_state_snapshot()
+        player = self.last_state.get("player", {}) if self.last_state else {}
+        px, py = player.get("tileX", 0), player.get("tileY", 0)
+
+        if chest_pos[1] > py:
+            face_dir = "south"
+        elif chest_pos[1] < py:
+            face_dir = "north"
+        elif chest_pos[0] > px:
+            face_dir = "east"
+        else:
+            face_dir = "west"
+
+        self.controller.execute(Action("open_chest", {"direction": face_dir}, "open chest"))
+        await asyncio.sleep(0.3)
+
+        # Withdraw each tool by name
+        for tool_name in tool_names:
+            logging.info(f"🧰 Withdrawing {tool_name}")
+            result = self.controller.execute(Action("withdraw_by_name", {"item": tool_name, "quantity": 1}, f"withdraw {tool_name}"))
+            await asyncio.sleep(0.15)
+            # Check if successful (result might have success field)
+            if result and getattr(result, 'success', True):
+                retrieved += 1
+
+        # Close chest
+        self.controller.execute(Action("close_chest", {}, "close chest"))
+        await asyncio.sleep(0.2)
+
+        logging.info(f"🧰 Retrieved {retrieved}/{len(tool_names)} tools")
+        return retrieved
 
     async def _move_adjacent_and_face(self, target_x: int, target_y: int) -> bool:
         """Move to a tile adjacent to target and face it."""

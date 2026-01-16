@@ -82,6 +82,7 @@ public class ActionExecutor
                 "close_chest" => CloseChest(),
                 "deposit_item" => DepositItem(command.Slot, command.Quantity),
                 "withdraw_item" => WithdrawItem(command.Slot, command.Quantity),
+                "withdraw_by_name" => WithdrawByName(command.Item, command.Quantity),  // Session 131
                 // Tool Upgrades
                 "upgrade_tool" => UpgradeTool(command.Tool),
                 "collect_upgraded_tool" => CollectUpgradedTool(),
@@ -2378,6 +2379,99 @@ public class ActionExecutor
         {
             Success = true,
             Message = $"Withdrew {withdrawQty}x {itemName}",
+            State = ActionState.Complete
+        };
+    }
+
+    // Session 131: Withdraw item by name (case-insensitive partial match)
+    // Useful for retrieving tools without knowing slot numbers
+    private ActionResult WithdrawByName(string itemName, int quantity)
+    {
+        if (_currentOpenChest == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No chest is open. Use open_chest first.",
+                State = ActionState.Failed
+            };
+        }
+
+        if (string.IsNullOrEmpty(itemName))
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "Item name is required",
+                State = ActionState.Failed
+            };
+        }
+
+        var player = Game1.player;
+        var chestItems = _currentOpenChest.Items;
+
+        // Find item by name (case-insensitive, partial match)
+        string searchName = itemName.ToLower();
+        int foundSlot = -1;
+        Item foundItem = null;
+
+        for (int i = 0; i < chestItems.Count; i++)
+        {
+            var item = chestItems[i];
+            if (item != null && item.DisplayName.ToLower().Contains(searchName))
+            {
+                foundSlot = i;
+                foundItem = item;
+                break;
+            }
+        }
+
+        if (foundSlot < 0 || foundItem == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = $"Item '{itemName}' not found in chest",
+                State = ActionState.Failed
+            };
+        }
+
+        // Use existing withdraw logic
+        int withdrawQty = quantity <= 0 ? foundItem.Stack : Math.Min(quantity, foundItem.Stack);
+        string displayName = foundItem.DisplayName;
+
+        Item toWithdraw;
+        if (withdrawQty >= foundItem.Stack)
+        {
+            toWithdraw = foundItem;
+            chestItems[foundSlot] = null;
+        }
+        else
+        {
+            toWithdraw = foundItem.getOne();
+            toWithdraw.Stack = withdrawQty;
+            foundItem.Stack -= withdrawQty;
+        }
+
+        bool added = player.addItemToInventoryBool(toWithdraw);
+
+        if (!added)
+        {
+            _currentOpenChest.addItem(toWithdraw);
+            return new ActionResult
+            {
+                Success = false,
+                Error = "Player inventory is full",
+                State = ActionState.Failed
+            };
+        }
+
+        _monitor.Log($"Withdrew {withdrawQty}x {displayName} from chest (by name)", LogLevel.Debug);
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Withdrew {withdrawQty}x {displayName}",
             State = ActionState.Complete
         };
     }

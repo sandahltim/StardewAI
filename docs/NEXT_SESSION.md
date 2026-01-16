@@ -1,35 +1,49 @@
-# Session 131: Test Mining + Scarecrow + Inventory Fixes
+# Session 132: Test Chest + Mining Flow
 
-**Last Updated:** 2026-01-16 Session 130 by Claude
-**Status:** Major fixes ready - RESTART GAME to test mining
+**Last Updated:** 2026-01-16 Session 131 by Claude
+**Status:** Critical fixes applied - RESTART AGENT to test
 
 ---
 
-## What Changed (Sessions 129-130)
+## What Changed (Session 131)
 
-### Mining Fixes (CRITICAL - Restart Game!)
-| Issue | Fix |
-|-------|-----|
-| Agent stuck on floor 1 | `UseLadder()` now checks BOTH `mine.Objects` AND `mine.objects` collections |
-| Ladder detection failed | Same fix applied to `GetMiningInfo()` detection |
-| Not collecting ore/geodes | Walk circle around rock after mining to auto-collect |
-| Mining with full inventory | Return to surface when < 2 slots free |
+### Critical Bug Fix: Craft Action Missing
+| Issue | Root Cause | Fix |
+|-------|------------|-----|
+| Chest not crafting despite 50 wood | `craft` action had NO Python handler | Added handler in `unified_agent.py` |
+| "Unknown action for ModBridge: craft" | C# had action, Python didn't | Added all missing handlers |
 
-### Farm Chores Fixes
-| Issue | Fix |
-|-------|-----|
-| Harvest loop with full inventory | Skip crops when 0 slots, stop after 3 skips |
-| Not planting on tilled tiles | Prioritize empty tilled tiles as targets (not blocked!) |
-| State not refreshing after buy | Wait 0.6s + reset `last_state_poll = 0` |
-| Inventory slot count wrong | Calculate `max_items - len(used_items)` for sparse list |
+### Mining Gates (Prevents Mining Loop)
+| Gate | Condition | Why |
+|------|-----------|-----|
+| **Chest exists** | `has_chest_placed == True` | Need storage for loot |
+| **4+ free slots** | Mining stackables don't count as blocking | Room for new item types |
+| **Odd day OR rain** | `day % 2 == 1 or is_rainy` | Even sunny days = farm focus |
 
-### New Features (Session 130)
-| Feature | How It Works |
-|---------|--------------|
-| **Coverage-based scarecrow planning** | Uses `farm_planner.get_farm_layout_plan()` to calculate WHICH crops are unprotected and how many scarecrows needed |
-| **Inventory-aware crafting** | Checks if scarecrow/chest in inventory → place task, not craft task |
-| **Multi-scarecrow support** | Creates task for EACH scarecrow needed, deducts materials |
-| **Inventory management** | When >80% full + 5 storable items + chest exists → `organize_inventory` task |
+### Tool Storage (Frees Inventory)
+| When | What Happens |
+|------|--------------|
+| Before mining | Store hoe, scythe, watering can in chest |
+| After mining | Retrieve stored tools from chest |
+| All exit paths | Tools retrieved even on early exit (inventory full, retreat) |
+
+### New Action Handlers Added
+```python
+# unified_agent.py ModBridgeController now handles:
+- craft           # Craft items (chest, scarecrow)
+- place_item      # Place crafted items
+- open_chest      # Open chest for access
+- close_chest     # Close chest
+- deposit_item    # Store by slot
+- withdraw_item   # Retrieve by slot
+- withdraw_by_name # Retrieve by name (new in C#)
+```
+
+### Wood Gathering
+| When | What |
+|------|------|
+| Wood < 50 AND no chest | Creates `gather_wood` task (HIGH priority) |
+| gather_wood skill | Clears branches/twigs on farm until 50 wood |
 
 ---
 
@@ -50,126 +64,127 @@ uvicorn src.ui.app:app --reload --port 9001
 **Terminal 3 - Agent:**
 ```bash
 cd /home/tim/StardewAI && source venv/bin/activate
-python src/python-agent/unified_agent.py --goal "Do farm chores and go mining"
+python src/python-agent/unified_agent.py --goal "Do farm chores"
 ```
 
 ---
 
-## Session 131 Testing Checklist
+## Session 132 Testing Checklist
 
-### ⚠️ IMPORTANT: Restart Game First!
-The SMAPI mod was rebuilt with mining fixes. Game must be restarted to load new DLL.
+### Chest Building (Priority - Was Broken)
+- [ ] Log shows: `📋 Added task: Craft chest (have X wood)`
+- [ ] No "Unknown action for ModBridge: craft" error
+- [ ] Chest actually appears on farm after crafting
+- [ ] Log shows: `Crafted and placed Chest!`
 
-### Mining (Priority - Was Broken)
-- [ ] Agent descends past floor 1 (watch floor numbers in log)
-- [ ] `use_ladder` works on spawned ladders (log: "Descended to level X via ladder")
-- [ ] Falls back to `descend_mine` if needed (log: "using descend_mine fallback")
-- [ ] Collects items after mining (log shows walking circle)
-- [ ] Returns to surface when inventory < 2 slots free
+### Wood Gathering (If Wood < 50)
+- [ ] Log shows: `📋 Added task: Gather wood for chest (X needed)`
+- [ ] `🪓 GATHER WOOD - Target: 50 wood` appears
+- [ ] Agent clears debris on farm
+- [ ] Wood count increases
 
-### Scarecrow (New Feature)
-- [ ] Log shows coverage analysis: `📋 Crop coverage: X/Y (Z%)`
-- [ ] Creates multiple scarecrow tasks if needed: `need N more scarecrow(s)`
-- [ ] If scarecrow in inventory: `Added task: Place scarecrow (have in inventory)`
-- [ ] If no scarecrow: `Added task: Craft scarecrow`
+### Mining Gates
+- [ ] On even sunny day: `⛏️ Mining SKIPPED: even day (X) + sunny weather`
+- [ ] On odd day OR rain: Mining task created
+- [ ] Without chest: `⛏️ Mining SKIPPED: no chest on farm`
+- [ ] With < 4 slots: `⛏️ Mining SKIPPED: only X free slots`
 
-### Inventory Management (New Feature)
-- [ ] When inventory >80% full: `Added task: Organize inventory (X to store)`
-- [ ] If no chest but inventory full: warning logged
-- [ ] `organize_inventory` skill runs and deposits items
-
-### Farm Chores
-- [ ] Planting uses tilled tiles: `Found X empty tilled tiles ready for planting`
-- [ ] Seeds detected after buying: `inventory has seeds: [...]`
-- [ ] Harvest stops when full: `Inventory FULL`
+### Tool Storage (When Mining)
+- [ ] `🧰 Storing farming tools before mining...`
+- [ ] `🧰 Depositing Hoe from slot X`
+- [ ] After mining: `🧰 Retrieving farming tools: [...]`
+- [ ] Tools back in inventory after mining
 
 ---
 
 ## Key Log Messages to Watch
 
 ```
-Mining:
-  ⛏️ BATCH MINING - Target: 5 floors
-  ⛏️ Floor 1: X rocks, Y monsters, ladder=False
-  ⛏️ Ladder found! Descending...
-  ⛏️ Descended to level 2 via ladder
+Chest Crafting:
+  📋 Added task: Craft chest (have 50 wood)
+  🎯 Executing skill: craft_chest
+  [1/7] craft: {'item': 'Chest', 'quantity': 1}
+  Crafted and placed Chest!
 
-Scarecrow:
-  📋 Crop coverage: 15/30 (50%) - need 1 more scarecrow(s)
-  📋 Added task: Craft scarecrow (have X wood, X coal, X fiber)
+Wood Gathering:
+  📋 Need 30 more wood for chest (have 20/50)
+  🪓 GATHER WOOD - Target: 50 wood
+  🪓 Found 15 wood debris on farm
+  🪓 GATHER COMPLETE: 35 wood gathered
 
-Inventory:
-  📋 Added task: Organize inventory (8 to store, 5 to sell)
+Mining Gates:
+  ⛏️ Mining check: pickaxe=True, energy=85%, hour=9
+  ⛏️ Mining gates: chest=True, slots=8, day=3(odd=True), rain=False
+  ⛏️ Mining task ADDED: 5 floors (odd day 3)
 
-Planting:
-  🌱 Found 36 empty tilled tiles ready for planting
-  🌱 Using 15 pre-tilled positions for planting
+Tool Storage:
+  🧰 Storing farming tools before mining...
+  🧰 Found chest at (64, 15)
+  🧰 Depositing Hoe from slot 2
+  🧰 Stored 3 tools: ['Hoe', 'Scythe', 'Watering Can']
 ```
 
 ---
 
-## Files Modified (Sessions 129-130)
+## Files Modified (Session 131)
 
 | File | Change |
 |------|--------|
-| `ActionExecutor.cs` | UseLadder + GetMiningInfo check both Objects collections |
-| `unified_agent.py` | Mining: collect items, inventory check, descent fallbacks |
-| `unified_agent.py` | Planting: prioritize tilled tiles, sparse inventory fix |
-| `unified_agent.py` | Batch: TTS commentary, state refresh after buy |
-| `daily_planner.py` | Coverage-based scarecrow + inventory management tasks |
+| `unified_agent.py` | Action handlers: craft, chest ops, place_item, gather_wood, tool storage |
+| `daily_planner.py` | Mining gates, wood gathering task, chest HIGH priority |
+| `ActionExecutor.cs` | withdraw_by_name action |
+| `CLAUDE.md` | "Adding New Actions" checklist |
+| `SESSION_LOG.md` | Session 131 entry |
 
 ---
 
 ## Architecture Notes
 
-### The Objects vs objects Bug (Critical)
+### Action Handler Pattern (CRITICAL)
 ```
-MineShaft has TWO collections:
-- mine.Objects (capital O) - property, pre-existing objects
-- mine.objects (lowercase o) - field, runtime spawned objects
+New actions need BOTH:
+1. C# ActionExecutor.cs - switch case + method implementation
+2. Python unified_agent.py - elif handler in ModBridgeController.execute()
 
-Ladders spawned from breaking rocks go into LOWERCASE collection.
-Both GetMiningInfo() and UseLadder() now check BOTH.
-```
-
-### Inventory Management Flow
-```
-Daily Planner runs → calls get_inventory_manager()
-  → needs_organization(inventory)? (>80% full + 5 storable)
-  → get_storage_summary() for what to store/sell
-  → Creates organize_inventory task (HIGH priority)
-  → Skill navigates to chest, deposits excess, keeps tools
+Missing either = "Unknown action" error
 ```
 
-### Scarecrow Coverage Flow
+### Mining Prerequisites Flow
 ```
-Daily Planner runs → calls get_farm_layout_plan(farm_state)
-  → farm_planner calculates unprotected crops
-  → Returns scarecrows_needed count
-  → For each: check inventory first, then materials
-  → Creates place_scarecrow or craft_scarecrow task
+Daily Planner runs
+  → Check has_chest_placed (from farm objects)
+  → Check free_slots (mining stackables don't count)
+  → Check odd day OR rainy
+  → If ALL pass: create mining task
+  → If ANY fail: log skip reason
+```
+
+### Tool Storage Flow
+```
+_batch_mine_session() starts
+  → _store_farming_tools() - deposit hoe/scythe/can
+  → Warp to mine, descend, mine rocks
+  → On ANY exit (normal, inventory full, retreat)
+  → _retrieve_farming_tools() - withdraw by name
 ```
 
 ---
 
 ## Roadmap (Future Sessions)
 
-1. **Crafting/upgrades** - Use blacksmith, craft items from recipes
-2. **Popup handling** - Dismiss dialogs, handle festival options
+1. **Backpack upgrade** - Buy when gold >= 2000g (12 → 24 slots)
+2. **Multi-chest support** - Route items to appropriate chests by type
 3. **Food reservation** - Keep 1-2 edible items for mining health
-4. **Multi-chest support** - Route items to appropriate chests by type
+4. **Popup handling** - Dismiss dialogs, handle festival options
 
 ---
 
-## Session 130 Commits
+## Session 131 Commits
 
 ```
-55be5d7 Session 129: Fix UseLadder to check both Objects collections
-bb8d1e6 Session 130: Coverage-based scarecrow planning + inventory check
-bfeb02c Session 130: Wire up inventory management to daily planner
-7d1ccab Session 130: Update docs with scarecrow + inventory features
+6acdfad Session 131: Mining gates, craft action fix, tool storage
 ```
 
 ---
 
--- Claude (Session 130)
+-- Claude (Session 131)

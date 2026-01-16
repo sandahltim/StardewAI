@@ -4,6 +4,71 @@ Coordination log between Claude (agent/prompt) and Codex (UI/memory).
 
 ---
 
+## 2026-01-16 - Session 131: Mining Gates + Chest Crafting Fix
+
+**Agent: Claude (Opus)**
+
+### Summary
+Major fixes for mining loop and chest crafting. Mining now gated by chest existence, inventory space, and day/weather. Fixed critical bug where `craft` action had no Python handler.
+
+### Problems Identified
+
+1. **Mining Loop** - Agent kept going to mine floor 1, returning to farm, repeat
+   - No storage for loot (chest required first)
+   - No inventory space check
+   - Mining every day instead of alternating
+
+2. **Chest Not Crafting** - Even with 50 wood, chest wasn't being built
+   - Root cause: `craft` action existed in C# but had NO Python handler
+   - Error: "Unknown action for ModBridge: craft"
+
+3. **No Wood Gathering** - When wood < 50, no task was created
+
+### Fixes Applied
+
+**Mining Gates (daily_planner.py):**
+- Chest must exist on farm (storage required)
+- 4+ effective free slots (mining stackables don't count as blocking)
+- Odd day OR rainy weather (even sunny days = farm focus)
+- Tool storage: stores hoe/scythe/watering can before mining, retrieves after
+
+**Action Handlers (unified_agent.py):**
+- Added `craft` action handler
+- Added `open_chest`, `close_chest` handlers
+- Added `deposit_item`, `withdraw_item`, `withdraw_by_name` handlers
+- Added `place_item` handler
+
+**SMAPI Mod (ActionExecutor.cs):**
+- Added `withdraw_by_name` action (find item by name, not slot)
+
+**Wood Gathering:**
+- New `gather_wood` batch skill
+- Daily planner creates wood gathering task when wood < 50 and no chest
+- Clears branches/twigs on farm until target wood reached
+
+### Key Architectural Notes
+
+**New actions require TWO places:**
+1. C# ActionExecutor.cs - switch case + method
+2. Python unified_agent.py - elif handler in ModBridgeController
+
+Added checklist to CLAUDE.md to prevent this bug recurring.
+
+### Files Modified
+| File | Changes |
+|------|---------|
+| `daily_planner.py` | Mining gates, wood gathering task, chest priority HIGH |
+| `unified_agent.py` | Action handlers (craft, chest ops, place_item), gather_wood skill, tool storage |
+| `ActionExecutor.cs` | withdraw_by_name action |
+| `CLAUDE.md` | Added "Adding New Actions" section with checklist |
+
+### Next Session
+- Test chest crafting with `craft` action now working
+- Test mining with tool storage and gates
+- Verify wood gathering works when wood < 50
+
+---
+
 ## 2026-01-15 - Session 115: Action Verification Fix
 
 **Agent: Claude (Opus)**
