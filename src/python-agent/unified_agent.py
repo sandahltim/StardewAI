@@ -3478,6 +3478,31 @@ class StardewAgent:
             params['target_direction'] = found_dir
             logging.info(f"🎯 Auto-targeting unwatered crop {found_dir} at ({found_crop['x']}, {found_crop['y']})")
 
+        # Session 125: Handle batch skills BEFORE accessing skills_dict
+        # BATCH OPERATIONS: Some skills trigger special batch handlers
+        if skill_name == "auto_farm_chores":
+            logging.info(f"🎯 Executing batch skill: auto_farm_chores")
+            results = await self._batch_farm_chores()
+            total = results["harvested"] + results["watered"] + results["planted"]
+            if total > 0:
+                logging.info(f"✅ auto_farm_chores: {total} actions taken")
+                return True
+            else:
+                logging.info("✅ auto_farm_chores: nothing to do (farm is tidy)")
+                return True  # Success even if nothing to do
+        
+        if skill_name == "auto_mine":
+            logging.info(f"🎯 Executing batch skill: auto_mine")
+            target_floors = params.get("floors", 5)
+            results = await self._batch_mine_session(target_floors)
+            total = results["ores_mined"] + results["rocks_broken"]
+            if results["floors_descended"] > 0 or total > 0:
+                logging.info(f"✅ auto_mine: {results['floors_descended']} floors, {results['ores_mined']} ores, {results['rocks_broken']} rocks")
+                return True
+            else:
+                logging.info("✅ auto_mine: nothing mined (possibly retreated)")
+                return True
+        
         skill = self.skills_dict[skill_name]
         logging.info(f"🎯 Executing skill: {skill_name} ({skill.description})")
 
@@ -3497,28 +3522,7 @@ class StardewAgent:
             if farm_data:
                 skill_state["farm"] = farm_data
 
-        # BATCH OPERATIONS: Some skills trigger special batch handlers
-        if skill_name == "auto_farm_chores":
-            results = await self._batch_farm_chores()
-            total = results["harvested"] + results["watered"] + results["planted"]
-            if total > 0:
-                logging.info(f"✅ auto_farm_chores: {total} actions taken")
-                return True
-            else:
-                logging.info("✅ auto_farm_chores: nothing to do (farm is tidy)")
-                return True  # Success even if nothing to do
-
-        # Session 122: Batch mining
-        if skill_name == "auto_mine":
-            target_floors = params.get("floors", 5)
-            results = await self._batch_mine_session(target_floors)
-            total = results["ores_mined"] + results["rocks_broken"]
-            if results["floors_descended"] > 0 or total > 0:
-                logging.info(f"✅ auto_mine: {results['floors_descended']} floors, {results['ores_mined']} ores, {results['rocks_broken']} rocks")
-                return True
-            else:
-                logging.info("✅ auto_mine: nothing mined (possibly retreated)")
-                return True
+        # Session 125: Batch skills now handled earlier (before skills_dict access)
 
         if skill_name == "auto_plant_seeds":
             planted = await self._batch_plant_seeds(params.get("seed_type"))
