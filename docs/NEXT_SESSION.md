@@ -1,7 +1,23 @@
-# Session 123: Test Batch Mining
+# Session 124: Test Mining After Fix
 
-**Last Updated:** 2026-01-15 Session 122 by Claude
-**Status:** Batch mining implemented - ready for testing
+**Last Updated:** 2026-01-15 Session 123 by Claude
+**Status:** Fixed clearing loop blocking mining - ready for testing
+
+---
+
+## Session 123 Fix
+
+### Problem: Agent Stuck in Clearing Loop
+
+The agent was stuck on "clear debris" and never transitioned to mining.
+
+**Root Cause:** The `_generate_maintenance_tasks()` function created a standalone "clear debris" task with **no `skill_override`**. This caused it to run through VLM-based execution which got stuck in an infinite loop.
+
+**Fix:** Removed the standalone `clear_debris` task. Crops grow fine around debris. If debris clearing is needed later, it should be added to `_batch_farm_chores`.
+
+```
+Commit: ada2ef6 Session 123: Remove standalone clear_debris task blocking mining
+```
 
 ---
 
@@ -66,9 +82,9 @@ fafb669 Session 122: Fix mining - goal-aware skill context
 
 ---
 
-## Session 123 Priorities
+## Session 124 Priorities
 
-### 1. Test Batch Mining
+### 1. Test Mining After Fix
 
 ```bash
 # Test mining goal
@@ -139,6 +155,10 @@ tick() executes batch:
 1. **Combat untested** - Weapon equipping and swing_weapon action need verification
 2. **Monster movement** - Monsters move between state refreshes
 3. **Pathfinding in mines** - May need warp fallback like farm refill fix
+
+## Resolved Issues
+
+1. ~~**Clearing loop blocks mining**~~ - Fixed Session 123: Removed standalone clear_debris task
 
 ---
 
