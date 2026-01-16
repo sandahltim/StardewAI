@@ -3482,8 +3482,37 @@ class StardewAgent:
         # BATCH OPERATIONS: Some skills trigger special batch handlers
         if skill_name == "auto_farm_chores":
             logging.info(f"🎯 Executing batch skill: auto_farm_chores")
+
+            # Session 126: Get expected work BEFORE executing
+            self._refresh_state_snapshot()
+            farm_data = self.controller.get_farm() if hasattr(self.controller, 'get_farm') else None
+            crops_before = farm_data.get("crops", []) if farm_data else []
+            expected_water = len([c for c in crops_before if not c.get("isWatered") and not c.get("isReadyForHarvest")])
+            expected_harvest = len([c for c in crops_before if c.get("isReadyForHarvest")])
+            logging.info(f"🎯 Expected work: water {expected_water}, harvest {expected_harvest}")
+
             results = await self._batch_farm_chores()
             total = results["harvested"] + results["watered"] + results["planted"]
+
+            # Session 126: VERIFY crops are actually watered after batch
+            if expected_water > 0 or expected_harvest > 0:
+                self._refresh_state_snapshot()
+                farm_data = self.controller.get_farm() if hasattr(self.controller, 'get_farm') else None
+                crops_after = farm_data.get("crops", []) if farm_data else []
+                still_unwatered = len([c for c in crops_after if not c.get("isWatered") and not c.get("isReadyForHarvest")])
+                still_harvestable = len([c for c in crops_after if c.get("isReadyForHarvest")])
+
+                logging.info(f"🔍 Verification: unwatered {expected_water}→{still_unwatered}, harvestable {expected_harvest}→{still_harvestable}")
+
+                if still_unwatered > expected_water * 0.5:  # More than 50% still unwatered = failed
+                    logging.error(f"❌ VERIFICATION FAILED: {still_unwatered} crops still unwatered!")
+                    return False
+                if still_harvestable > expected_harvest * 0.5:  # More than 50% still harvestable = failed
+                    logging.error(f"❌ VERIFICATION FAILED: {still_harvestable} crops still need harvest!")
+                    return False
+
+                logging.info(f"✅ VERIFIED: Farm chores completed successfully")
+
             if total > 0:
                 logging.info(f"✅ auto_farm_chores: {total} actions taken")
                 return True
