@@ -4431,15 +4431,31 @@ class StardewAgent:
                             player_x = player.get("tileX", player_x)
                             player_y = player.get("tileY", player_y)
 
-                    # Equip weapon and attack
-                    direction = self._direction_to_target(player_x, player_y, mx, my)
-                    self.controller.execute(Action("select_item_type", {"value": "Weapon"}, "equip weapon"))
-                    await asyncio.sleep(0.1)
-                    # Multiple swings for tougher monsters
-                    for _ in range(3):
-                        self.controller.execute(Action("swing_weapon", {"direction": direction}, f"attack {direction}"))
-                        await asyncio.sleep(0.2)
-                    results["monsters_killed"] += 1
+                    # Session 123: Check if we have a weapon before attacking
+                    # Player can find weapons in the mines, so don't require one upfront
+                    inventory = self.last_state.get("inventory", []) if self.last_state else []
+                    has_weapon = any(
+                        item and item.get("type") == "Weapon"
+                        for item in inventory if item
+                    )
+
+                    if has_weapon:
+                        # Equip weapon and attack
+                        direction = self._direction_to_target(player_x, player_y, mx, my)
+                        self.controller.execute(Action("select_item_type", {"value": "Weapon"}, "equip weapon"))
+                        await asyncio.sleep(0.1)
+                        # Multiple swings for tougher monsters
+                        for _ in range(3):
+                            self.controller.execute(Action("swing_weapon", {"direction": direction}, f"attack {direction}"))
+                            await asyncio.sleep(0.2)
+                        results["monsters_killed"] += 1
+                    else:
+                        # No weapon - avoid monster and focus on rocks
+                        logging.info(f"⛏️ No weapon! Avoiding monster at ({mx},{my})")
+                        # Move away from monster
+                        escape_dir = self._direction_to_target(mx, my, player_x, player_y)  # Opposite direction
+                        self.controller.execute(Action("move", {"direction": escape_dir, "duration": 0.3}, f"flee {escape_dir}"))
+                        await asyncio.sleep(0.3)
 
             # Priority 2: Use ladder if found
             if ladder_found or shaft_found:
