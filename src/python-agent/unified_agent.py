@@ -4755,32 +4755,8 @@ class StardewAgent:
             if not rocks:
                 # Session 125: Floor 0 is the entrance - descend to floor 1
                 if floor == 0:
-                    # Track attempts to prevent infinite loop
-                    if not hasattr(self, '_floor0_attempts'):
-                        self._floor0_attempts = 0
-                    self._floor0_attempts += 1
-                    
-                    if self._floor0_attempts > 5:
-                        logging.error("⛏️ Failed to descend from floor 0 after 5 attempts - aborting mining")
-                        self._floor0_attempts = 0
-                        break
-                    
-                    logging.info(f"⛏️ At mine entrance (floor 0) - descending to floor 1 (attempt {self._floor0_attempts})")
-                    
-                    # Try to walk to and use the ladder at mine entrance
-                    # Mine entrance ladder is typically at specific coordinates
-                    # First try use_ladder, then try enter_mine_level
-                    self.controller.execute(Action("use_ladder", {}, "use entrance ladder"))
-                    await asyncio.sleep(0.5)
-                    
-                    # Check if we moved
-                    self._refresh_state_snapshot()
-                    mining_check = self.controller.get_mining() if hasattr(self.controller, 'get_mining') else None
-                    if mining_check and mining_check.get("floor", 0) > 0:
-                        self._floor0_attempts = 0  # Reset counter
-                        continue
-                    
-                    # Try enter_mine_level as fallback
+                    logging.info("⛏️ At mine entrance (floor 0) - descending to floor 1")
+                    # SMAPI mod handles this directly now
                     self.controller.execute(Action("enter_mine_level", {"level": 1}, "enter mine level 1"))
                     await asyncio.sleep(0.5)
                     continue
