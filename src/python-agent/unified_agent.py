@@ -4639,10 +4639,10 @@ class StardewAgent:
         if "Mine" not in location and "UndergroundMine" not in location:
             logging.info(f"⛏️ Not in mines (at {location}), warping...")
             self.controller.execute(Action("warp", {"location": "Mine"}, "warp to mines"))
-            await asyncio.sleep(0.3)
-            # Enter level 1
-            self.controller.execute(Action("enter_mine_level", {"level": 1}, "enter mine level 1"))
             await asyncio.sleep(0.5)
+            # Session 126: Use descend_mine to go from entrance to level 1
+            self.controller.execute(Action("descend_mine", {}, "descend to level 1"))
+            await asyncio.sleep(1.0)
             self._refresh_state_snapshot()
 
         while results["floors_descended"] < target_floors:
@@ -4753,12 +4753,11 @@ class StardewAgent:
 
             # Priority 3: Mine rocks
             if not rocks:
-                # Session 125: Floor 0 is the entrance - descend to floor 1
+                # Session 126: Floor 0 is the entrance - use descend_mine (more reliable)
                 if floor == 0:
-                    logging.info("⛏️ At mine entrance (floor 0) - descending to floor 1")
-                    # SMAPI mod handles this directly now
-                    self.controller.execute(Action("enter_mine_level", {"level": 1}, "enter mine level 1"))
-                    await asyncio.sleep(0.5)
+                    logging.info("⛏️ At mine entrance (floor 0) - using descend_mine")
+                    self.controller.execute(Action("descend_mine", {}, "descend to next floor"))
+                    await asyncio.sleep(1.0)  # Give time for floor transition
                     continue
                 
                 # Session 125: Floor cleared but no ladder - handle stuck state
