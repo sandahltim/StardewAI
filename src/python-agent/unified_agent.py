@@ -8013,15 +8013,17 @@ Recent: {recent}"""
                             if success:
                                 logging.info(f"✅ Batch {batch['skill']} completed")
                                 self.daily_planner.complete_task(batch['task_id'])
+                                # Session 126: Only remove from queue on SUCCESS
+                                queue = batch['queue']
+                                for j, rt in enumerate(queue):
+                                    rt_id = rt.original_task_id if hasattr(rt, 'original_task_id') else rt.get('original_task_id', '')
+                                    if rt_id == batch['task_id']:
+                                        queue.pop(j)
+                                        break
                             else:
-                                logging.warning(f"⚠️ Batch {batch['skill']} returned False")
-                            # Remove from queue
-                            queue = batch['queue']
-                            for j, rt in enumerate(queue):
-                                rt_id = rt.original_task_id if hasattr(rt, 'original_task_id') else rt.get('original_task_id', '')
-                                if rt_id == batch['task_id']:
-                                    queue.pop(j)
-                                    break
+                                logging.warning(f"⚠️ Batch {batch['skill']} returned False - task stays in queue for retry")
+                                # Reset task status so it can be retried
+                                self.daily_planner._reset_task_status(batch['task_id'])
                         except Exception as e:
                             logging.error(f"❌ Batch {batch['skill']} failed: {e}")
 

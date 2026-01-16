@@ -672,6 +672,16 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
             task.notes = reason
             self._persist()
             return True
+
+    def _reset_task_status(self, task_id: str) -> bool:
+        """Session 126: Reset task to pending so it can be retried."""
+        task = self._find_task(task_id)
+        if task:
+            task.status = "pending"
+            task.notes = "Reset for retry"
+            self._persist()
+            logger.info(f"🔄 Task reset for retry: {task.description}")
+            return True
         return False
 
     def add_task(self, description: str, category: str, priority: int = 3) -> str:
