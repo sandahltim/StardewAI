@@ -4156,6 +4156,8 @@ class StardewAgent:
     # Session 128: Periodic status updates during batch operations
     _batch_status_interval = 20.0  # Update status every 20 seconds
     _batch_last_status_time = 0.0
+    _batch_commentary_interval = 30.0  # Commentary every 30 seconds
+    _batch_last_commentary_time = 0.0
 
     async def _batch_status_update(self, phase: str, progress: str) -> None:
         """Update UI status during batch operations (every 20 seconds)."""
@@ -4167,6 +4169,46 @@ class StardewAgent:
         self.vlm_status = f"🏠 {phase}: {progress}"
         self._send_ui_status()
         logging.info(f"📢 Batch status: {phase} - {progress}")
+
+    async def _batch_commentary(self, context: str) -> None:
+        """Generate and push TTS commentary during batch operations (every 30 seconds).
+        
+        Session 129: Added to provide voice commentary during long mining/farming batches.
+        """
+        now = time.time()
+        if now - self._batch_last_commentary_time < self._batch_commentary_interval:
+            return  # Rate limited
+        
+        if not self.commentary_worker:
+            return
+        
+        self._batch_last_commentary_time = now
+        
+        # Generate a simple mining/batch monologue
+        # Use the character's voice style for the commentary
+        monologues = [
+            f"Still down here in the depths... {context}. The rocks keep coming, and so do I.",
+            f"{context}. Another day, another pickaxe swing. This is the life I chose.",
+            f"Mining away... {context}. Wonder what treasures await in the next stone.",
+            f"{context}. My arms are getting tired but these ores won't mine themselves.",
+            f"The mines echo with each swing... {context}. Peaceful in a dark, dusty way.",
+        ]
+        import random
+        monologue = random.choice(monologues)
+        
+        # Push to TTS worker
+        state_data = {
+            "location": "UndergroundMine",
+            "stats": {"action_count": self.action_count},
+        }
+        self.commentary_worker.push(
+            action_type="mining",
+            state=state_data,
+            vlm_monologue=monologue,
+        )
+        self._last_pushed_monologue = monologue
+        self._last_commentary_push_time = now
+        logging.info(f"📢 Batch commentary: {monologue[:60]}...")
 
     async def _batch_farm_chores(self) -> dict:
         """Execute ALL farm chores in sequence without VLM consultation.
@@ -4717,8 +4759,9 @@ class StardewAgent:
         """
         results = {"rocks_broken": 0, "ores_mined": 0, "monsters_killed": 0, "floors_descended": 0}
 
-        # Session 128: Reset batch status timer for periodic updates
+        # Session 128/129: Reset batch timers for periodic updates and commentary
         self._batch_last_status_time = 0.0
+        self._batch_last_commentary_time = 0.0
 
         logging.info("⛏️ ═══════════════════════════════════════")
         logging.info(f"⛏️ BATCH MINING - Target: {target_floors} floors")
@@ -4793,6 +4836,8 @@ class StardewAgent:
             logging.info(f"⛏️ Floor {floor}: {len(rocks)} rocks, {len(monsters)} monsters, ladder={ladder_found}")
             # Session 128: Periodic status update during mining
             await self._batch_status_update("Mining", f"Floor {floor}: {len(rocks)} rocks, {results['floors_descended']}/{target_floors} descended")
+            # Session 129: Periodic TTS commentary during mining
+            await self._batch_commentary(f"Floor {floor}, {results['ores_mined']} ores mined so far")
 
             # Detect infested floor: monsters present but no ladder spawns from rocks
             # On infested floors, ALL monsters must die before ladder appears
