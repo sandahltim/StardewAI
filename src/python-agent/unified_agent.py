@@ -2618,6 +2618,10 @@ class StardewAgent:
         self._skip_blockers: Set[Tuple[str, int, int, str]] = set()
         self._max_clear_attempts = 3  # Give up after 3 failed clears
 
+        # Session 128: Track permanently unreachable crops (persists across batch retries)
+        # Crops that pathfinding can't reach - excluded from verification
+        self._unreachable_crops: Set[Tuple[int, int]] = set()
+
         # State-change detection (phantom failure tracking)
         # Tracks consecutive failures where action reports success but state doesn't change
         self._phantom_failures: Dict[str, int] = {}  # skill_name -> consecutive count
@@ -3504,10 +3508,18 @@ class StardewAgent:
                 self._refresh_state_snapshot()
                 farm_data = self.controller.get_farm() if hasattr(self.controller, 'get_farm') else None
                 crops_after = farm_data.get("crops", []) if farm_data else []
-                still_unwatered = len([c for c in crops_after if not c.get("isWatered") and not c.get("isReadyForHarvest")])
+                # Session 128: Exclude unreachable crops from verification
+                still_unwatered = len([c for c in crops_after
+                                      if not c.get("isWatered")
+                                      and not c.get("isReadyForHarvest")
+                                      and (c.get("x"), c.get("y")) not in self._unreachable_crops])
                 still_harvestable = len([c for c in crops_after if c.get("isReadyForHarvest")])
+                unreachable_count = len(self._unreachable_crops)
 
-                logging.info(f"🔍 Verification: unwatered {expected_water}→{still_unwatered}, harvestable {expected_harvest}→{still_harvestable}")
+                if unreachable_count > 0:
+                    logging.info(f"🔍 Verification: unwatered {expected_water}→{still_unwatered} (excluding {unreachable_count} unreachable), harvestable {expected_harvest}→{still_harvestable}")
+                else:
+                    logging.info(f"🔍 Verification: unwatered {expected_water}→{still_unwatered}, harvestable {expected_harvest}→{still_harvestable}")
 
                 if still_unwatered > expected_water * 0.5:  # More than 50% still unwatered = failed
                     logging.error(f"❌ VERIFICATION FAILED: {still_unwatered} crops still unwatered!")
@@ -3799,6 +3811,8 @@ class StardewAgent:
                 skipped_count = len(skipped_crops)
                 if skipped_count > 0:
                     logging.info(f"✅ Batch water complete: {batch_count} crops watered, {skipped_count} unreachable, {refill_count} refills")
+                    # Session 128: Store unreachable crops for verification exclusion
+                    self._unreachable_crops.update(skipped_crops)
                 else:
                     logging.info(f"✅ Batch water complete: {batch_count} crops watered, {refill_count} refills (total crops: {len(crops)})")
                 break
@@ -3859,6 +3873,8 @@ class StardewAgent:
                             batch_count += 1
                             if batch_count % 10 == 0:
                                 logging.info(f"🚿 Batch progress: {batch_count} VERIFIED, {len(unwatered)-1} remaining")
+                                # Session 128: Periodic UI status update during watering
+                                await self._batch_status_update("Watering", f"{batch_count} done, {len(unwatered)-1} left")
                         else:
                             logging.warning(f"⚠ Water not verified at ({crop_x},{crop_y}) after retry - counted anyway")
                             batch_count += 1  # Count anyway since we tracked locally
@@ -3880,30 +3896,21 @@ class StardewAgent:
                     (target_x - 1, target_y, "east"),   # Stand west, face east
                 ]
                 
-                # Find best adjacent position (closest to player)
-                best_pos = None
-                best_dir = None
-                best_dist = float('inf')
+                # Session 128: Try ALL 4 adjacent positions before giving up (like harvesting does)
+                # Sort by distance to try closest first
+                adjacent_positions.sort(key=lambda p: abs(p[0] - player_x) + abs(p[1] - player_y))
+
+                reached_adjacent = False
                 for adj_x, adj_y, face_dir in adjacent_positions:
-                    dist = abs(adj_x - player_x) + abs(adj_y - player_y)
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_pos = (adj_x, adj_y)
-                        best_dir = face_dir
-                
-                if best_pos:
-                    adj_x, adj_y = best_pos
-                    logging.debug(f"🚿 Moving to ({adj_x},{adj_y}) to water crop at ({target_x},{target_y})")
-                    
+                    logging.debug(f"🚿 Trying ({adj_x},{adj_y}) to water crop at ({target_x},{target_y})")
+
                     move_result = self.controller.execute(Action("move_to", {"x": adj_x, "y": adj_y}, f"move adjacent to crop"))
                     await asyncio.sleep(0.3)  # Wait for move to complete
-                    
-                    # Check if move failed - might be blocked
+
+                    # Check if move failed - try next position
                     if not move_result or (isinstance(move_result, dict) and not move_result.get("success", True)):
-                        logging.info(f"⏭️ Can't reach crop at ({target_x},{target_y}), skipping")
-                        skipped_crops.add((target_x, target_y))
-                        continue
-                    
+                        continue  # Try next adjacent position
+
                     # Verify we're adjacent (within 1 tile)
                     self._refresh_state_snapshot()
                     if self.last_state:
@@ -3911,11 +3918,18 @@ class StardewAgent:
                         new_x = new_player.get("tileX", 0)
                         new_y = new_player.get("tileY", 0)
                         dist_to_crop = abs(new_x - target_x) + abs(new_y - target_y)
-                        if dist_to_crop > 1:
-                            logging.info(f"⏭️ Couldn't get adjacent to crop at ({target_x},{target_y}), skipping")
-                            skipped_crops.add((target_x, target_y))
-                            continue
-                    continue  # Loop will check for adjacent crop on next iteration
+                        if dist_to_crop <= 1:
+                            # Successfully reached an adjacent position!
+                            reached_adjacent = True
+                            break
+
+                if not reached_adjacent:
+                    # Tried all 4 positions and none worked
+                    logging.info(f"⏭️ Can't reach crop at ({target_x},{target_y}) from any side, skipping")
+                    skipped_crops.add((target_x, target_y))
+                    continue
+
+                continue  # Loop will check for adjacent crop on next iteration
                 
                 # Fallback: step-by-step movement (should rarely happen)
                 surroundings = self.controller.get_surroundings() if hasattr(self.controller, "get_surroundings") else None
@@ -4139,6 +4153,21 @@ class StardewAgent:
         logging.info(f"🌱 Batch planting complete: {planted_count} seeds planted and watered")
         return planted_count
 
+    # Session 128: Periodic status updates during batch operations
+    _batch_status_interval = 20.0  # Update status every 20 seconds
+    _batch_last_status_time = 0.0
+
+    async def _batch_status_update(self, phase: str, progress: str) -> None:
+        """Update UI status during batch operations (every 20 seconds)."""
+        now = time.time()
+        if now - self._batch_last_status_time < self._batch_status_interval:
+            return  # Rate limited
+
+        self._batch_last_status_time = now
+        self.vlm_status = f"🏠 {phase}: {progress}"
+        self._send_ui_status()
+        logging.info(f"📢 Batch status: {phase} - {progress}")
+
     async def _batch_farm_chores(self) -> dict:
         """Execute ALL farm chores in sequence without VLM consultation.
 
@@ -4147,6 +4176,9 @@ class StardewAgent:
         Returns dict with counts of each action taken.
         """
         results = {"seeds_bought": 0, "harvested": 0, "watered": 0, "tilled": 0, "planted": 0}
+
+        # Session 128: Reset batch status timer for periodic updates
+        self._batch_last_status_time = 0.0
 
         logging.info("🏠 ═══════════════════════════════════════")
         logging.info("🏠 BATCH FARM CHORES - Running autonomously")
@@ -4283,6 +4315,7 @@ class StardewAgent:
         unwatered = [c for c in crops if not c.get("isWatered", False) and not c.get("isReadyForHarvest", False)]
         if unwatered:
             logging.info(f"💧 Phase 1: Watering {len(unwatered)} crops")
+            await self._batch_status_update("Watering", f"{len(unwatered)} crops to water")
             await self._batch_water_remaining()
             results["watered"] = len(unwatered)  # Approximate
             self._refresh_state_snapshot()
@@ -4292,6 +4325,7 @@ class StardewAgent:
         harvestable = [c for c in crops if c.get("isReadyForHarvest", False)]
         if harvestable:
             logging.info(f"🌾 Phase 2: Harvesting {len(harvestable)} crops")
+            await self._batch_status_update("Harvesting", f"{len(harvestable)} crops ready")
             skipped_harvest = 0
             for crop in harvestable:
                 cx, cy = crop.get("x", 0), crop.get("y", 0)
@@ -4351,6 +4385,7 @@ class StardewAgent:
             
             if seed_count > 0:
                 logging.info(f"🔨 Phase 3: Till & Plant {seed_count} {seed_name} from slot {seed_slot}")
+                await self._batch_status_update("Planting", f"{seed_count} {seed_name}")
                 tilled, planted = await self._batch_till_and_plant(seed_count, seed_slot)
                 total_tilled += tilled
                 total_planted += planted
@@ -4655,6 +4690,9 @@ class StardewAgent:
         """
         results = {"rocks_broken": 0, "ores_mined": 0, "monsters_killed": 0, "floors_descended": 0}
 
+        # Session 128: Reset batch status timer for periodic updates
+        self._batch_last_status_time = 0.0
+
         logging.info("⛏️ ═══════════════════════════════════════")
         logging.info(f"⛏️ BATCH MINING - Target: {target_floors} floors")
         logging.info("⛏️ ═══════════════════════════════════════")
@@ -4726,6 +4764,8 @@ class StardewAgent:
             shaft_found = mining.get("shaftFound", False)
 
             logging.info(f"⛏️ Floor {floor}: {len(rocks)} rocks, {len(monsters)} monsters, ladder={ladder_found}")
+            # Session 128: Periodic status update during mining
+            await self._batch_status_update("Mining", f"Floor {floor}: {len(rocks)} rocks, {results['floors_descended']}/{target_floors} descended")
 
             # Detect infested floor: monsters present but no ladder spawns from rocks
             # On infested floors, ALL monsters must die before ladder appears
@@ -4780,9 +4820,38 @@ class StardewAgent:
 
             # Priority 2: Use ladder if found
             if ladder_found or shaft_found:
+                # Session 128: Navigate TO the ladder before trying to use it
+                ladder_pos = mining.get("ladderPosition") or mining.get("shaftPosition")
+                if ladder_pos:
+                    lx = ladder_pos.get("x", ladder_pos.get("tileX", 0))
+                    ly = ladder_pos.get("y", ladder_pos.get("tileY", 0))
+                    dist_to_ladder = abs(lx - player_x) + abs(ly - player_y)
+
+                    if dist_to_ladder > 1:
+                        # Need to navigate to ladder first
+                        logging.info(f"⛏️ Ladder at ({lx},{ly}), navigating from ({player_x},{player_y})")
+                        moved = await self._move_adjacent_and_face(lx, ly)
+                        if not moved:
+                            logging.warning(f"⛏️ Can't reach ladder at ({lx},{ly}), trying direct move")
+                            self.controller.execute(Action("move_to", {"x": lx, "y": ly}, "move to ladder"))
+                            await asyncio.sleep(0.5)
+
                 logging.info(f"⛏️ {'Ladder' if ladder_found else 'Shaft'} found! Descending...")
-                self.controller.execute(Action("use_ladder", {}, "use ladder"))
+                # Try use_ladder first (proper gameplay)
+                result = self.controller.execute(Action("use_ladder", {}, "use ladder"))
                 await asyncio.sleep(0.5)
+
+                # Session 128: Check if we actually descended - if not, use descend_mine as fallback
+                self._refresh_state_snapshot()
+                new_mining = self.controller.get_mining() if hasattr(self.controller, 'get_mining') else None
+                new_floor = new_mining.get("floor", floor) if new_mining else floor
+
+                if new_floor == floor:
+                    # use_ladder didn't work (might be elevator level confusion), fallback to descend_mine
+                    logging.warning(f"⛏️ use_ladder didn't descend (still floor {floor}), using descend_mine fallback")
+                    self.controller.execute(Action("descend_mine", {}, "descend via fallback"))
+                    await asyncio.sleep(0.5)
+
                 results["floors_descended"] += 1
                 continue
 
@@ -4861,6 +4930,11 @@ class StardewAgent:
                     logging.info(f"⛏️ Mined {rock_type} ore at ({rx},{ry})")
                 else:
                     results["rocks_broken"] += 1
+
+                # Session 128: Walk over rock position to collect dropped items
+                # Items drop near the rock and are auto-collected when player walks over them
+                self.controller.execute(Action("move_to", {"x": rx, "y": ry}, "collect drops"))
+                await asyncio.sleep(0.15)  # Brief pause for collection
 
                 floor_rocks += 1
                 if floor_rocks >= MAX_ROCKS_PER_FLOOR:

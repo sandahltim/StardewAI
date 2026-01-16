@@ -1,24 +1,23 @@
-# Session 128: Test Complete Task Flow
+# Session 129: Test Full Workflow
 
-**Last Updated:** 2026-01-16 Session 127 by Claude
-**Status:** Multiple dispatch bugs fixed - ready for full flow test
+**Last Updated:** 2026-01-16 Session 128 by Claude
+**Status:** Multiple fixes applied - ready for full flow test
 
 ---
 
-## Session 127 Summary
+## Session 128 Summary
 
-Fixed 4 action dispatch bugs that were breaking the farm→ship→mine workflow:
+Fixed 4 issues + 1 noted for later:
 
-| Bug | Symptom | Root Cause | Fix |
-|-----|---------|------------|-----|
-| `descend_mine` unknown | Loop at mine entrance | Missing Python dispatch | `unified_agent.py:2183` |
-| Ship task skipped | Mining before selling | Only created if crops in inventory | `daily_planner.py:450` |
-| No ship targets | 0 sellable items found | Missing "fruit" type | `target_generator.py:287` |
-| Watering rocks in mine | Wrong tool used | `equip_tool` not dispatched | `unified_agent.py:2082` |
+| Issue | Symptom | Root Cause | Fix |
+|-------|---------|------------|-----|
+| Crop watering infinite loop | Same crop retried forever | Only tried 1 adjacent position, verification failed | Try all 4 positions; track unreachable crops |
+| Mining didn't descend levels | Found ladder but went to farm | Didn't navigate to ladder position | Navigate to ladder; `descend_mine` fallback |
+| No status during batch | UI silent during long batches | No periodic updates | `_batch_status_update()` every 20s |
+| Mined materials left on ground | Ore/stone drops not collected | No pickup step after mining | Walk over rock position to collect |
 
-### Key Insight
-
-The "watering rocks" bug: batch mining called `Action("equip_tool", ...)` but dispatcher only recognized `action_type == "equip"`. Pickaxe never equipped, so watering can got used on rocks.
+### Noted for Later
+- **Keep 1-2 food items for mining health** - Don't sell all edible crops if mining planned
 
 ---
 
@@ -44,82 +43,96 @@ python src/python-agent/unified_agent.py --goal "Do farm chores and go mining"
 
 ---
 
-## Session 128 Testing Checklist
+## Session 129 Testing Checklist
 
-### Task Flow Verification
-- [ ] Farm chores runs first (CRITICAL priority)
-- [ ] Ship task runs after harvest (HIGH priority)
-- [ ] Mining runs last (MEDIUM priority)
-- [ ] Log shows: `📦 Ship task created: Ship X crops after harvest`
+### Farm Chores
+- [ ] Watering tries multiple adjacent positions
+- [ ] Unreachable crops logged but don't cause infinite loop
+- [ ] Verification excludes unreachable crops
+- [ ] Status updates appear in UI every ~20s
 
-### Ship Task Verification
-- [ ] Log shows: `📦 Ship target check: N sellable, inventory=[...]`
-- [ ] Sellable items include type "crop" and "fruit"
+### Mining
+- [ ] Agent navigates TO ladder position (log: "Ladder at (x,y), navigating")
+- [ ] `use_ladder` or `descend_mine` fallback works
+- [ ] Agent collects dropped materials after mining rocks
+- [ ] Status updates show floor progress
+
+### Ship Task (Session 127 fix)
+- [ ] Ship task typed as `ship_items` (not `harvest_crops`)
 - [ ] Agent navigates to shipping bin
 - [ ] Items actually shipped
 
-### Mining Verification
-- [ ] `descend_mine` works (no "Unknown action" warning)
-- [ ] Agent descends from floor 0 to floor 1
-- [ ] Pickaxe gets equipped (not watering can)
-- [ ] Rocks get mined (not watered)
-
 ---
 
-## Files Modified Session 127
+## Files Modified Session 128
 
 | File | Line | Change |
 |------|------|--------|
-| `unified_agent.py` | 2082 | `equip_tool` alias for `equip` |
-| `unified_agent.py` | 2183 | `descend_mine` dispatch |
-| `daily_planner.py` | 450 | Ship task if harvestable crops exist |
-| `target_generator.py` | 287 | Added "fruit" to sellable types |
-| `target_generator.py` | 293 | Diagnostic logging for ship targets |
+| `unified_agent.py` | 2621 | Added `_unreachable_crops` set |
+| `unified_agent.py` | 3807 | Store unreachable crops in set |
+| `unified_agent.py` | 3511-3522 | Verification excludes unreachable |
+| `unified_agent.py` | 3887-3920 | Water tries all 4 adjacent positions |
+| `unified_agent.py` | 4154-4167 | `_batch_status_update()` helper |
+| `unified_agent.py` | 4179 | Reset batch timer in farm chores |
+| `unified_agent.py` | 4316, 4326, 4386 | Status updates in phases |
+| `unified_agent.py` | 4694 | Reset batch timer in mining |
+| `unified_agent.py` | 4767 | Mining floor status update |
+| `unified_agent.py` | 4795-4825 | Navigate to ladder + fallback |
+| `unified_agent.py` | 4934-4937 | Collect drops after mining |
 
 ---
 
-## Session 126 Fixes (Still Relevant)
-
-These fixes from Session 126 are still in effect:
+## Session 127 Fixes (Still Relevant)
 
 | Fix | File | Line |
 |-----|------|------|
-| Warp rate limit reset | `unified_agent.py` | 4246 |
-| Failed tasks retry | `unified_agent.py` | 8016 |
-| Farm chores verification | `unified_agent.py` | 3497 |
-| Ladder/shaft coordinates | `ModEntry.cs` | 757 |
-
----
-
-## Known Issues
-
-1. **SMAPI mod rebuild required** if C# changes made - game must restart
-2. **Python changes** only need agent restart (no game restart)
-3. **VLM fallback** - if batch skills fail, VLM takes over with potentially wrong actions
+| `descend_mine` dispatch | `unified_agent.py` | 2183 |
+| `equip_tool` alias | `unified_agent.py` | 2082 |
+| Ship task if harvestable | `daily_planner.py` | 450 |
+| "fruit" sellable type | `target_generator.py` | 295 |
+| Ship type before harvest | `prereq_resolver.py` | 238 |
 
 ---
 
 ## Architecture Notes
 
-### Task Priority Order
+### Batch Status Updates
 ```
-CRITICAL (1) → HIGH (2) → MEDIUM (3) → LOW (4)
-farm_chores  → ship     → mining     → social
+_batch_status_update(phase, progress)
+  → Rate limited to 20s interval
+  → Updates self.vlm_status
+  → Calls _send_ui_status()
 ```
 
-### Batch Skills (bypass TaskExecutor)
-- `auto_farm_chores` - harvest, water, till, plant
-- `auto_mine` - descend floors, break rocks, combat
-
-### Action Dispatch Chain
+### Mining Ladder Logic (Session 128)
 ```
-Action("equip_tool", {tool: "Pickaxe"})
-  → unified_agent._execute_modbridge_action()
-  → action_type in ("equip", "equip_tool")  ← Session 127 fix
-  → _send_action({action: "equip_tool", tool: "Pickaxe"})
-  → SMAPI mod ActionExecutor.cs
+if ladder_found:
+  → Get ladder position from mining state
+  → Navigate to adjacent tile
+  → Try use_ladder
+  → If still same floor, fallback to descend_mine
+```
+
+### Crop Watering Logic (Session 128)
+```
+For each crop:
+  → Try south, north, east, west positions
+  → If ANY works, water crop
+  → If NONE work, add to _unreachable_crops
+
+Verification:
+  → Exclude _unreachable_crops from count
+  → Pass if remaining unwatered < 50%
 ```
 
 ---
 
--- Claude (Session 127)
+## Future Improvements
+
+1. **Food reservation** - Keep 1-2 edible items when mining planned
+2. **Ore priority** - Mine copper/iron before regular stone
+3. **Combat kiting** - Better monster handling with weapon
+
+---
+
+-- Claude (Session 128)
