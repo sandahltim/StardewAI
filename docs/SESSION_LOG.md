@@ -4,6 +4,75 @@ Coordination log between Claude (agent/prompt) and Codex (UI/memory).
 
 ---
 
+## 2026-01-16 - Session 132: Wood Gathering Fix + Quantity Tracking
+
+**Agent: Claude (Opus)**
+
+### Summary
+Fixed wood gathering to not target rocks/bushes, added quantity tracking for harvested crops, inventory, and chest contents.
+
+### Problems Fixed
+
+| Issue | Root Cause | Fix |
+|-------|------------|-----|
+| Wood gather targets rocks | Loose matching (`"twig" in name`) | Whitelist + blacklist filtering |
+| Wood gather targets bushes | No tree type validation | Added `TREE_TYPES` whitelist, `NOT_TREE` blacklist |
+| No commentary during gather | Missing batch commentary calls | Added `_batch_wood_commentary()` method |
+| Harvest just counts total | No per-crop tracking | Added `harvested_by_type` dict |
+| No inventory summary | Not logged at batch end | Added inventory summary with quantities |
+| No chest contents logged | `get_storage()` only returned counts | Fixed to return full item details |
+
+### Wood Gathering Filtering (CRITICAL)
+
+**Before:** Targeted anything with "twig" or "wood" in name, plus all "litter"/"debris" types.
+**After:** Strict whitelist + blacklist approach.
+
+```python
+# Only target these debris names
+WOOD_DEBRIS_NAMES = {"twig", "branch", "stick"}
+
+# Only target these terrain feature types
+TREE_TYPES = {"tree", "oak", "maple", "pine", "mahogany", "palm"}
+
+# Skip anything with these in the name
+NOT_WOOD = {"stone", "rock", "boulder", "weed", "fiber", "bush", "shrub", 
+            "grass", "clay", "artifact", "geode", "ore", "gem", "forage"}
+NOT_TREE = {"bush", "shrub", "grass", "hoedirt", "flooring", "path"}
+```
+
+### Quantity Tracking
+
+**Harvest by Type:**
+```python
+harvested_by_type = {}  # {"Parsnip": 5, "Potato": 3}
+# Logged: "🌾 Harvest breakdown: 5 Parsnip, 3 Potato"
+```
+
+**Inventory Summary:**
+```python
+# At batch completion:
+# "🎒 Inventory: 47 Wood, 12 Parsnip, 3 Copper Ore, 1 Hoe"
+```
+
+**Chest Contents:**
+```python
+# Uses get_storage() API, now returns full item details
+# "📦 Chest (Farm 64,15): 20 Stone, 15 Coal, 8 Copper Ore"
+```
+
+### Files Modified
+| File | Changes |
+|------|---------|
+| `unified_agent.py` | `_batch_gather_wood()` filtering, `_batch_wood_commentary()`, harvest tracking, inventory/chest summary, `get_storage()` fix |
+
+### Next Session
+- Test chest crafting (Session 131 craft action fix)
+- Test organize_inventory skill
+- Test mining gates and tool storage
+- Continue inventory management work
+
+---
+
 ## 2026-01-16 - Session 131: Mining Gates + Chest Crafting Fix
 
 **Agent: Claude (Opus)**

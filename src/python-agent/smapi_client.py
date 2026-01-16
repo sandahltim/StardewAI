@@ -316,12 +316,20 @@ class FishingState:
     available_fish: List[FishInfo]
 
 @dataclass
+class TilePosition:
+    x: int
+    y: int
+
+@dataclass
 class MiningState:
     location: str
     floor: int
     floor_type: Optional[str]
     ladder_found: bool
     shaft_found: bool
+    # Session 133: Add ladder/shaft positions for navigation
+    ladder_position: Optional[TilePosition]
+    shaft_position: Optional[TilePosition]
     rocks: List[MineRock]
     monsters: List[MineMonster]
 
@@ -757,12 +765,21 @@ class SMAPIClient:
                 damage=m.get("damage", 0),
             ) for m in data.get("monsters", [])]
 
+            # Session 133: Parse ladder/shaft positions
+            ladder_pos_data = data.get("ladderPosition")
+            ladder_position = TilePosition(x=ladder_pos_data.get("x", 0), y=ladder_pos_data.get("y", 0)) if ladder_pos_data else None
+            
+            shaft_pos_data = data.get("shaftPosition")
+            shaft_position = TilePosition(x=shaft_pos_data.get("x", 0), y=shaft_pos_data.get("y", 0)) if shaft_pos_data else None
+            
             return MiningState(
                 location=data.get("location", ""),
                 floor=data.get("floor", 0),
                 floor_type=data.get("floorType"),
                 ladder_found=data.get("ladderFound", False),
                 shaft_found=data.get("shaftFound", False),
+                ladder_position=ladder_position,
+                shaft_position=shaft_position,
                 rocks=rocks,
                 monsters=monsters,
             )

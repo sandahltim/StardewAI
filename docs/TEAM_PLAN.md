@@ -1,567 +1,33 @@
 # StardewAI Team Plan
 
-**Created:** 2026-01-08
-**Last Updated:** 2026-01-15 Session 108
+**Last Updated:** 2026-01-16 Session 132
 **Project Lead:** Claude (Opus) - Agent logic, architecture, coordination
 **UI/Memory:** Codex - User interface, memory systems, state persistence
 **Human Lead:** Tim - Direction, testing, hardware, final decisions
 
 ---
 
-## Session 108 Highlight: Smart Farm Layout Planner
-
-### New Module: `planning/farm_planner.py`
-| Function | Purpose |
-|----------|---------|
-| `calculate_scarecrow_positions()` | Greedy set cover, 8-tile radius |
-| `get_chest_locations()` | Strategic spots (shipping, farmhouse) |
-| `get_placement_sequence()` | Navigate-to + place-direction |
-| `get_planting_layout()` | Contiguous seed positions |
-| `get_farm_layout_plan()` | Main API for UI/agent |
-
-### API Endpoint
-- `GET /api/farm-layout` - Returns planned placements + coverage stats
-
-### Tested End-to-End
-- Crafted scarecrow → Planner calculated (60, 19) → Navigated → Placed
-- Scarecrow now protecting 14 crops at optimal position
-- Planner recalculates after placement (4 more needed for 100%)
-
-### Codex: Farm Layout Visualizer
-- UI panel shows planned placements with coverage stats
-- Displays scarecrow/chest positions before placement
-
-### Session 109 Priority
-- Fix coverage stats (include existing scarecrows)
-- Integrate `requires_planning: true` into skill executor
-- Add `upgrade_tool` SMAPI action for Blacksmith
-
----
-
-## Session 107 Highlight: Crafting + Storage System
-
-### SMAPI Actions Added
-| Action | Purpose |
-|--------|---------|
-| `craft` | Craft items from known recipes |
-| `place_item` | Place craftable items at tile |
-| `open_chest` / `close_chest` | Chest interaction |
-| `deposit_item` / `withdraw_item` | Storage operations |
-
-### GameState Enhancements
-- `FarmState.Chests` - All chests on farm with contents summary
-- `ChestInfo` model with position, name, slots_free, contents
-- `ChestItemSummary` with item categorization
-
-### Python Skills Created
-| File | Count | Examples |
-|------|-------|----------|
-| `crafting.yaml` | 15 | craft_scarecrow, craft_sprinkler, craft_fertilizer |
-| `placement.yaml` | 12 | place_scarecrow, place_sprinkler, apply_fertilizer |
-| `storage.yaml` | 15 | open_chest, deposit_item, organize_inventory |
-
-### New Module
-- `planning/inventory_manager.py` - Categorizes items (keep/store/sell), finds best chest
-
-### Status
-- ✅ SMAPI mod rebuilt and deployed
-- ✅ Python skills defined
-- ✅ Crafting tested - works (crafted chest, consumed 50 wood)
-- ❌ **CRITICAL GAP:** No smart placement logic - agent places randomly
-- ❌ Skills not yet integrated into unified_agent.py executor
-
-### Session 108 Priority: Farm Layout Planner
-Agent needs `farm_planner.py` to calculate optimal positions for:
-- Scarecrows (8-tile radius coverage)
-- Sprinklers (grid patterns matching type)
-- Chests (strategic locations)
-- Paths (efficient routes)
-
----
-
-## Session 106 Highlight: Farming Completion Roadmap
-
-### Session 106 Fixes
-| Fix | Details |
-|-----|---------|
-| Rain detection | Daily planner skips watering on rainy days |
-| Tool upgrade tracking | UpgradeTracker suggests upgrades after 5 blocks |
-| Decorative tiles | Path, Sprinkler, Scarecrow, etc. added to skip list |
-| plant_seed verification | Fixed phantom failures using adjacentTile.hasCrop |
-
-### Farming Completion Roadmap (NEW DIRECTION)
-
-**Goal:** Finish ALL farming basics → Move to MINING
-
-| Phase | Focus | Priority |
-|-------|-------|----------|
-| Phase 1 | Crafting system (craft + place_item SMAPI actions) | HIGH |
-| Phase 2 | Sprinklers + Scarecrows automation | HIGH |
-| Phase 3 | Tool upgrades at Blacksmith | MEDIUM |
-| Phase 4 | Mining preparation | NEXT |
-
-**See `docs/NEXT_SESSION.md` for full implementation details.**
-
-### Files Modified Session 106
-| File | Change |
-|------|--------|
-| `planning/obstacle_manager.py` | UpgradeTracker, decorative tiles |
-| `memory/daily_planner.py` | Rain detection |
-| `unified_agent.py` | Upgrade tracking, plant_seed fix |
-
----
-
-## Session 104 Highlight: Dynamic Systems & Batch Operations
-
-### Dynamic Crop Selection
-- Removed ALL hardcoded `buy_parsnip_seeds` references
-- New `get_recommended_seed_skill(state)` helper in unified_agent.py
-- Uses crop advisor to calculate optimal seed by profit/day
-- Shop hints, no-seeds hints, and overrides all use dynamic recommendation
-
-### Festival Crop Filter
-- Added `FESTIVAL_ONLY_CROPS = {"Strawberry", "Starfruit"}` 
-- These aren't sold at Pierre's - caused silent skill failures
-- Now excluded from recommendations, Cauliflower/Kale prioritized
-
-### Batch Watering (Major Performance Fix)
-- New `_batch_water_remaining()` method loops without VLM inference
-- **Old:** ~2s per crop (VLM decides each one)
-- **New:** ~0.3s per crop (direct execution loop)
-- Auto-refills when can empties, returns to farm after refill
-- Skips unreachable crops (behind buildings, hard obstacles)
-
-### Obstacle Handling
-- Hard obstacles (Stump, Boulder, Log) skipped immediately
-- Building/terrain detection - no blocker = skip crop
-- Stuck counter prevents infinite retry loops
-- Skip list tracks failed crops to avoid re-attempting
-
-### Dynamic Seed Quantity
-- Buy skills now use `quantity: max` instead of hardcoded numbers
-- Controller calculates: `min(money / seed_price, 20)`
-- Buys as many as affordable, capped at 20
-
-### Files Modified Session 104
-| File | Change |
-|------|--------|
-| `unified_agent.py` | Crop advisor integration, batch watering, dynamic buy |
-| `planning/crop_advisor.py` | Festival crop filter |
-| `skills/definitions/farming.yaml` | `quantity: max` for all buy skills |
-
----
-
-## Session 103 Highlight: Bug Fixes & Reliability
-
-### Phantom Failure Fix
-- Increased delay for tile-modifying skills from 0.3s to 0.8s
-- `till_soil`, `clear_weeds`, `clear_stone` now wait for SMAPI tile state update
-- Failure rate dropped from **46.9% to 17.9%**
-
-### TTS Queue Fix
-- Commentary worker now drains queue to latest event
-- Skips stale commentary, always speaks most current
-- No more 45-second lag behind agent actions
-
-### UI Auto-Refresh
-- `get_daily_planner()` and `get_rusty_memory()` now check file mtime
-- Reload automatically when agent writes new data
-- Fixed Day 16 showing when game was on Day 8
-
-### Watering Can Refill
-- New `go_refill_watering_can` skill - pathfinds to water + refills
-- Changed `stop_adjacent: false` to reach cardinal edge (not diagonal corner)
-- Tries all 4 directions to find water
-
-### Shop Context Awareness
-- VLM hints now recognize task locations (SeedShop, Blacksmith, etc.)
-- Skip "WATERING CAN EMPTY" override when at Pierre's
-- Added shop-specific hints: "AT PIERRE'S! DO: buy_seeds"
-
-### Bug Remaining
-- Hardcoded `buy_parsnip_seeds` in hints/overrides - needs crop advisor integration
-
-### Files Modified Session 103
-| File | Change |
-|------|--------|
-| `unified_agent.py` | Shop hints, tile delay, location awareness |
-| `farming.yaml` | `go_refill_watering_can` skill |
-| `async_worker.py` | TTS queue drain to latest |
-| `daily_planner.py` | Auto-refresh singleton |
-| `rusty_memory.py` | Auto-refresh singleton |
-
----
-
-## Session 102 Highlight: Farming Framework Solidified
-
-### Crop Database & Smart Selection
-- Created `data/game_knowledge.db` with 30+ crops (Spring/Summer/Fall)
-- Data includes: growth_days, seed_cost, sell_price, profit_per_day
-- `planning/crop_advisor.py` picks highest profit crop for season/day/budget
-- Integrated into PrereqResolver - buy_seeds now specifies optimal seed type
-
-### All Spring Crops at Pierre's
-Added buy skills for: kale, garlic, green bean, tulip, jazz, rice (joins existing parsnip, cauliflower, potato)
-
-### Dynamic Inventory Complete
-- Fixed `equip_seeds` to use `select_item_type: seed` (was using param)
-- All farming skills now use dynamic tool selection - no hardcoded slots
-
-### Backpack Upgrade (Codex)
-- SMAPI action `buy_backpack` - direct upgrade with money check
-- Handles both tiers: 12→24 (2000g), 24→36 (10000g)
-- New `shopping.yaml` skill file
-
-### Files Modified Session 102
-| File | Change |
-|------|--------|
-| `data/game_knowledge.db` | Created crops table |
-| `planning/crop_advisor.py` | NEW - profit-based selection |
-| `planning/prereq_resolver.py` | Integrated crop advisor |
-| `execution/task_executor.py` | Generic buy_seeds, params merge |
-| `skills/definitions/farming.yaml` | 6 new buy skills, equip_seeds fix |
-| `skills/definitions/shopping.yaml` | NEW - backpack upgrade |
-| `smapi-mod/ActionExecutor.cs` | buy_backpack action (Codex) |
-
----
-
-## Session 101 Highlight: JSON Crash & Phantom Failures
-
-### Daily Summary JSON Crash Fixed
-**Problem:** Agent crashed at bedtime trying to save daily summary:
-```
-TypeError: keys must be str, int, float, bool or None, not tuple
-```
-
-**Root Cause:** `cell_coordinator.py:get_daily_summary()` used tuple keys `(x,y)` for skip_reasons dict.
-
-**Fix:** Convert to string keys `"x,y"` before JSON serialization.
-
-### Phantom Failure Timing Fixed
-**Problem:** Skills reported success but state verification detected failure:
-```
-[ERROR] 💀 HARD FAIL: water_crop phantom-failed 3x consecutively
-```
-
-**Root Cause:** Race condition - verification ran before SMAPI could poll updated game state.
-
-**Fix:** Added 0.3s delay before state verification + enhanced diagnostic logging.
-
-### Files Modified Session 101
-| File | Change |
-|------|--------|
-| `cell_coordinator.py:318` | Tuple keys → string keys |
-| `unified_agent.py:2786-2788` | 0.3s delay before verification |
-| `unified_agent.py:2637-2645` | Enhanced phantom diagnostics |
-
----
-
-## Session 100 Highlight: TTS Pipeline & VLM Prompting
-
-### TTS Rate Limiting Fixed
-**Problem:** TTS takes ~40s per monologue, but commentary pushed every ~6s → queue backed up, spoke stale content.
-
-**Fixes:**
-- `_min_commentary_interval = 45.0` seconds between TTS pushes
-- VLM commentary interval: 2 → 5 ticks
-- Only push NEW monologues (duplicate tracking)
-
-### VLM Skill Parameters Fixed
-**Problem:** VLM calling `till_soil: {}` without `target_direction` → stuck in loop.
-
-**Fixes:**
-- Config examples updated with `target_direction`
-- Skill context shows `(target_direction: north/south/east/west)` for directional skills
-
-### Repetitive Openings Fixed
-**Problem:** Every monologue started with "Ah, the farm..." - annoying.
-
-**Fix:** BANNED instruction in prompts - VLM respects "BANNED" stronger than "NEVER".
-
-### Files Modified Session 100
-| File | Change |
-|------|--------|
-| `config/settings.yaml` | `target_direction` in examples, BANNED "Ah" |
-| `unified_agent.py` | TTS rate limit, VLM interval, skill context params |
-| `elias_character.py` | BANNED "Ah" opening |
-
----
-
-## Session 83 Highlight: Complete SMAPI API
-
-### API Expansion Complete
-
-Added 11 new endpoints to SMAPI mod for full game data access:
-
-| Category | Endpoints |
-|----------|-----------|
-| Navigation | `/check-path`, `/passable`, `/passable-area` |
-| Player | `/skills` |
-| NPCs | `/npcs` |
-| Farm | `/animals`, `/machines`, `/storage` |
-| World | `/calendar`, `/fishing`, `/mining` |
-
-**Total: 16 API endpoints** - Full coverage for autonomous gameplay.
-
-### Cliff Navigation Fixed
-
-Session 82 identified that agent got stuck on interior farm cliffs. Root cause: pathfinding existed internally but wasn't exposed via API.
-
-**Solution:**
-- Added `/check-path` endpoint exposing A* pathfinding
-- farm_surveyor.py now filters unreachable cells before selection
-- Agent only targets cells it can actually path to
-
-### What's Now Possible
-
-With full API coverage, the agent can now:
-- **Navigate intelligently** - Path around obstacles/cliffs
-- **Track NPCs** - Find villagers, give birthday gifts
-- **Manage animals** - Monitor happiness, collect products
-- **Optimize production** - Know when machines are ready
-- **Plan ahead** - Calendar awareness for festivals
-
----
-
-## Project Vision
-
-**Rusty** is an AI farmer who plays Stardew Valley autonomously as a co-op partner. The goal is a fully autonomous agent that can:
-
-- Start from Day 1 and progress through the game
-- Make intelligent decisions about farming, foraging, socializing
-- Adapt to seasons, weather, and events
-- Run for extended periods without human intervention
-- Be entertaining and competent - a true AI companion
-
-**End State:** Rusty runs start-to-finish without Claude's help. Amazing.
-
----
-
-## Current Status (Session 54)
-
-### 🚨 NEW: Task Execution Layer (Session 54)
-
-**Problem Identified:** Rusty is tick-reactive, not task-driven. Each VLM call picks random targets instead of working systematically. Result: chaotic "ADHD crackhead" farming.
-
-**Solution:** Add Task Execution Layer between Daily Planner and Skill Executor.
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    DAILY PLANNER                        │
-│  "Water crops" | "Harvest ready" | "Clear debris"       │
-└─────────────────────────┬───────────────────────────────┘
-                          │ picks next task
-                          ▼
-┌─────────────────────────────────────────────────────────┐
-│              TASK EXECUTOR (NEW)                        │
-│  Current Task: "Water crops"                            │
-│  Targets: [(12,15), (13,15), (14,15)] ← row-by-row     │
-│  Progress: 2/3 complete                                 │
-│                                                         │
-│  VLM consulted: every 5th tick (hybrid commentary)     │
-│  Priority interrupts: enabled (flexible)                │
-└─────────────────────────┬───────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────┐
-│              SKILL EXECUTOR (existing)                  │
-│  water_crop → [select_slot, face, use_tool]            │
-└─────────────────────────────────────────────────────────┘
-```
-
-**Key Design Decisions (Tim approved):**
-- **Sorting:** Row-by-row (like reading a book) - systematic farmer
-- **VLM Role:** Hybrid - commentary every ~5 ticks during execution
-- **Flexibility:** Can interrupt for higher priority tasks
-
-**Assignments:**
-- Claude: `execution/task_executor.py` - state machine, daily planner integration
-- Codex: `execution/target_generator.py` - spatial target sorting
-
----
-
-### What's Working
-| Component | Status | Session |
-|-----------|--------|---------|
-| VLM Perception (Qwen3VL-30B) | ✅ Working | - |
-| **SMAPI GameBridge API (16 endpoints)** | ✅ Expanded | 83 |
-| **Pathfinding API (/check-path)** | ✅ NEW | 83 |
-| **NPC/Animals/Machines API** | ✅ NEW | 83 |
-| Farm Planning System | ✅ Working | 31-32 |
-| Farm Plan Visualizer UI | ✅ Working | 32 |
-| Commentary System (context-aware) | ✅ Improved | 41-42 |
-| TTS with Piper | ✅ Working | 27-28 |
-| Skill System (55 definitions) | ✅ Working | 20-21 |
-| Knowledge Base (NPCs/items/locations) | ✅ Working | 23 |
-| Debris Clearing (multi-tool) | ✅ Working | 29-32 |
-| Time Management (bedtime warnings) | ✅ Working | 30 |
-| Diagonal Movement | ✅ Working | 30 |
-| Landmark-Relative Hints | ✅ Working | 25 |
-| go_to_bed skill | ✅ Fixed | 41 |
-| Obstacle Failure Tolerance | ✅ New | 42 |
-| Crop Protection (till blocker) | ✅ New | 42 |
-| State-Change Detection | ✅ Working | 44 |
-| Daily Planning System | ✅ Working | 44 |
-| VLM Text Reasoning | ✅ Working | 44 |
-| Daily Plan UI Panel | ✅ Codex | 44 |
-| Action Failure UI Panel | ✅ Codex | 44 |
-| Growing Crop Hint Fix | ✅ Fixed | 48 |
-| Harvest Action (proper SMAPI) | ✅ Fixed | 48 |
-| Shipping Hint System | ✅ Working | 49 |
-| Shipping Override (aggressive) | ✅ Fixed | 50 |
-| ship_item Skill | ✅ Fixed | 50 |
-| Synchronous Movement | ✅ Fixed | 50 |
-| No-Seeds Override | ✅ New | 51 |
-| Edge-Stuck Override | ✅ New | 51 |
-| Collision Detection Fix | ✅ Fixed | 51 |
-| **Popup/Menu Handling** | ✅ New | 52 |
-| **Harvest Direction Fix** | ✅ Fixed | 52 |
-| **Warp Case-Sensitivity Fix** | ✅ Fixed | 53 |
-| **SeedShop Buy Override** | ✅ New | 53 |
-| **Pierre Navigation (direct warp)** | ✅ Fixed | 53 |
-| **Coqui TTS (GPU)** | ✅ Working | 99 |
-| **TTS Rate Limiting** | ✅ Fixed | 100 |
-| **VLM Skill Parameters** | ✅ Fixed | 100 |
-| **Commentary Throttling** | ✅ Fixed | 100 |
-
-### Current Focus
-| Task | Status |
-|------|--------|
-| Shipping workflow | ✅ COMPLETE |
-| Edge-stuck recovery | ✅ COMPLETE |
-| No-seeds → Pierre's → Buy | ✅ COMPLETE |
-| Full seeds flow | ✅ COMPLETE |
-| Task Execution Layer | ✅ COMPLETE (Session 54) |
-| Ship/Buy/Plant Cycle | ✅ COMPLETE (Session 81) |
-| Cliff Navigation Fix | ✅ COMPLETE (Session 82-83) |
-| SMAPI API Expansion | ✅ COMPLETE (Session 83) |
-| TTS Pipeline Fixes | ✅ COMPLETE (Session 99-100) |
-| VLM Skill Params | ✅ COMPLETE (Session 100) |
-
-### Next Priority (Session 101+)
-| Task | Description |
-|------|-------------|
-| Daily summary JSON fix | Tuple keys crash on bedtime (line 4342) |
-| Phantom failure investigation | Skills report success but state unchanged |
-| Multi-day autonomy | Extended run without intervention |
-| Use NPC data | Find villagers, track birthdays |
-| Use animal data | Monitor happiness, collect products |
-| Use machine data | Track when artisan goods ready |
-
----
-
-## Completion Checklist
-
-### Actions - Must All Work
-| Action | Tested | Notes |
-|--------|--------|-------|
-| move (all 4 directions) | Yes | Working |
-| use_tool (hoe) | Yes | Working |
-| use_tool (watering can) | Yes | Working |
-| use_tool (axe) | Partial | Needs test |
-| use_tool (pickaxe) | Partial | Needs test |
-| use_tool (scythe) | Partial | Needs test |
-| use_tool (seeds/planting) | Yes | Working |
-| use_tool (fishing rod) | No | Future |
-| select_slot (0-11) | Yes | Working |
-| harvest | Yes | Working (Session 25) |
-| ship | Yes | Working (Session 26) |
-| eat | Yes | Working (Session 26) |
-| buy | Yes | Working (Session 26) |
-| interact (NPCs) | No | Future |
-| interact (chests) | No | Future |
-| warp (locations) | Yes | Working |
-
-### Locations - Must Navigate All
-| Location | Can Enter | Can Navigate | Can Exit |
-|----------|-----------|--------------|----------|
-| FarmHouse | Yes | Yes | Yes |
-| Farm | Yes | Yes | Yes |
-| Town | Partial | Needs test | Needs test |
-| Pierre's Shop (SeedShop) | Yes | Yes | Yes |
-| Beach | No | No | No |
-| Forest | No | No | No |
-| Mountain | No | No | No |
-| Mine | No | No | No |
-| Bus Stop | No | No | No |
-
-### Game Cycles - Must Complete
-| Cycle | Status | Notes |
-|-------|--------|-------|
-| Till → Plant → Water | **Yes** | Working (Session 17+) |
-| Water daily | Partial | Needs multi-day test |
-| Refill watering can | Ready | Water detection added |
-| Harvest crops | **Yes** | Working (Session 25) |
-| Sell at shipping bin | **Yes** | ship action (Session 26) |
-| Buy seeds at shop | **Yes** | buy action (Session 26) |
-| Forage items | No | Forageable detection added |
-| Talk to NPCs | No | Future |
-| Give gifts | No | Future |
-| Fishing | No | Future |
-| Mining | No | Future |
-| Full day cycle | No | 6am → 2am routine |
-| Full season | No | 28 days autonomous |
-
----
-
-## Phase Plan
-
-### Phase 1: Farming Loop ✅ COMPLETE (Session 26)
-- [x] Till ground
-- [x] Tool detection
-- [x] Tile state awareness
-- [x] Plant seeds
-- [x] Water crops
-- [x] Refill watering can
-- [x] Harvest when ready
-- [x] Sell at shipping bin
-- [x] Buy seeds from shop
-
-### Phase 1.5: Skill-Based Actions ✅ COMPLETE (Session 33)
-- [x] Skill system infrastructure (55 skills)
-- [x] Skill executor with multi-step sequences
-- [x] Auto-equip tools in skills (clear_weeds, clear_stone, etc.)
-- [x] VLM outputs skill names → executor handles tool selection
-- [x] Farm planning system (systematic plot clearing)
-
-### Phase 2: Multi-Day Autonomy (Current)
-- [x] Bedtime warnings (go_to_bed at 11pm+)
-- [x] Energy monitoring
-- [x] Time management
-- [x] State-change detection (phantom failure tracking) - Session 44
-- [x] Daily task planning (priority queue) - Session 44
-- [x] VLM reasoning for planning - Session 44
-- [x] Standard daily routine (water→harvest→plant→clear) - Session 44
-- [x] **Task Execution Layer** - Session 54 ✅
-  - [x] Target Generator (Codex) - sorted spatial targets
-  - [x] Task Executor (Claude) - deterministic execution
-  - [x] Daily planner integration - completion tracking
-  - [x] Hybrid VLM mode - commentary every 5 ticks
-  - [x] Priority interruption - flexible task switching
-- [ ] Wake up routine + morning planning
-- [ ] Periodic re-planning (every 2 game hours)
-- [ ] Memory integration (yesterday's lessons → today's plan)
-- [ ] 6+ day continuous run (Day 1 → harvest cycle)
-
-### Phase 3: Exploration
-- [x] Warp to locations
-- [ ] Navigate to Town
-- [ ] Enter/exit buildings
-- [ ] Map awareness
-- [ ] Pathfinding improvements
-
-### Phase 4: Social
-- [ ] NPC interaction
-- [ ] Gift giving
-- [ ] Calendar awareness
-- [ ] Event handling
-
-### Phase 5: Advanced
-- [ ] Fishing
-- [ ] Mining
-- [ ] Combat
-- [ ] Season transitions
-- [ ] Year planning
+## Current Focus: Inventory Management & Item Placement
+
+### Immediate Priorities (Session 133+)
+
+| Priority | Task | Status |
+|----------|------|--------|
+| HIGH | Test chest crafting | Ready to test |
+| HIGH | Test organize_inventory skill | Ready to test |
+| HIGH | Test mining gates | Ready to test |
+| MEDIUM | Scarecrow crafting/placement | Blocked by chest |
+| MEDIUM | Sprinkler crafting | Blocked by mining |
+
+### Recent Fixes (Sessions 131-132)
+
+| Fix | Impact |
+|-----|--------|
+| `craft` action Python handler | Chest crafting now works |
+| Mining gates | No more mining loop (chest required, odd day/rain) |
+| Tool storage | Stores hoe/scythe/can before mining, retrieves after |
+| Wood gathering filter | Only targets twigs/branches/trees, not rocks/bushes |
+| Quantity tracking | Logs harvest breakdown, inventory, chest contents |
 
 ---
 
@@ -576,18 +42,14 @@ With full API coverage, the agent can now:
 │  └────────────┘  └────────────┘  └───────────┬────────────┘│
 │                                              │              │
 │  ┌───────────────────────────────────────────▼────────────┐│
-│  │              Skill Executor (skills/)                  ││
-│  │  skill_name → [select_slot, face, use_tool] sequence   ││
-│  │  45 skills: clear_*, till_*, water_*, harvest_*, etc.  ││
+│  │              Batch Skills (autonomous)                 ││
+│  │  auto_farm_chores, auto_mine, gather_wood              ││
 │  └───────────────────────────────────────────┬────────────┘│
 └──────────────────────────────────────────────│─────────────┘
                                                ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                 SMAPI GameBridge (8790)                     │
-│  ┌────────────┐  ┌────────────┐  ┌────────────────────────┐│
-│  │  State     │  │  Action    │  │  Spatial Awareness     ││
-│  │  Reader    │  │  Executor  │  │  (surroundings, water) ││
-│  └────────────┘  └────────────┘  └────────────────────────┘│
+│  16 API endpoints: /state, /farm, /mining, /storage, etc.  │
 └─────────────────────────────────────────────────────────────┘
                                │
                                ▼
@@ -599,664 +61,99 @@ With full API coverage, the agent can now:
 
 ---
 
-## Team Assignments
+## Key Systems
 
-### Claude (PM/Agent)
-- Agent logic and decision making
-- SMAPI mod features
-- Bug fixes
-- Architecture decisions
-- Task assignment
+### Batch Skills (Autonomous Execution)
+| Skill | What It Does |
+|-------|--------------|
+| `auto_farm_chores` | Buy seeds → Harvest → Water → Till → Plant |
+| `auto_mine` | Store tools → Mine floors → Retrieve tools |
+| `gather_wood` | Clear debris + chop trees until target wood |
+| `organize_inventory` | Deposit excess to chest |
 
-### Codex (UI/Memory)
-- Dashboard components
-- Memory systems
-- Status indicators
-- Data visualization
+### Mining Gates (Prevents Loop)
+| Gate | Condition |
+|------|-----------|
+| Chest exists | `has_chest_placed == True` |
+| 4+ free slots | Mining stackables don't count as blocking |
+| Odd day OR rain | Even sunny days = farm focus |
 
-### Tim (Lead)
-- Direction and priorities
-- Testing and feedback
-- Hardware management
-- Final approvals
+### Action Handler Pattern
+```
+New actions need BOTH:
+1. C# ActionExecutor.cs - switch case + method
+2. Python unified_agent.py - elif handler in ModBridgeController
 
----
-
-## Codex Task Queue
-
-See `docs/CODEX_TASKS.md` for current assignments.
-
-**Potential Future Tasks:**
-- Landmark-relative directions (e.g., "southeast of farmhouse", "near bus stop")
-- **Agent Commentary System** - Real-time narration of what Rusty is doing/thinking (Tim wants to discuss)
-- Location minimap showing player position
-- NPC relationship tracker
-- Seasonal calendar with events
-- Inventory management panel
-- Action history replay
-
----
-
-## Risk Register
-
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| VLM hallucinates | Medium | Override with game state |
-| Agent gets stuck | High | Stuck detection, recovery |
-| Energy runs out | Medium | Energy monitoring, rest |
-| Wrong tool used | Medium | Tool-aware instructions |
-| Can't find crops | Medium | Crop location from state |
-| Night falls | Medium | Time awareness, bed finding |
-| GPU OOM | High | Monitor, restart if needed |
-
----
-
-## Success Metrics
-
-**Phase 1 Complete When:**
-- Agent plants 15 seeds without help
-- Agent waters all crops daily
-- Agent refills can when empty
-- Agent harvests mature crops
-- Agent sells crops at bin
-
-**Project Complete When:**
-- Rusty runs Day 1 → Day 28 autonomously
-- Completes farming, foraging, basic social
-- No Claude intervention needed
-- Entertaining to watch
-
----
-
-## Quick Reference
-
-### Ports
-| Service | Port |
-|---------|------|
-| llama-server | 8780 |
-| SMAPI mod | 8790 |
-| UI server | 9001 |
-
-### Key Commands
-```bash
-# Start agent
-python src/python-agent/unified_agent.py --ui --goal "Your goal"
-
-# Check state
-curl -s localhost:8790/state | jq .
-
-# Check surroundings
-curl -s localhost:8790/surroundings | jq .
-
-# Team chat
-./scripts/team_chat.py post claude "message"
+Missing either = "Unknown action" error
 ```
 
 ---
-Final Logic- day starts- Rusty plans his day and creates todo list from day before and final summary before sleep and any inputs from user. then using different modules for each type of task and based on priority and further palnning cycles he completes all that he can and creates daily conclusion for next day. We need to play with model context to see how much of a complete day we can keep with a single model before compact/flush of context cache. We need to add more reasoning and palnning instead of just chaos. The project boils down to an ai model(any VLM we choose) becomes the eyes and brain for the farmer Rusty. He BECOMES the farmer and we hear his running inner monologue throughout the day for comedy genius. This will be evolving so keep updated and ask clarification questions when needed.
+
+## Roadmap
+
+### Phase 1: Farming Foundation ✅ COMPLETE
+- Till, plant, water, harvest, ship, buy seeds
+
+### Phase 2: Inventory & Storage (CURRENT)
+- [x] Chest crafting action
+- [x] Wood gathering skill
+- [ ] Test chest placement
+- [ ] organize_inventory skill
+- [ ] Backpack upgrade (2000g → 24 slots)
+
+### Phase 3: Mining & Resources
+- [x] Mining batch skill
+- [x] Mining gates (chest, slots, day)
+- [x] Tool storage during mining
+- [ ] Multi-floor mining runs
+- [ ] Ore processing (furnace)
+
+### Phase 4: Farm Optimization
+- [ ] Scarecrow placement (crop protection)
+- [ ] Sprinkler crafting (auto-water)
+- [ ] Multi-chest routing by item type
+
+### Phase 5: Advanced (Future)
+- [ ] NPC relationships
+- [ ] Fishing
+- [ ] Season transitions
+- [ ] Full year autonomy
+
+---
+
+## Services & Ports
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| llama-server | 8780 | VLM inference (Qwen3VL) |
+| SMAPI mod | 8790 | Game control API |
+| UI Server | 9001 | Dashboard + Team Chat |
+
+---
+
+## Team Communication
+
+| Channel | Purpose |
+|---------|---------|
+| Team Chat | `http://localhost:9001/api/team` |
+| Task Docs | `docs/CODEX_TASKS.md`, `docs/CLAUDE_TASKS.md` |
+| Session Log | `docs/SESSION_LOG.md` |
+| Handoff | `docs/NEXT_SESSION.md` |
+
+---
+
+## Project Vision
+
+**Rusty** is an AI farmer who plays Stardew Valley autonomously. The goal:
+- Start from Day 1 and progress through the game
+- Make intelligent decisions about farming, mining, socializing
+- Run for extended periods without human intervention
+- Be entertaining and competent - a true AI companion
+
+**End State:** Rusty runs start-to-finish without Claude's help.
+
 *Make Rusty amazing. — Tim*
 
 ---
 
-## Session 54 Highlights
-
-**Task Execution Layer Architecture:**
-- Identified root cause of chaotic behavior: tick-reactive, not task-driven
-- Designed new layer: Daily Planner → Task Executor → Skill Executor
-- Tim decisions: row-by-row sorting, hybrid VLM (every 5 ticks), flexible interrupts
-
-**Codex Assignment:**
-- Target Generator module (`execution/target_generator.py`)
-- Converts tasks to sorted spatial target lists
-- Foundation for deterministic execution
-
-**Claude Assignment:**
-- Task Executor module (`execution/task_executor.py`)
-- State machine for task focus persistence
-- Daily planner integration for completion tracking
-
-**Research Findings:**
-- `daily_planner.complete_task()` exists but NEVER called - orphaned code
-- SMAPI provides all spatial data needed (crop positions, objects, etc.)
-- VLM sees daily plan but no "FOCUS NOW" task guidance
-
----
-
-## Session 44 Highlights
-
-**State-Change Detection:**
-- Captures state snapshot before skill execution
-- Verifies actual state change after execution
-- Tracks consecutive phantom failures per skill
-- Hard-fails after 2 consecutive phantom failures
-- Records lessons for learning system
-
-**Daily Planning System:**
-- New module: `memory/daily_planner.py`
-- Auto-triggers on day change
-- Standard routine: incomplete→water→harvest→plant→clear
-- VLM reasoning for intelligent prioritization
-- Plan context added to VLM prompts
-
-**Code Locations:**
-| Feature | File | Lines |
-|---------|------|-------|
-| State capture | unified_agent.py | 2162-2219 |
-| State verify | unified_agent.py | 2221-2293 |
-| Daily planner | memory/daily_planner.py | All |
-| VLM reason | unified_agent.py | 416-446 |
-
-*Updated Session 44 — Claude (PM)*
-
----
-
-## Session 55 Highlights
-
-**Event-Driven Commentary:**
-- VLM triggers on meaningful events, not just timer intervals
-- Events: TASK_STARTED, MILESTONE_25/50/75, TARGET_FAILED, ROW_CHANGE, TASK_COMPLETE
-- Fallback: Every 5 ticks if no events pending
-- Makes Rusty's commentary feel natural and reactive
-
-**Bug Fixes:**
-- TargetGenerator state path: `data.location.crops` (not `data.crops`)
-- Debris detection: `type="Litter"` (SMAPI format)
-- Farm location check: Only start tasks when on Farm map
-
-**Code Locations:**
-| Feature | File |
-|---------|------|
-| CommentaryEvent enum | execution/task_executor.py |
-| _extract_crops() | execution/target_generator.py |
-| _extract_objects() | execution/target_generator.py |
-| Farm location check | unified_agent.py:2785-2790 |
-
-*Updated Session 55 — Claude (PM)*
-
----
-
-## Session 56 Highlights
-
-**Buy Seeds Skills Fixed:**
-- Replaced template `{quantity}` with hardcoded defaults
-- `buy_parsnip_seeds`: 5 seeds (100g), `buy_cauliflower_seeds`: 1 (80g), `buy_potato_seeds`: 2 (100g)
-- Updated preconditions to match actual costs
-
-**Daily Planner State Path Fixed:**
-- Same bug as TargetGenerator in Session 55
-- Was looking at `state.location.crops`, fixed to `state.data.location.crops`
-- Now correctly generates "Water N crops" task with proper crop count
-
-**Remaining Issue:**
-- TaskExecutor not activating despite correct daily planner tasks
-- Debug logging added to `_try_start_daily_task()` for Session 57 investigation
-- Hypothesis: tick() flow not reaching TaskExecutor check, or planner tasks empty at tick time
-
-*Updated Session 56 — Claude (PM)*
-
----
-
-## Session 65 Highlights
-
-**Cell Farming Bug Fixes:**
-- Fixed re-survey bug: Added guard to skip restart if coordinator already active
-- Fixed navigation stuck: Added 10-tick stuck detection, skip blocked cells
-- Discovered select_item bug: ModBridge doesn't support select_item action
-
-**Test Results:**
-- 6/15 cells processed (actions executed)
-- 9/15 cells skipped (stuck on debris)
-- ~3 seeds actually planted (VLM fallback)
-- Root cause: `select_item` returns "Unknown action" - mod only supports `select_slot`
-
-**Critical Bug for Session 66:**
-- Change `select_item` to `select_slot` in cell_coordinator.py
-- Need to pass seed_slot from surveyor (inventory lookup)
-
-**Code Locations:**
-| Feature | File | Lines |
-|---------|------|-------|
-| Re-survey guard | unified_agent.py | 2826-2829 |
-| Stuck detection | unified_agent.py | 2932-2944 |
-| select_item bug | cell_coordinator.py | 196-205 |
-
-*Updated Session 65 — Claude (PM)*
-
----
-
-## Session 66 Highlights
-
-**Seed Selection Bug Fixed:**
-- Root cause: `select_item` action not supported by ModBridge
-- Fix: Added `seed_slot` field to CellPlan, use `select_slot` instead
-- Verified: Seed slot 5 correctly selected during cell farming
-
-**Test Results:**
-- 1/15 cells completed successfully (full clear→till→plant→water cycle)
-- 14/15 cells skipped due to navigation blocked by debris
-- Navigation is now the primary bottleneck
-
-**Code Locations:**
-| Feature | File | Lines |
-|---------|------|-------|
-| seed_slot field | farm_surveyor.py | 56 |
-| seed_slot param | farm_surveyor.py | 354 |
-| select_slot fix | cell_coordinator.py | 197-204 |
-| slot detection | unified_agent.py | 2837-2864 |
-
-*Updated Session 66 — Claude (PM)*
-
----
-
-## Session 67 Highlights
-
-**Obstacle Clearing During Navigation:**
-- Detect blockers via `/surroundings` endpoint after 2 stuck attempts
-- Clear debris (Weeds, Stone, Twig, Wood, Grass) with correct tool
-- Skip non-clearable obstacles (Tree, Boulder, Stump, Log) immediately
-- New helper method `_execute_obstacle_clear()` for face→tool→swing sequence
-
-**Test Results:**
-- 9/15 seeds planted (60%) vs 1/15 before (7%)
-- **9x improvement** from Session 66
-
-**Code Locations:**
-| Feature | File | Lines |
-|---------|------|-------|
-| Clearing state vars | unified_agent.py | 2876-2882 |
-| Blocker detection | unified_agent.py | 2941-2997 |
-| _execute_obstacle_clear | unified_agent.py | 3064-3108 |
-
-**Next Priorities:**
-- ✅ Cell grid layout optimization (compact farming pattern) - Session 68
-- ✅ End-of-day summary for morning todo building - Session 68
-- Full day autonomous test
-
-*Updated Session 67 — Claude (PM)*
-
----
-
-## Session 68 Highlights
-
-**Grid Layout Fix:**
-- Patches sorted by proximity to farmhouse (not size)
-- Global cell sort for row-by-row walking order
-- Before: `(57,27), (59,27), (54,19)...` → After: `(54,19), (55,19), (56,19)...`
-
-**End-of-Day Summary:**
-- `_save_daily_summary()` called before go_to_bed action
-- Saves to `logs/daily_summary.json`: cells completed, skipped, reasons, lessons
-- Derives next_day_goals from summary
-
-**Skip Tracking:**
-- CellCoordinator now tracks `skipped_cells` dict with reasons
-- `get_daily_summary()` method for end-of-day persistence
-
-**Code Locations:**
-| Feature | File | Lines |
-|---------|------|-------|
-| Patch proximity sort | farm_surveyor.py | 257-266 |
-| Global cell sort | farm_surveyor.py | 319-324 |
-| Skip tracking | cell_coordinator.py | 83, 249 |
-| Daily summary method | cell_coordinator.py | 258-276 |
-| Save summary | unified_agent.py | 3837-3916 |
-| Go-to-bed hook | unified_agent.py | 4675-4678 |
-
-**Next: Session 69**
-- Morning planning integration (load yesterday's summary)
-- Full day autonomous test
-
-*Updated Session 68 — Claude (PM)*
-
----
-
-## Session 80 Highlights
-
-**Verified Session 79 Fixes:**
-- ✅ Movement fix works: positions change correctly after move commands
-- ✅ Harvest priority: daily planner puts harvest before water
-- ✅ 12 parsnips harvested successfully
-
-**TaskExecutor Obstacle Clearing:**
-- Added stuck detection: tracks position, increments counter if unchanged
-- After 3 stuck attempts, checks surroundings for clearable obstacles
-- Clears with appropriate tool: Tree→Axe, Stone→Pickaxe, Weeds→Scythe
-- Falls back to skipping target if no clearable obstacle
-
-**Ship Priority Fix:**
-- Moved ship task to right after harvest in daily_planner.py
-- Changed priority from HIGH to CRITICAL
-- Order now: Harvest → Ship → Water → Plant → Clear
-
-**Bug Fixes:**
-- Added missing `TaskExecutor.clear()` method (was causing crash)
-- Removed duplicate ship task from old location
-
-**Code Locations:**
-| Feature | File | Lines |
-|---------|------|-------|
-| Stuck detection vars | task_executor.py | 140-144 |
-| Stuck detection logic | task_executor.py | 291-322 |
-| Obstacle clearing | task_executor.py | 502-563 |
-| clear() method | task_executor.py | 634-649 |
-| Ship priority fix | daily_planner.py | 403-418 |
-
-**Issues for Session 81:**
-- Bedtime override didn't trigger at 11:50 PM
-- New harvestable crops ignored (task list static after generation)
-- Full ship→buy cycle not yet tested
-
-*Updated Session 80 — Claude (PM)*
-
----
-
-## Session 81 Highlights
-
-**Ship/Buy/Plant Cycle Fixed:**
-- Complete farming cycle now works: ship crops → buy seeds → return to farm → plant
-- 7 bugs fixed across TargetGenerator, TaskExecutor, PrereqResolver, and DailyPlanner
-
-**Key Fixes:**
-
-| Component | Bug | Fix |
-|-----------|-----|-----|
-| TargetGenerator | No ship targets | Added `_generate_ship_targets()` |
-| TargetGenerator | Navigate to SeedShop failed | Added warp destination handling |
-| TargetGenerator | No buy_seeds targets | Added target at current position |
-| TaskExecutor | Didn't know ship/buy skills | Added to TASK_TO_SKILL mapping |
-| TaskExecutor | Ignored target metadata skill | Added `target.metadata["skill"]` check |
-| DailyPlanner | Skipped plant if no seeds | Added plant task anyway |
-| PrereqResolver | No warp home after buy | Added warp_to_farm prereq |
-
-**Verified Working:**
-- ✅ Ship crops to bin (ship_item skill)
-- ✅ Warp to Pierre's (go_to_pierre skill)
-- ✅ Buy seeds (buy_parsnip_seeds skill)
-- ✅ Return to farm (warp_to_farm prereq)
-- ✅ Plant seeds (cell farming)
-
-**Code Locations:**
-| Feature | File | Lines |
-|---------|------|-------|
-| Ship targets | target_generator.py | 258-305 |
-| Warp destinations | target_generator.py | 315-365 |
-| Buy targets | target_generator.py | 63-70 |
-| Skill mappings | task_executor.py | 114, 117 |
-| Target metadata skill | task_executor.py | 490 |
-| Plant without seeds | daily_planner.py | 435-455 |
-| Warp home prereq | prereq_resolver.py | 330-337, 360-367 |
-
-**Game State:**
-- Day 8, 7:20 PM
-- Money: 305g (spent 100g on seeds)
-- 3 Parsnip Seeds remaining, 2 crops in ground
-
-**Next: Session 82**
-- Multi-day autonomy test (2+ days)
-- Test bedtime enforcement
-- Monitor for stuck states
-
-*Updated Session 81 — Claude (PM)*
-
----
-
-## Session 87 Highlights
-
-**Multi-Day Test Results:**
-- 13/15 seeds planted (87%)
-- Day 1 crops NOT watered - saved by rain Day 3
-- Agent went to bed successfully
-- Survived Day 1 → Day 3
-
-**Critical Bugs Found:**
-
-| Bug | Impact | Priority |
-|-----|--------|----------|
-| Water task false completion | Crops unwatered (0 targets from FarmHouse) | HIGH |
-| Cell reachability | Action position (Y+1) not validated | HIGH |
-| Till phantom failures | 23+ failures on already-tilled cells | MEDIUM |
-| Cell farming interrupted | 2 seeds unplanted | MEDIUM |
-
-**Root Cause - Cell Reachability:**
-To till/plant cell (X, Y), player stands at (X, Y+1) facing north. Target generator checks if (X, Y) is reachable but NOT if (X, Y+1) is passable. When action position is blocked → stuck → phantom failure.
-
-**Files to Fix:**
-- `daily_planner.py` - Water task prereq: player on Farm
-- `target_generator.py` - Validate action position reachability
-- `farm_surveyor.py` - Check (X, Y+1) when selecting cells
-- `task_executor.py` - Don't auto-complete 0-target tasks
-
-*Updated Session 87 — Claude (PM)*
-
----
-
-## Session 88-90 Highlights
-
-**Session 88: Water Priority Fixes**
-- Fixed 5 bugs: BLOCKED state, Y+1 validation, target validation, water priority FIRST, warp_to_farm prereq
-- Partial test on rainy Day 3 - fixes working
-
-**Session 89: Day Change Task Reset**
-- Fixed: Task executor not resetting on day change (old tasks continued)
-- Fixed: `smapi_data` AttributeError
-- Multi-day test: Days 1-5 autonomous, stopped on water refill bug
-
-**Session 90: Stale Targets & Buy Seeds**
-
-| Bug | Fix |
-|-----|-----|
-| Stale water targets | Added `no_crop_at_target` validation |
-| Stale harvest targets | Added `not_ready_for_harvest` check |
-| Cell farming bypasses buy_seeds | Check for seeds before starting cell farming |
-| Water navigation fails | Pass surroundings to skill executor |
-| SeedShop warp race | TaskExecutor stays at SeedShop if no seeds |
-
-**Test Results:**
-- Stale targets correctly skipped ✅
-- Cell farming seed check working ✅
-- Agent went to Pierre's ✅
-- SeedShop warp fix pending test ⏳
-
-*Updated Session 90 — Claude (PM)*
-
----
-
-## Session 82 Highlights
-
-**Cliff Navigation Bug Identified:**
-- Multi-day test blocked by agent getting stuck on interior cliffs
-- Stardew farm has multiple elevation levels separated by cliff edges
-- Agent can't path-find around cliffs to reach selected cells
-
-**Root Cause: SMAPI API Gap**
-```
-SMAPI has internally:
-  - TilePathfinder.FindPath(start, end, location)
-  - IsTilePassable(tile, location)
-
-API exposes:
-  - /surroundings → only 4 adjacent tiles
-  - /farm → objects, crops, no passability
-
-Gap: No endpoint for pathfinding/reachability checks
-```
-
-**Partial Fixes Applied (band-aids):**
-| Fix | Purpose |
-|-----|---------|
-| SCAN_RADIUS 25→50 | Find more tillable patches |
-| Wall navigation fallback | Try perpendicular direction when blocked |
-| PLAYER_SCAN_RADIUS=8 | Very small search radius near player |
-| Player pos as center | Select cells near player, not farmhouse |
-
-**Session 83 Task:**
-Add `/check-path` endpoint to SMAPI:
-```csharp
-GET /check-path?startX=42&startY=19&endX=32&endY=17
-→ { reachable: true/false, pathLength: N }
-```
-
-Then filter unreachable cells in farm_surveyor.py before selection.
-
-**Lesson Learned:**
-SMAPI API should expose all game knowledge the agent needs from the start. Pathfinding was built but never exposed, causing this gap.
-
-*Updated Session 82 — Claude (PM)*
-
----
-
-## Session 99-100 Highlights
-
-**Session 99: TTS Pipeline Fix**
-
-| Problem | Fix |
-|---------|-----|
-| Commentary flooding queue | Added `_last_pushed_monologue` - only push NEW monologues |
-| TTS on CPU too slow | Moved Coqui XTTS to GPU (cuda:1 = 4070) |
-| Queue backed up | Events dropped when queue full |
-
-**Before/After:**
-| Metric | Before | After |
-|--------|--------|-------|
-| Events per VLM tick | 20-30 (duplicates) | 1 (unique only) |
-| TTS generation time | 3-5 seconds (CPU) | ~0.5-1 second (GPU) |
-
-**Session 100: VLM Prompting**
-
-| Problem | Fix |
-|---------|-----|
-| VLM missing `target_direction` | Config examples + skill context hints |
-| TTS still behind | Rate limit 45s + VLM interval 5 ticks |
-| "Ah, the..." openings | BANNED instruction (stronger than NEVER) |
-
-**GPU Usage:**
-```
-3090 Ti: VLM (tensor-split main) - ~17GB/24GB used
-4070:    VLM (tensor-split 17%) + TTS (~2GB) - ~6GB/12GB used
-```
-
-*Updated Session 100 — Claude (PM)*
-
----
-
-## Session 109 Highlights
-
-**Smart Placement Integration**
-
-Skills with `requires_planning: true` now call farm planner automatically:
-
-| Skill | Planner Function | Result |
-|-------|-----------------|--------|
-| `auto_place_scarecrow` | `get_placement_sequence("scarecrow")` | Navigate to optimal pos, place |
-| `auto_place_chest` | `get_placement_sequence("chest")` | Strategic location |
-| `auto_plant_seeds` | `get_planting_sequence()` | Row-by-row planting |
-
-**Key Files Changed:**
-```
-skills/models.py      → Added SkillPlanning dataclass
-skills/loader.py      → Parse planning config
-skills/executor.py    → _call_planner(), _apply_planned_values()
-unified_agent.py      → Batch plant handler, farm data fetch
-planning/farm_planner.py → get_planting_sequence(), fixed coverage
-skills/definitions/farming.yaml → auto_plant_seeds skill
-```
-
-**Orderly Planting Flow:**
-1. Get tilled positions from farm state
-2. Sort row-by-row (y, then x)
-3. For each: navigate → plant → water
-4. Logs progress every 5 plants
-
-*Updated Session 109 — Claude (PM)*
-
----
-
-## Session 110 Highlights
-
-**Tool Upgrade System**
-
-Added complete tool upgrade workflow for Blacksmith:
-
-| Action | Purpose |
-|--------|---------|
-| `upgrade_tool` | Start upgrade (removes tool, deducts gold+bars) |
-| `collect_upgraded_tool` | Pick up finished tool (TODO) |
-
-**Upgrade Skills Added:**
-- `go_to_blacksmith` - Warp to Clint's shop
-- `upgrade_pickaxe` - Copper→Steel→Gold→Iridium
-- `upgrade_axe` - For chopping large stumps/logs
-- `upgrade_hoe` - Larger tilling area
-- `upgrade_watering_can` - More water capacity
-
-**Key Files Changed:**
-```
-ActionExecutor.cs        → UpgradeTool() method (+160 lines)
-shopping.yaml            → 5 upgrade skills
-unified_agent.py         → upgrade_tool dispatch
-```
-
-**Upgrade Cost Table:**
-| Level | Gold | Bars | Days |
-|-------|------|------|------|
-| Copper | 2,000g | 5 Copper Bars | 2 |
-| Steel | 5,000g | 5 Iron Bars | 2 |
-| Gold | 10,000g | 5 Gold Bars | 2 |
-| Iridium | 25,000g | 5 Iridium Bars | 2 |
-
-*Updated Session 110 — Claude (PM)*
-
----
-
-## Session 111 Highlights
-
-**Mining System**
-
-Complete mining infrastructure added:
-
-| Action | Purpose |
-|--------|---------|
-| `enter_mine_level` | Enter specific floor (elevator validation) |
-| `use_ladder` | Descend via ladder/shaft |
-| `swing_weapon` | Combat with MeleeWeapon |
-
-**Key Files Changed:**
-```
-ActionExecutor.cs        → EnterMineLevel(), UseLadder(), SwingWeapon()
-ActionCommand.cs         → Level property
-mining.yaml              → 20+ mining/combat skills
-unified_agent.py         → Mining action dispatches
-```
-
-**Mining Floor Reference:**
-| Levels | Type | Ore |
-|--------|------|-----|
-| 1-39 | Normal | Copper |
-| 40-79 | Frozen | Iron |
-| 80-119 | Lava | Gold |
-| 120+ | Skull Cavern | Iridium |
-
-**Batch Farm Chores (Architecture Change)**
-
-Replaced individual VLM-per-action with goal-based batch execution:
-
-| Old Flow | New Flow |
-|----------|----------|
-| VLM → action → VLM → action... | VLM → `auto_farm_chores` → batch runs all |
-
-**Batch Phases:**
-1. Buy seeds (if needed, Pierre open)
-2. Harvest ready crops
-3. Water (auto-refill)
-4. Till grid (contiguous 5-wide rows)
-5. Plant (row-by-row)
-
-**Key Files:**
-```
-unified_agent.py  → _batch_farm_chores(), _batch_till_grid()
-farming.yaml      → auto_farm_chores skill
-farm_planner.py   → flood-fill contiguous detection
-daily_planner.py  → consolidated farm_chores task
-```
-
-*Updated Session 111 — Claude (PM)*
+-- Claude (PM)

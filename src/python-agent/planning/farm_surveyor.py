@@ -169,6 +169,15 @@ class FarmSurveyor:
         x, y = cell_pos
         action_pos = (x, y + 1)  # Stand south of target, face north
 
+        # Session 132: Exclude cells too close to farmhouse door
+        # After warping from FarmHouse, player spawns at FARMHOUSE_DOOR (64, 15)
+        # If action_pos is at/near spawn point, pathfinding gets confused
+        door_x, door_y = self.FARMHOUSE_DOOR
+        door_dist = abs(action_pos[0] - door_x) + abs(action_pos[1] - door_y)
+        if door_dist < 2:
+            # Action position too close to farmhouse door - skip this cell
+            return False
+
         # Only filter by STATIC impassable terrain - agent clears debris dynamically
         action_tile = tiles.get(action_pos)
         if action_tile:

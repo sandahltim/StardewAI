@@ -1,49 +1,57 @@
-# Session 132: Test Chest + Mining Flow
+# Session 134: Testing Mining + Tool Flow
 
-**Last Updated:** 2026-01-16 Session 131 by Claude
-**Status:** Critical fixes applied - RESTART AGENT to test
+**Last Updated:** 2026-01-16 Session 133 by Claude
+**Status:** Ready for testing
 
 ---
 
-## What Changed (Session 131)
+## What Changed (Session 133)
 
-### Critical Bug Fix: Craft Action Missing
-| Issue | Root Cause | Fix |
-|-------|------------|-----|
-| Chest not crafting despite 50 wood | `craft` action had NO Python handler | Added handler in `unified_agent.py` |
-| "Unknown action for ModBridge: craft" | C# had action, Python didn't | Added all missing handlers |
+### Mining Warp to Farm
+| Issue | Fix |
+|-------|-----|
+| Agent stuck at mine entrance after mining | Auto-warp to farm after `_batch_mine_session` completes |
+| Tool retrieval happened at mine entrance | Now warps to farm first |
 
-### Mining Gates (Prevents Mining Loop)
-| Gate | Condition | Why |
-|------|-----------|-----|
-| **Chest exists** | `has_chest_placed == True` | Need storage for loot |
-| **4+ free slots** | Mining stackables don't count as blocking | Room for new item types |
-| **Odd day OR rain** | `day % 2 == 1 or is_rainy` | Even sunny days = farm focus |
+### Ladder Position Parsing
+| Issue | Fix |
+|-------|-----|
+| Python ignored `ladderPosition` from SMAPI | Added `TilePosition` dataclass to `smapi_client.py` |
+| Agent couldn't navigate to ladder | `MiningState` now includes `ladder_position`, `shaft_position` |
+| `get_mining()` missing position data | Returns `ladderPosition` and `shaftPosition` in dict |
 
-### Tool Storage (Frees Inventory)
-| When | What Happens |
-|------|--------------|
-| Before mining | Store hoe, scythe, watering can in chest |
-| After mining | Retrieve stored tools from chest |
-| All exit paths | Tools retrieved even on early exit (inventory full, retreat) |
+### Descent Verification
+| Issue | Fix |
+|-------|-----|
+| `floors_descended` incremented even on failure | Now verifies floor changed after BOTH `use_ladder` and `descend_mine` |
+| Silent descent failures | Logs error: `DESCENT FAILED! Both use_ladder and descend_mine failed` |
 
-### New Action Handlers Added
-```python
-# unified_agent.py ModBridgeController now handles:
-- craft           # Craft items (chest, scarecrow)
-- place_item      # Place crafted items
-- open_chest      # Open chest for access
-- close_chest     # Close chest
-- deposit_item    # Store by slot
-- withdraw_item   # Retrieve by slot
-- withdraw_by_name # Retrieve by name (new in C#)
+**New logging:**
+```
+⛏️ Ladder/Shaft detected: ladder=True, shaft=False, pos={'x': 15, 'y': 10}
+⛏️ Descended from floor 1 to floor 2
 ```
 
-### Wood Gathering
-| When | What |
-|------|------|
-| Wood < 50 AND no chest | Creates `gather_wood` task (HIGH priority) |
-| gather_wood skill | Clears branches/twigs on farm until 50 wood |
+### Tool Retrieval After Mining
+| Issue | Fix |
+|-------|-----|
+| Result check defaulted to success | Proper success/failure checking |
+| No visibility into retrieval status | Per-tool logging: `🧰 ✅ Retrieved Watering Can` |
+| No verification tools were retrieved | Post-retrieval inventory check |
+
+**New logging:**
+```
+🧰 Withdrawing Watering Can
+🧰 ✅ Retrieved Watering Can
+🧰 Post-retrieval inventory tools: ['Hoe', 'Scythe', 'Watering Can']
+🧰 Retrieved 3/3 tools
+```
+
+### VLM Stale Weather Fix
+| Issue | Fix |
+|-------|-----|
+| VLM thought it was raining (stale data) | Force fresh state for VLM commentary (bypass 0.5s throttle) |
+| No weather debugging | Added weather debug logging |
 
 ---
 
@@ -64,127 +72,145 @@ uvicorn src.ui.app:app --reload --port 9001
 **Terminal 3 - Agent:**
 ```bash
 cd /home/tim/StardewAI && source venv/bin/activate
-python src/python-agent/unified_agent.py --goal "Do farm chores"
+python src/python-agent/unified_agent.py --goal "Do farm chores and mine"
 ```
 
 ---
 
-## Session 132 Testing Checklist
+## Session 134 Testing Checklist
 
-### Chest Building (Priority - Was Broken)
-- [ ] Log shows: `📋 Added task: Craft chest (have X wood)`
+### 1. Mining Flow (Session 133 Fix) - PRIORITY
+- [ ] Agent descends floors (watch for `Descended from floor X to Y`)
+- [ ] Ladder detection: `Ladder/Shaft detected: ladder=True, pos={...}`
+- [ ] Floor verification prevents false descent counts
+- [ ] Agent warps to farm after mining: `Warping to farm after mining`
+
+### 2. Tool Storage/Retrieval (Session 133 Fix) - PRIORITY
+- [ ] Tools stored before mining: `🧰 Stored 3 tools: [Hoe, Scythe, Watering Can]`
+- [ ] Tools retrieved after mining: `🧰 ✅ Retrieved Watering Can`
+- [ ] Inventory verification: `Post-retrieval inventory tools: [...]`
+- [ ] Agent can water crops after returning from mining
+
+### 3. VLM Weather (Session 133 Fix)
+- [ ] VLM commentary shows correct weather
+- [ ] No stale "rainy" data on sunny days
+- [ ] Debug log: `VLM commentary weather: sunny`
+
+### 4. Chest Crafting (Session 131 Fix)
 - [ ] No "Unknown action for ModBridge: craft" error
-- [ ] Chest actually appears on farm after crafting
-- [ ] Log shows: `Crafted and placed Chest!`
+- [ ] Chest placed on farm after crafting
 
-### Wood Gathering (If Wood < 50)
-- [ ] Log shows: `📋 Added task: Gather wood for chest (X needed)`
-- [ ] `🪓 GATHER WOOD - Target: 50 wood` appears
-- [ ] Agent clears debris on farm
-- [ ] Wood count increases
+### 5. Wood Gathering (Session 132 Fix)
+- [ ] Only targets twigs/branches/trees, NOT rocks/bushes
+- [ ] VLM commentary during gathering
 
-### Mining Gates
-- [ ] On even sunny day: `⛏️ Mining SKIPPED: even day (X) + sunny weather`
-- [ ] On odd day OR rain: Mining task created
-- [ ] Without chest: `⛏️ Mining SKIPPED: no chest on farm`
-- [ ] With < 4 slots: `⛏️ Mining SKIPPED: only X free slots`
-
-### Tool Storage (When Mining)
-- [ ] `🧰 Storing farming tools before mining...`
-- [ ] `🧰 Depositing Hoe from slot X`
-- [ ] After mining: `🧰 Retrieving farming tools: [...]`
-- [ ] Tools back in inventory after mining
+### 6. Mining Gates (Session 131)
+- [ ] On even sunny day: `Mining SKIPPED: even day + sunny`
+- [ ] On odd day/rain with chest: Mining task created
 
 ---
 
-## Key Log Messages to Watch
+## Key Log Messages
 
 ```
-Chest Crafting:
-  📋 Added task: Craft chest (have 50 wood)
-  🎯 Executing skill: craft_chest
-  [1/7] craft: {'item': 'Chest', 'quantity': 1}
-  Crafted and placed Chest!
+Mining Descent:
+  ⛏️ Ladder/Shaft detected: ladder=True, shaft=False, pos={'x': 15, 'y': 10}
+  ⛏️ Descended from floor 1 to floor 2
+  ⛏️ MINING COMPLETE: ores=5, rocks=12, floors=3
+  ⛏️ Warping to farm after mining (was at UndergroundMine)
 
-Wood Gathering:
-  📋 Need 30 more wood for chest (have 20/50)
-  🪓 GATHER WOOD - Target: 50 wood
-  🪓 Found 15 wood debris on farm
-  🪓 GATHER COMPLETE: 35 wood gathered
-
-Mining Gates:
-  ⛏️ Mining check: pickaxe=True, energy=85%, hour=9
-  ⛏️ Mining gates: chest=True, slots=8, day=3(odd=True), rain=False
-  ⛏️ Mining task ADDED: 5 floors (odd day 3)
-
-Tool Storage:
+Tool Flow:
   🧰 Storing farming tools before mining...
-  🧰 Found chest at (64, 15)
-  🧰 Depositing Hoe from slot 2
   🧰 Stored 3 tools: ['Hoe', 'Scythe', 'Watering Can']
+  ... mining ...
+  🧰 Retrieving farming tools: ['Hoe', 'Scythe', 'Watering Can']
+  🧰 ✅ Retrieved Hoe
+  🧰 ✅ Retrieved Scythe
+  🧰 ✅ Retrieved Watering Can
+  🧰 Post-retrieval inventory tools: ['Hoe', 'Scythe', 'Watering Can']
+  🧰 Retrieved 3/3 tools
+
+Descent Failure (if occurs):
+  ⛏️ use_ladder didn't descend (still floor 5), using descend_mine fallback
+  ⛏️ DESCENT FAILED! Both use_ladder and descend_mine failed on floor 5
 ```
 
 ---
 
-## Files Modified (Session 131)
+## Files Modified (Session 133)
 
 | File | Change |
 |------|--------|
-| `unified_agent.py` | Action handlers: craft, chest ops, place_item, gather_wood, tool storage |
-| `daily_planner.py` | Mining gates, wood gathering task, chest HIGH priority |
-| `ActionExecutor.cs` | withdraw_by_name action |
-| `CLAUDE.md` | "Adding New Actions" checklist |
-| `SESSION_LOG.md` | Session 131 entry |
+| `unified_agent.py` | Warp to farm after mining completes |
+| `unified_agent.py` | Descent verification after both ladder methods |
+| `unified_agent.py` | Ladder/shaft detection logging |
+| `unified_agent.py` | Tool retrieval with proper result checking |
+| `unified_agent.py` | Force fresh state for VLM commentary |
+| `unified_agent.py` | `get_mining()` includes ladder/shaft positions |
+| `smapi_client.py` | `TilePosition` dataclass |
+| `smapi_client.py` | `MiningState` with `ladder_position`, `shaft_position` |
 
 ---
 
 ## Architecture Notes
 
-### Action Handler Pattern (CRITICAL)
-```
-New actions need BOTH:
-1. C# ActionExecutor.cs - switch case + method implementation
-2. Python unified_agent.py - elif handler in ModBridgeController.execute()
+### Mining Warp Flow
+```python
+# In execute_skill() for auto_mine:
+results = await self._batch_mine_session(target_floors)
 
-Missing either = "Unknown action" error
-```
-
-### Mining Prerequisites Flow
-```
-Daily Planner runs
-  → Check has_chest_placed (from farm objects)
-  → Check free_slots (mining stackables don't count)
-  → Check odd day OR rainy
-  → If ALL pass: create mining task
-  → If ANY fail: log skip reason
+# Session 133: Always warp to farm after mining
+self._refresh_state_snapshot()
+location = self.last_state.get("location", {}).get("name", "")
+if location != "Farm":
+    logging.info(f"⛏️ Warping to farm after mining (was at {location})")
+    self.controller.execute(Action("warp", {"location": "Farm"}, "return to farm"))
 ```
 
-### Tool Storage Flow
+### Ladder Position Data Flow
 ```
-_batch_mine_session() starts
-  → _store_farming_tools() - deposit hoe/scythe/can
-  → Warp to mine, descend, mine rocks
-  → On ANY exit (normal, inventory full, retreat)
-  → _retrieve_farming_tools() - withdraw by name
+C# SMAPI (ModEntry.cs) → LadderPosition {X, Y}
+    ↓
+Python smapi_client.py → MiningState.ladder_position: TilePosition
+    ↓
+unified_agent.py get_mining() → {"ladderPosition": {"x": 15, "y": 10}}
+    ↓
+_batch_mine_session() → Navigate to ladder, then use_ladder
+```
+
+### Tool Storage/Retrieval Flow
+```
+_batch_mine_session():
+  1. _store_farming_tools() → chest (Hoe, Scythe, Watering Can)
+  2. ... mining loop ...
+  3. _retrieve_farming_tools() → inventory
+  4. return results
+execute_skill(auto_mine):
+  5. warp to farm (Session 133)
 ```
 
 ---
 
 ## Roadmap (Future Sessions)
 
-1. **Backpack upgrade** - Buy when gold >= 2000g (12 → 24 slots)
-2. **Multi-chest support** - Route items to appropriate chests by type
-3. **Food reservation** - Keep 1-2 edible items for mining health
-4. **Popup handling** - Dismiss dialogs, handle festival options
+1. **Test mining + tool flow** - Verify Session 133 fixes work
+2. **Test organize_inventory** - Deposit excess to chest
+3. **Backpack upgrade** - Buy when gold >= 2000g (12 → 24 slots)
+4. **Multi-chest support** - Route items to appropriate chests by type
+5. **Scarecrow/sprinkler crafting** - Auto-craft when materials available
 
 ---
 
-## Session 131 Commits
+## Session 133 Summary
 
-```
-6acdfad Session 131: Mining gates, craft action fix, tool storage
-```
+| Change | Impact |
+|--------|--------|
+| Mining warp to farm | No more stuck at mine entrance |
+| Ladder position parsing | Agent can navigate to ladders |
+| Descent verification | Accurate floor tracking |
+| Tool retrieval fix | Tools properly restored after mining |
+| VLM fresh state | Correct weather in commentary |
 
 ---
 
--- Claude (Session 131)
+-- Claude (Session 133)

@@ -1124,11 +1124,12 @@ class ModBridgeController:
         """Get mine floor info."""
         mining = self.smapi.get_mining()
         if mining:
-            return {
+            result = {
                 "location": mining.location,
                 "floor": mining.floor,
                 "floorType": mining.floor_type,
                 "ladderFound": mining.ladder_found,
+                "shaftFound": mining.shaft_found,
                 "rocks": [
                     {"x": r.tile_x, "y": r.tile_y, "type": r.type}
                     for r in mining.rocks
@@ -1138,19 +1139,39 @@ class ModBridgeController:
                     for m in mining.monsters
                 ],
             }
+            # Session 133: Include ladder/shaft positions for navigation
+            if mining.ladder_position:
+                result["ladderPosition"] = {"x": mining.ladder_position.x, "y": mining.ladder_position.y}
+            if mining.shaft_position:
+                result["shaftPosition"] = {"x": mining.shaft_position.x, "y": mining.shaft_position.y}
+            return result
         return None
 
     def get_storage(self) -> Optional[Dict[str, Any]]:
-        """Get all storage containers."""
+        """Get all storage containers with full item details."""
         storage = self.smapi.get_storage()
         if storage:
+            chests_data = []
+            for c in storage.chests:
+                chest_info = {
+                    "location": c.location,
+                    "x": c.tile_x,
+                    "y": c.tile_y,
+                    "items": [
+                        {"name": item.name, "stack": item.stack, "type": item.type, "quality": item.quality}
+                        for item in c.items
+                    ] if c.items else []
+                }
+                chests_data.append(chest_info)
+            
             return {
-                "chests": [
-                    {"location": c.location, "x": c.tile_x, "y": c.tile_y, "items": len(c.items)}
-                    for c in storage.chests
-                ],
+                "chests": chests_data,
                 "siloHay": storage.silo_hay,
                 "siloCapacity": storage.silo_capacity,
+                "fridge": [
+                    {"name": item.name, "stack": item.stack, "type": item.type}
+                    for item in storage.fridge
+                ] if storage.fridge else []
             }
         return None
 
@@ -3599,6 +3620,15 @@ class StardewAgent:
             target_floors = params.get("floors", 5)
             results = await self._batch_mine_session(target_floors)
             total = results["ores_mined"] + results["rocks_broken"]
+            
+            # Session 133: Always warp to farm after mining completes
+            self._refresh_state_snapshot()
+            location = self.last_state.get("location", {}).get("name", "") if self.last_state else ""
+            if location != "Farm":
+                logging.info(f"⛏️ Warping to farm after mining (was at {location})")
+                self.controller.execute(Action("warp", {"location": "Farm"}, "return to farm after mining"))
+                await asyncio.sleep(0.6)
+            
             if results["floors_descended"] > 0 or total > 0:
                 logging.info(f"✅ auto_mine: {results['floors_descended']} floors, {results['ores_mined']} ores, {results['rocks_broken']} rocks")
                 return True
@@ -4239,10 +4269,15 @@ class StardewAgent:
         self._send_ui_status()
         logging.info(f"📢 Batch status: {phase} - {progress}")
 
-    async def _batch_commentary(self, context: str) -> None:
+    async def _batch_commentary(self, context: str, batch_type: str = "mining") -> None:
         """Generate and push TTS commentary during batch operations (every 30 seconds).
         
-        Session 129: Added to provide voice commentary during long mining/farming batches.
+        Session 129: Added to provide voice commentary during long batches.
+        Session 132: Made generic with batch_type parameter for different activities.
+        
+        Args:
+            context: Current status/progress string
+            batch_type: One of "mining", "farming", "watering", "harvesting", "wood"
         """
         now = time.time()
         if now - self._batch_last_commentary_time < self._batch_commentary_interval:
@@ -4253,31 +4288,283 @@ class StardewAgent:
         
         self._batch_last_commentary_time = now
         
-        # Generate a simple mining/batch monologue
-        # Use the character's voice style for the commentary
+        # Session 132: Select monologues based on batch type
+        if batch_type == "mining":
+            monologues = [
+                f"Still down here in the depths... {context}. The rocks keep coming, and so do I.",
+                f"{context}. Another day, another pickaxe swing. This is the life I chose.",
+                f"Mining away... {context}. Wonder what treasures await in the next stone.",
+                f"{context}. My arms are getting tired but these ores won't mine themselves.",
+                f"The mines echo with each swing... {context}. Peaceful in a dark, dusty way.",
+            ]
+            location = "UndergroundMine"
+            action_type = "mining"
+        elif batch_type == "farming" or batch_type == "planting":
+            monologues = [
+                f"Workin' the land... {context}. There's something peaceful about farm work.",
+                f"{context}. Seeds in the ground, hope in the heart. That's farming.",
+                f"Planting away... {context}. These crops'll be worth it come harvest time.",
+                f"{context}. Grandpa would be proud seeing the farm coming together.",
+                f"One seed at a time... {context}. Patience is a farmer's best friend.",
+            ]
+            location = "Farm"
+            action_type = "farming"
+        elif batch_type == "watering":
+            monologues = [
+                f"Keepin' the crops hydrated... {context}. Water is life out here.",
+                f"{context}. The watering can's getting heavy but the plants need it.",
+                f"Splash, splash... {context}. Soon I'll have sprinklers doing this.",
+                f"{context}. Nothing like the morning routine of watering the farm.",
+                f"One crop at a time... {context}. They'll thank me when harvest comes.",
+            ]
+            location = "Farm"
+            action_type = "watering"
+        elif batch_type == "harvesting":
+            monologues = [
+                f"Harvest time! {context}. This is what all the work was for.",
+                f"{context}. Nothing beats the feeling of a good harvest.",
+                f"Gathering the fruits of my labor... {context}. Literally.",
+                f"{context}. These'll fetch a nice price at the shipping bin.",
+                f"Pluck, pluck... {context}. The farm's really producing now.",
+            ]
+            location = "Farm"
+            action_type = "harvesting"
+        elif batch_type == "wood":
+            monologues = [
+                f"Choppin' away... {context}. Need that wood for the farm.",
+                f"{context}. The farm's lookin' cleaner with every tree.",
+                f"Swing, swing, timber! {context}. Clearing the land.",
+                f"{context}. This wood'll come in handy for building things.",
+                f"Clearin' the land, one branch at a time. {context}.",
+            ]
+            location = "Farm"
+            action_type = "gathering"
+        else:
+            # Fallback generic
+            monologues = [
+                f"Working hard... {context}. All part of farm life.",
+                f"{context}. Another task, another step forward.",
+                f"Keeping busy... {context}. The farm won't run itself.",
+            ]
+            location = "Farm"
+            action_type = "working"
+        
+        import random
+        monologue = random.choice(monologues)
+        
+        # Push to TTS worker
+        state_data = {
+            "location": location,
+            "stats": {"action_count": self.action_count},
+        }
+        self.commentary_worker.push(
+            action_type=action_type,
+            state=state_data,
+            vlm_monologue=monologue,
+        )
+        self._last_pushed_monologue = monologue
+        self._last_commentary_push_time = now
+        logging.info(f"📢 Batch commentary ({batch_type}): {monologue[:60]}...")
+
+    async def _batch_vlm_commentary(self, batch_type: str, context: str) -> None:
+        """Run full VLM inference for contextual commentary during batch operations.
+        
+        Session 132: Added to provide real VLM-generated commentary during batches,
+        with full SMAPI context not just screenshot.
+        
+        Args:
+            batch_type: What we're doing ("mining", "farming", "watering", etc.)
+            context: Current progress string to include in prompt
+        """
+        now = time.time()
+        if now - self._batch_last_commentary_time < self._batch_commentary_interval:
+            return  # Rate limited
+        
+        if not self.commentary_worker or not self.vlm:
+            return
+        
+        self._batch_last_commentary_time = now
+        
+        try:
+            # Capture current screenshot
+            img = self.screen.capture()
+            if img is None:
+                logging.warning("📢 VLM commentary: no screenshot")
+                return
+            
+            # Session 133: Force fresh SMAPI state for VLM context (bypass throttle)
+            self.last_state_poll = 0  # Reset throttle
+            self._refresh_state_snapshot()
+            state = self.last_state or {}
+            
+            # Build context from SMAPI data
+            player = state.get("player", {})
+            time_data = state.get("time", {})
+            location = state.get("location", {})
+            inventory = state.get("inventory", [])
+            
+            # Player stats
+            energy = player.get("energy", 0)
+            max_energy = player.get("maxEnergy", 270)
+            energy_pct = int((energy / max_energy * 100)) if max_energy > 0 else 0
+            health = player.get("health", 100)
+            max_health = player.get("maxHealth", 100)
+            money = player.get("money", 0)
+            
+            # Time info
+            hour = time_data.get("hour", 6)
+            minute = time_data.get("minute", 0)
+            day = time_data.get("day", 1)
+            season = time_data.get("season", "Spring")
+            weather = time_data.get("weather", "sunny")
+            # Session 133: Log weather for debugging stale data issue
+            logging.debug(f"📢 VLM commentary weather: {weather} (from time_data: {bool(time_data)})")
+            
+            # Location info
+            loc_name = location.get("name", "Farm")
+            crops = location.get("crops", [])
+            crops_ready = len([c for c in crops if c.get("isReadyForHarvest")])
+            crops_unwatered = len([c for c in crops if not c.get("isWatered") and not c.get("isReadyForHarvest")])
+            
+            # Inventory summary
+            inv_items = []
+            for item in inventory:
+                if item:
+                    name = item.get("name", "?")
+                    stack = item.get("stack", 1)
+                    inv_items.append(f"{stack}x {name}" if stack > 1 else name)
+            inv_summary = ", ".join(inv_items[:8])  # First 8 items
+            if len(inv_items) > 8:
+                inv_summary += f" (+{len(inv_items)-8} more)"
+            
+            # Mining-specific context
+            mining_context = ""
+            if batch_type == "mining" and hasattr(self.controller, 'get_mining'):
+                mining = self.controller.get_mining()
+                if mining:
+                    floor = mining.get("floor", 0)
+                    rocks = len(mining.get("rocks", []))
+                    monsters = len(mining.get("monsters", []))
+                    ladder = mining.get("ladderFound", False)
+                    mining_context = f"\nMINE STATUS: Floor {floor}, {rocks} rocks, {monsters} monsters, ladder={'found' if ladder else 'not found'}"
+            
+            # Build full context
+            smapi_context = f"""GAME STATE:
+- Time: {season} Day {day}, {hour}:{minute:02d} ({weather})
+- Location: {loc_name}
+- Energy: {energy_pct}% ({energy}/{max_energy})
+- Health: {health}/{max_health}
+- Money: {money}g
+- Inventory: {inv_summary if inv_summary else 'empty'}"""
+            
+            if loc_name == "Farm":
+                smapi_context += f"\n- Crops: {len(crops)} total, {crops_ready} ready to harvest, {crops_unwatered} need water"
+            
+            smapi_context += mining_context
+            
+            # Build commentary prompt with full context
+            commentary_prompt = f"""You are Rusty, a farmer working in Stardew Valley.
+
+{smapi_context}
+
+CURRENT ACTIVITY: {batch_type}
+PROGRESS: {context}
+
+Look at the screen and consider the game state above. Provide a brief inner monologue (1-2 sentences) about what you're doing right now. Be authentic - a hardworking farmer who enjoys the simple life. Reference specific details you can see or know about.
+
+Respond with ONLY your inner monologue, nothing else."""
+
+            # Run VLM with screenshot
+            if hasattr(self.vlm, 'think_vision_first'):
+                result = self.vlm.think_vision_first(img, commentary_prompt)
+            else:
+                result = self.vlm.think(img, commentary_prompt)
+            
+            # Extract monologue from result
+            monologue = ""
+            if result:
+                if hasattr(result, 'mood') and result.mood:
+                    monologue = result.mood
+                elif hasattr(result, 'reasoning') and result.reasoning:
+                    monologue = result.reasoning
+                elif hasattr(result, 'raw') and result.raw:
+                    # Take first sentence or two from raw response
+                    raw = result.raw.strip()
+                    if len(raw) > 150:
+                        raw = raw[:150] + "..."
+                    monologue = raw
+            
+            if not monologue or len(monologue) < 10:
+                logging.debug("📢 VLM commentary: no valid monologue generated")
+                return
+            
+            # Determine location for TTS
+            location_map = {
+                "mining": "UndergroundMine",
+                "farming": "Farm", 
+                "watering": "Farm",
+                "harvesting": "Farm",
+                "wood": "Farm",
+                "planting": "Farm",
+            }
+            tts_location = location_map.get(batch_type, "Farm")
+            
+            # Push to TTS worker
+            state_data = {
+                "location": tts_location,
+                "stats": {"action_count": self.action_count},
+            }
+            self.commentary_worker.push(
+                action_type=batch_type,
+                state=state_data,
+                vlm_monologue=monologue,
+            )
+            self.last_mood = monologue
+            self._last_pushed_monologue = monologue
+            self._last_commentary_push_time = now
+            logging.info(f"📢 VLM commentary ({batch_type}): {monologue[:60]}...")
+            
+        except Exception as e:
+            logging.warning(f"📢 VLM commentary failed: {e}")
+
+    async def _batch_wood_commentary(self, wood_gathered: int, trees_chopped: int) -> None:
+        """Generate and push TTS commentary during wood gathering (every 30 seconds).
+        
+        Session 132: Added for wood gathering batch like mining has.
+        """
+        now = time.time()
+        if now - self._batch_last_commentary_time < self._batch_commentary_interval:
+            return  # Rate limited
+        
+        if not self.commentary_worker:
+            return
+        
+        self._batch_last_commentary_time = now
+        
+        # Generate wood-gathering specific commentary
         monologues = [
-            f"Still down here in the depths... {context}. The rocks keep coming, and so do I.",
-            f"{context}. Another day, another pickaxe swing. This is the life I chose.",
-            f"Mining away... {context}. Wonder what treasures await in the next stone.",
-            f"{context}. My arms are getting tired but these ores won't mine themselves.",
-            f"The mines echo with each swing... {context}. Peaceful in a dark, dusty way.",
+            f"Choppin' away... {wood_gathered} wood so far. {trees_chopped} trees down.",
+            f"The farm's lookin' cleaner already. Got {wood_gathered} wood collected.",
+            f"Swing, swing, timber! That's {trees_chopped} trees and countin'.",
+            f"Need that wood for the chest. {wood_gathered} pieces and still goin'.",
+            f"Clearin' the land, one branch at a time. {wood_gathered} wood gathered.",
         ]
         import random
         monologue = random.choice(monologues)
         
         # Push to TTS worker
         state_data = {
-            "location": "UndergroundMine",
+            "location": "Farm",
             "stats": {"action_count": self.action_count},
         }
         self.commentary_worker.push(
-            action_type="mining",
+            action_type="gathering",
             state=state_data,
             vlm_monologue=monologue,
         )
         self._last_pushed_monologue = monologue
         self._last_commentary_push_time = now
-        logging.info(f"📢 Batch commentary: {monologue[:60]}...")
+        logging.info(f"📢 Wood commentary: {monologue[:60]}...")
 
     async def _batch_farm_chores(self) -> dict:
         """Execute ALL farm chores in sequence without VLM consultation.
@@ -4438,6 +4725,7 @@ class StardewAgent:
         if unwatered:
             logging.info(f"💧 Phase 1: Watering {len(unwatered)} crops")
             await self._batch_status_update("Watering", f"{len(unwatered)} crops to water")
+            await self._batch_vlm_commentary("watering", f"{len(unwatered)} crops to water")
             await self._batch_water_remaining()
             results["watered"] = len(unwatered)  # Approximate
             self._refresh_state_snapshot()
@@ -4448,8 +4736,11 @@ class StardewAgent:
         if harvestable:
             logging.info(f"🌾 Phase 2: Harvesting {len(harvestable)} crops")
             await self._batch_status_update("Harvesting", f"{len(harvestable)} crops ready")
+            await self._batch_vlm_commentary("harvesting", f"{len(harvestable)} crops ready to harvest")
             skipped_harvest = 0
             inventory_full_count = 0
+            # Session 132: Track harvested crops by type with quantity
+            harvested_by_type = {}
             
             for crop in harvestable:
                 cx, cy = crop.get("x", 0), crop.get("y", 0)
@@ -4498,6 +4789,8 @@ class StardewAgent:
                             self.controller.execute(Action("harvest", {"direction": face_dir}, "harvest"))
                             await asyncio.sleep(0.1)  # Wait for harvest
                             results["harvested"] += 1
+                            # Session 132: Track by crop type
+                            harvested_by_type[crop_name] = harvested_by_type.get(crop_name, 0) + 1
                             reached = True
                             break
                 
@@ -4505,12 +4798,20 @@ class StardewAgent:
                     logging.warning(f"⏭️ Couldn't reach {crop_name} at ({cx},{cy}), skipping")
                     skipped_harvest += 1
             
+            # Session 132: Log harvest breakdown by type
+            if harvested_by_type:
+                harvest_summary = ", ".join(f"{count} {name}" for name, count in harvested_by_type.items())
+                logging.info(f"🌾 Harvest breakdown: {harvest_summary}")
+            
             if inventory_full_count > 0:
-                logging.info(f"🌾 Harvested {results['harvested']} crops, {inventory_full_count} skipped (inventory full), {skipped_harvest} unreachable")
+                logging.info(f"🌾 Harvested {results['harvested']} total, {inventory_full_count} skipped (inventory full), {skipped_harvest} unreachable")
             elif skipped_harvest > 0:
-                logging.info(f"🌾 Harvested {results['harvested']} crops, skipped {skipped_harvest} unreachable")
+                logging.info(f"🌾 Harvested {results['harvested']} total, skipped {skipped_harvest} unreachable")
             else:
-                logging.info(f"🌾 Harvested {results['harvested']} crops")
+                logging.info(f"🌾 Harvested {results['harvested']} total")
+            
+            # Store breakdown in results for commentary/UI
+            results["harvested_by_type"] = harvested_by_type
             self._refresh_state_snapshot()
             crops = _refresh_farm_crops()
 
@@ -4535,6 +4836,7 @@ class StardewAgent:
             if seed_count > 0:
                 logging.info(f"🔨 Phase 3: Till & Plant {seed_count} {seed_name} from slot {seed_slot}")
                 await self._batch_status_update("Planting", f"{seed_count} {seed_name}")
+                await self._batch_vlm_commentary("planting", f"Planting {seed_count} {seed_name}")
                 tilled, planted = await self._batch_till_and_plant(seed_count, seed_slot)
                 total_tilled += tilled
                 total_planted += planted
@@ -4548,6 +4850,40 @@ class StardewAgent:
 
         logging.info("🏠 ═══════════════════════════════════════")
         logging.info(f"🏠 BATCH CHORES COMPLETE: harvested={results['harvested']}, watered={results['watered']}, tilled={results['tilled']}, planted={results['planted']}")
+        
+        # Session 132: Log inventory summary with quantities
+        self._refresh_state_snapshot()
+        inventory = self.last_state.get("inventory", []) if self.last_state else []
+        if inventory:
+            inv_summary = {}
+            for item in inventory:
+                if item:
+                    name = item.get("name", "Unknown")
+                    stack = item.get("stack", 1)
+                    inv_summary[name] = inv_summary.get(name, 0) + stack
+            inv_str = ", ".join(f"{count} {name}" for name, count in sorted(inv_summary.items()))
+            logging.info(f"🎒 Inventory: {inv_str}")
+        else:
+            logging.info("🎒 Inventory: empty")
+        
+        # Session 132: Log chest contents using storage API
+        storage = self.controller.get_storage() if hasattr(self.controller, 'get_storage') else None
+        if storage and storage.get("chests"):
+            for chest in storage["chests"]:
+                chest_loc = chest.get("location", "?")
+                chest_x, chest_y = chest.get("x", 0), chest.get("y", 0)
+                items = chest.get("items", [])
+                if items:
+                    chest_summary = {}
+                    for item in items:
+                        name = item.get("name", "Unknown")
+                        stack = item.get("stack", 1)
+                        chest_summary[name] = chest_summary.get(name, 0) + stack
+                    chest_str = ", ".join(f"{count} {name}" for name, count in sorted(chest_summary.items()))
+                    logging.info(f"📦 Chest ({chest_loc} {chest_x},{chest_y}): {chest_str}")
+                else:
+                    logging.info(f"📦 Chest ({chest_loc} {chest_x},{chest_y}): empty")
+        
         logging.info("🏠 ═══════════════════════════════════════")
 
         return results
@@ -4920,8 +5256,8 @@ class StardewAgent:
             logging.info(f"⛏️ Floor {floor}: {len(rocks)} rocks, {len(monsters)} monsters, ladder={ladder_found}")
             # Session 128: Periodic status update during mining
             await self._batch_status_update("Mining", f"Floor {floor}: {len(rocks)} rocks, {results['floors_descended']}/{target_floors} descended")
-            # Session 129: Periodic TTS commentary during mining
-            await self._batch_commentary(f"Floor {floor}, {results['ores_mined']} ores mined so far")
+            # Session 129/132: Periodic VLM commentary during mining
+            await self._batch_vlm_commentary("mining", f"Floor {floor}, {results['ores_mined']} ores mined")
 
             # Detect infested floor: monsters present but no ladder spawns from rocks
             # On infested floors, ALL monsters must die before ladder appears
@@ -4976,8 +5312,10 @@ class StardewAgent:
 
             # Priority 2: Use ladder if found
             if ladder_found or shaft_found:
-                # Session 128: Navigate TO the ladder before trying to use it
+                # Session 128/133: Navigate TO the ladder before trying to use it
                 ladder_pos = mining.get("ladderPosition") or mining.get("shaftPosition")
+                # Session 133: Log ladder position for debugging
+                logging.info(f"⛏️ Ladder/Shaft detected: ladder={ladder_found}, shaft={shaft_found}, pos={ladder_pos}")
                 if ladder_pos:
                     lx = ladder_pos.get("x", ladder_pos.get("tileX", 0))
                     ly = ladder_pos.get("y", ladder_pos.get("tileY", 0))
@@ -4997,7 +5335,7 @@ class StardewAgent:
                 result = self.controller.execute(Action("use_ladder", {}, "use ladder"))
                 await asyncio.sleep(0.5)
 
-                # Session 128: Check if we actually descended - if not, use descend_mine as fallback
+                # Session 128/133: Check if we actually descended - if not, use descend_mine as fallback
                 self._refresh_state_snapshot()
                 new_mining = self.controller.get_mining() if hasattr(self.controller, 'get_mining') else None
                 new_floor = new_mining.get("floor", floor) if new_mining else floor
@@ -5007,7 +5345,18 @@ class StardewAgent:
                     logging.warning(f"⛏️ use_ladder didn't descend (still floor {floor}), using descend_mine fallback")
                     self.controller.execute(Action("descend_mine", {}, "descend via fallback"))
                     await asyncio.sleep(0.5)
+                    
+                    # Session 133: Re-check floor after fallback
+                    self._refresh_state_snapshot()
+                    new_mining = self.controller.get_mining() if hasattr(self.controller, 'get_mining') else None
+                    new_floor = new_mining.get("floor", floor) if new_mining else floor
+                    
+                    if new_floor == floor:
+                        logging.error(f"⛏️ DESCENT FAILED! Both use_ladder and descend_mine failed on floor {floor}")
+                        # Don't increment floors_descended - we didn't actually descend
+                        continue
 
+                logging.info(f"⛏️ Descended from floor {floor} to floor {new_floor}")
                 results["floors_descended"] += 1
                 continue
 
@@ -5201,6 +5550,10 @@ class StardewAgent:
         """
         results = {"wood_gathered": 0, "debris_cleared": 0, "trees_chopped": 0}
 
+        # Session 132: Reset batch timers for periodic updates and commentary (like mining)
+        self._batch_last_status_time = 0.0
+        self._batch_last_commentary_time = 0.0
+
         logging.info("🪓 ═══════════════════════════════════════")
         logging.info(f"🪓 GATHER WOOD - Target: {target_wood} wood")
         logging.info("🪓 ═══════════════════════════════════════")
@@ -5230,50 +5583,83 @@ class StardewAgent:
         logging.info(f"🪓 Starting with {initial_wood} wood")
 
         # Safety limits
-        MAX_DEBRIS = 50
-        MAX_ENERGY_PCT = 20  # Stop if below 20% energy
-        debris_count = 0
+        MAX_ACTIONS = 50
+        MIN_ENERGY_PCT = 20  # Stop if below 20% energy
+        action_count = 0
 
-        # Get debris (branches, twigs) from farm objects
+        # Get farm objects and terrain features
         location_data = self.last_state.get("location", {}) if self.last_state else {}
         objects = location_data.get("objects", [])
 
-        # Find wood debris (branches, twigs, wood)
-        WOOD_DEBRIS = {"twig", "branch", "wood"}
+        # Session 132: STRICT filtering - only actual wood debris
+        # Whitelist approach: only target things that definitely give wood
+        WOOD_DEBRIS_NAMES = {"twig", "branch", "stick"}
+        # Blacklist: things that look similar but are NOT wood
+        NOT_WOOD = {"stone", "rock", "boulder", "weed", "fiber", "bush", "shrub", 
+                    "grass", "clay", "artifact", "geode", "ore", "gem", "forage"}
+
         wood_debris = []
         for obj in objects:
             obj_name = obj.get("name", "").lower()
             obj_type = obj.get("type", "").lower()
-            # Match by name or type
-            if any(d in obj_name for d in WOOD_DEBRIS) or obj_type in ("litter", "debris"):
+            
+            # Skip if it matches blacklist
+            if any(bad in obj_name for bad in NOT_WOOD):
+                continue
+            if any(bad in obj_type for bad in NOT_WOOD):
+                continue
+            
+            # Only include if it matches wood debris whitelist
+            if any(wood in obj_name for wood in WOOD_DEBRIS_NAMES):
                 x = obj.get("x", obj.get("tileX"))
                 y = obj.get("y", obj.get("tileY"))
                 if x is not None and y is not None:
                     wood_debris.append((x, y, obj_name, "debris"))
+                    logging.debug(f"🪓 Found debris: {obj_name} at ({x},{y})")
 
-        # Session 131: Also find trees (give 10-20 wood each)
+        # Session 132: Find ONLY actual trees, not bushes or other terrain
         terrain_features = location_data.get("terrainFeatures", [])
         trees = []
+        TREE_TYPES = {"tree", "oak", "maple", "pine", "mahogany", "palm"}
+        NOT_TREE = {"bush", "shrub", "grass", "hoedirt", "flooring", "path"}
+        
         for feature in terrain_features:
             feature_type = feature.get("type", "").lower()
+            feature_name = feature.get("name", "").lower()
             feature_obj = feature.get("object", "").lower()
-            if "tree" in feature_type or "tree" in feature_obj:
+            
+            # Skip if it matches non-tree blacklist
+            if any(bad in feature_type for bad in NOT_TREE):
+                continue
+            if any(bad in feature_name for bad in NOT_TREE):
+                continue
+            
+            # Only include if it matches tree whitelist
+            is_tree = any(t in feature_type for t in TREE_TYPES) or any(t in feature_name for t in TREE_TYPES)
+            if is_tree:
                 x = feature.get("x", feature.get("tileX"))
                 y = feature.get("y", feature.get("tileY"))
                 if x is not None and y is not None:
-                    trees.append((x, y, "tree", "tree"))
+                    trees.append((x, y, feature_type or feature_name or "tree", "tree"))
+                    logging.debug(f"🪓 Found tree: {feature_type} at ({x},{y})")
 
-        logging.info(f"🪓 Found {len(wood_debris)} debris + {len(trees)} trees on farm")
+        logging.info(f"🪓 Targets: {len(wood_debris)} debris + {len(trees)} trees")
 
         # Get player position for sorting
         player = self.last_state.get("player", {}) if self.last_state else {}
         px, py = player.get("tileX", 0), player.get("tileY", 0)
 
         # Combine and sort: debris first (quick), then trees (more wood but slower)
-        # Sort each by distance, then concatenate
         wood_debris.sort(key=lambda d: abs(d[0] - px) + abs(d[1] - py))
         trees.sort(key=lambda t: abs(t[0] - px) + abs(t[1] - py))
-        all_targets = wood_debris + trees  # Debris first, then trees
+        all_targets = wood_debris + trees
+
+        if not all_targets:
+            logging.warning("🪓 No wood debris or trees found on farm!")
+            return results
+
+        # Session 132: Periodic status and commentary (like mining)
+        await self._batch_status_update("Gathering wood", f"0/{target_wood} wood, {len(all_targets)} targets")
 
         # Clear debris and chop trees
         for x, y, name, target_type in all_targets:
@@ -5281,7 +5667,7 @@ class StardewAgent:
             self._refresh_state_snapshot()
             current_wood = get_wood_count()
             if current_wood >= target_wood:
-                logging.info(f"🪓 Reached target! Have {current_wood} wood")
+                logging.info(f"🪓 ✓ Reached target! Have {current_wood} wood")
                 break
 
             # Check energy
@@ -5289,19 +5675,25 @@ class StardewAgent:
             energy = player.get("energy", 100)
             max_energy = player.get("maxEnergy", 270)
             energy_pct = (energy / max_energy * 100) if max_energy > 0 else 0
-            if energy_pct < MAX_ENERGY_PCT:
+            if energy_pct < MIN_ENERGY_PCT:
                 logging.warning(f"🪓 Low energy ({energy_pct:.0f}%) - stopping")
                 break
 
-            # Check limits
-            if debris_count >= MAX_DEBRIS:
-                logging.info(f"🪓 Hit debris limit ({MAX_DEBRIS})")
+            # Check action limit
+            if action_count >= MAX_ACTIONS:
+                logging.info(f"🪓 Hit action limit ({MAX_ACTIONS})")
                 break
 
-            # Move adjacent and clear
+            # Session 132: Periodic updates
+            gathered_so_far = current_wood - initial_wood
+            await self._batch_status_update("Gathering wood", f"{current_wood}/{target_wood} wood")
+            await self._batch_vlm_commentary("wood", f"{gathered_so_far} wood gathered, {results['trees_chopped']} trees chopped")
+
+            # Move adjacent and face the target
+            logging.info(f"🪓 Moving to {target_type}: {name} at ({x},{y})")
             moved = await self._move_adjacent_and_face(x, y)
             if not moved:
-                logging.debug(f"🪓 Couldn't reach debris at ({x},{y})")
+                logging.debug(f"🪓 Couldn't reach {name} at ({x},{y}) - skipping")
                 continue
 
             # Equip axe and chop
@@ -5309,20 +5701,18 @@ class StardewAgent:
             await asyncio.sleep(0.1)
 
             # Hit count depends on target type
-            # Debris: 1-3 hits, Trees: ~10 hits with basic axe
             if target_type == "tree":
-                hits = 12  # Trees need more hits
+                hits = 12  # Trees need more hits with basic axe
                 logging.info(f"🪓 Chopping tree at ({x},{y})...")
             else:
                 hits = 3   # Debris is quick
-                logging.debug(f"🪓 Clearing {name} at ({x},{y})")
+                logging.info(f"🪓 Clearing {name} at ({x},{y})")
 
-            for _ in range(hits):
+            for i in range(hits):
                 self.controller.execute(Action("use_tool", {}, "chop"))
                 await asyncio.sleep(0.2)
-                # Check if tree fell (energy cost = tree gone)
-                if target_type == "tree" and _ > 0 and _ % 4 == 0:
-                    # Refresh state periodically to check if tree is gone
+                # Check if tree fell (refresh state periodically)
+                if target_type == "tree" and i > 0 and i % 4 == 0:
                     self._refresh_state_snapshot()
 
             # Walk over to collect drops
@@ -5333,13 +5723,13 @@ class StardewAgent:
                 self.controller.execute(Action("move_to", {"x": x + dx, "y": y + dy}, "sweep"))
                 await asyncio.sleep(0.1)
 
-            debris_count += 1
+            action_count += 1
             if target_type == "tree":
                 results["trees_chopped"] += 1
+                logging.info(f"🪓 Tree chopped! ({results['trees_chopped']} total)")
             else:
                 results["debris_cleared"] += 1
 
-            # Brief pause
             await asyncio.sleep(0.1)
 
         # Update final count
@@ -5348,8 +5738,10 @@ class StardewAgent:
         results["wood_gathered"] = final_wood - initial_wood
 
         logging.info("🪓 ═══════════════════════════════════════")
-        logging.info(f"🪓 GATHER COMPLETE: {results['wood_gathered']} wood, {results['debris_cleared']} debris, {results['trees_chopped']} trees")
-        logging.info(f"🪓 Total wood now: {final_wood}")
+        logging.info(f"🪓 GATHER COMPLETE: +{results['wood_gathered']} wood")
+        logging.info(f"🪓   Debris cleared: {results['debris_cleared']}")
+        logging.info(f"🪓   Trees chopped: {results['trees_chopped']}")
+        logging.info(f"🪓   Total wood now: {final_wood}")
         logging.info("🪓 ═══════════════════════════════════════")
 
         return results
@@ -5533,19 +5925,39 @@ class StardewAgent:
         self.controller.execute(Action("open_chest", {"direction": face_dir}, "open chest"))
         await asyncio.sleep(0.3)
 
-        # Withdraw each tool by name
+        # Session 133: Withdraw each tool by name with proper verification
         for tool_name in tool_names:
             logging.info(f"🧰 Withdrawing {tool_name}")
             result = self.controller.execute(Action("withdraw_by_name", {"item": tool_name, "quantity": 1}, f"withdraw {tool_name}"))
-            await asyncio.sleep(0.15)
-            # Check if successful (result might have success field)
-            if result and getattr(result, 'success', True):
+            await asyncio.sleep(0.2)
+            
+            # Check result properly - don't default to success
+            success = False
+            if result:
+                if hasattr(result, 'success'):
+                    success = result.success
+                elif isinstance(result, dict):
+                    success = result.get('success', False)
+                elif result is True:
+                    success = True
+            
+            if success:
                 retrieved += 1
+                logging.info(f"🧰 ✅ Retrieved {tool_name}")
+            else:
+                error_msg = getattr(result, 'error', str(result)) if result else 'No result'
+                logging.warning(f"🧰 ❌ Failed to retrieve {tool_name}: {error_msg}")
 
         # Close chest
         self.controller.execute(Action("close_chest", {}, "close chest"))
         await asyncio.sleep(0.2)
 
+        # Session 133: Verify tools are in inventory
+        self._refresh_state_snapshot()
+        inventory = self.last_state.get("inventory", []) if self.last_state else []
+        inv_tools = [item.get("name", "") for item in inventory if item]
+        logging.info(f"🧰 Post-retrieval inventory tools: {[t for t in inv_tools if any(ft in t for ft in ['Hoe', 'Scythe', 'Watering Can'])]}")
+        
         logging.info(f"🧰 Retrieved {retrieved}/{len(tool_names)} tools")
         return retrieved
 

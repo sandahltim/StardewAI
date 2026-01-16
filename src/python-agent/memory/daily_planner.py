@@ -288,12 +288,22 @@ class DailyPlanner:
             for t in self.tasks[:10]
         ])
 
+        # Session 132: Add weather explanation to prevent VLM hallucination
+        weather_note = ""
+        if weather.lower() in ("rainy", "stormy", "rain", "storm"):
+            weather_note = " (GOOD: Rain waters crops automatically - skip watering, focus on planting/harvesting/mining)"
+        
         prompt = f"""You are Elias, planning your day on the farm.
 
 Day {self.current_day}, {self.current_season}
-Weather: {weather}
+Weather: {weather}{weather_note}
 Energy: {energy_pct}%
 Crops: {len(crops)} planted
+
+IMPORTANT GAME RULES:
+- Rainy days are GREAT for farming - rain waters crops for free, so you can plant/harvest/mine
+- You can ALWAYS plant and harvest regardless of weather
+- Only skip WATERING on rainy days (rain does it for you)
 
 Yesterday's notes: {self.yesterday_notes or 'None'}
 
