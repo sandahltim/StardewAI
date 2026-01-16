@@ -5249,19 +5249,34 @@ class StardewAgent:
                 x = obj.get("x", obj.get("tileX"))
                 y = obj.get("y", obj.get("tileY"))
                 if x is not None and y is not None:
-                    wood_debris.append((x, y, obj_name))
+                    wood_debris.append((x, y, obj_name, "debris"))
 
-        logging.info(f"🪓 Found {len(wood_debris)} wood debris on farm")
+        # Session 131: Also find trees (give 10-20 wood each)
+        terrain_features = location_data.get("terrainFeatures", [])
+        trees = []
+        for feature in terrain_features:
+            feature_type = feature.get("type", "").lower()
+            feature_obj = feature.get("object", "").lower()
+            if "tree" in feature_type or "tree" in feature_obj:
+                x = feature.get("x", feature.get("tileX"))
+                y = feature.get("y", feature.get("tileY"))
+                if x is not None and y is not None:
+                    trees.append((x, y, "tree", "tree"))
+
+        logging.info(f"🪓 Found {len(wood_debris)} debris + {len(trees)} trees on farm")
 
         # Get player position for sorting
         player = self.last_state.get("player", {}) if self.last_state else {}
         px, py = player.get("tileX", 0), player.get("tileY", 0)
 
-        # Sort by distance
+        # Combine and sort: debris first (quick), then trees (more wood but slower)
+        # Sort each by distance, then concatenate
         wood_debris.sort(key=lambda d: abs(d[0] - px) + abs(d[1] - py))
+        trees.sort(key=lambda t: abs(t[0] - px) + abs(t[1] - py))
+        all_targets = wood_debris + trees  # Debris first, then trees
 
-        # Clear debris
-        for x, y, name in wood_debris:
+        # Clear debris and chop trees
+        for x, y, name, target_type in all_targets:
             # Check if we have enough wood
             self._refresh_state_snapshot()
             current_wood = get_wood_count()
@@ -5293,17 +5308,36 @@ class StardewAgent:
             self.controller.execute(Action("equip_tool", {"tool": "Axe"}, "equip axe"))
             await asyncio.sleep(0.1)
 
-            # Hit debris (usually 1-2 hits)
-            for _ in range(3):
+            # Hit count depends on target type
+            # Debris: 1-3 hits, Trees: ~10 hits with basic axe
+            if target_type == "tree":
+                hits = 12  # Trees need more hits
+                logging.info(f"🪓 Chopping tree at ({x},{y})...")
+            else:
+                hits = 3   # Debris is quick
+                logging.debug(f"🪓 Clearing {name} at ({x},{y})")
+
+            for _ in range(hits):
                 self.controller.execute(Action("use_tool", {}, "chop"))
                 await asyncio.sleep(0.2)
+                # Check if tree fell (energy cost = tree gone)
+                if target_type == "tree" and _ > 0 and _ % 4 == 0:
+                    # Refresh state periodically to check if tree is gone
+                    self._refresh_state_snapshot()
 
             # Walk over to collect drops
             self.controller.execute(Action("move_to", {"x": x, "y": y}, "collect"))
             await asyncio.sleep(0.15)
+            # Walk a small circle to pick up scattered wood
+            for dx, dy in [(0, 1), (1, 0), (0, -1), (-1, 0)]:
+                self.controller.execute(Action("move_to", {"x": x + dx, "y": y + dy}, "sweep"))
+                await asyncio.sleep(0.1)
 
             debris_count += 1
-            results["debris_cleared"] += 1
+            if target_type == "tree":
+                results["trees_chopped"] += 1
+            else:
+                results["debris_cleared"] += 1
 
             # Brief pause
             await asyncio.sleep(0.1)
@@ -5314,7 +5348,7 @@ class StardewAgent:
         results["wood_gathered"] = final_wood - initial_wood
 
         logging.info("🪓 ═══════════════════════════════════════")
-        logging.info(f"🪓 GATHER COMPLETE: {results['wood_gathered']} wood gathered, {results['debris_cleared']} debris cleared")
+        logging.info(f"🪓 GATHER COMPLETE: {results['wood_gathered']} wood, {results['debris_cleared']} debris, {results['trees_chopped']} trees")
         logging.info(f"🪓 Total wood now: {final_wood}")
         logging.info("🪓 ═══════════════════════════════════════")
 
