@@ -587,7 +587,9 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
             # Get combat level to suggest appropriate mine depth
             combat_level = player.get("combatLevel", 0)
             mine_depth = min(combat_level * 5, 40) if combat_level > 0 else 5
-            
+
+            # Session 122: Added skill_override to trigger warp to mines
+            # After warp, VLM takes over for actual mining (break_rock, use_ladder, etc.)
             self.tasks.append(DailyTask(
                 id=f"mining_{self.current_day}_1",
                 description=f"Mine ore in the mines (floors 1-{mine_depth})",
@@ -595,7 +597,8 @@ Output your reasoning (2-3 sentences), then "FINAL:" followed by any priority ch
                 priority=TaskPriority.MEDIUM.value,  # VLM can adjust
                 target_location="Mine",
                 estimated_time=60,
-                notes="VLM may reprioritize based on weather/goals/energy",
+                skill_override="warp_to_mine",  # Session 122: Warp to mine, then VLM handles mining
+                notes="Warp to mine entrance, then VLM handles mining with break_rock/use_ladder",
             ))
 
     def _generate_social_tasks(self, state: Dict[str, Any]) -> None:
