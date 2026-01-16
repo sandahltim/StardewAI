@@ -21,10 +21,19 @@ Fixed 8 issues + noted roadmap items:
 | **Not planting on tilled tiles** | "No grid positions" with 412 tillable | Tilled tiles were BLOCKED not used | Prioritize empty tilled tiles for planting |
 | **UseLadder couldn't find ladders** | `use_ladder` failed on spawned ladders | Only checked `mine.Objects`, not `mine.objects` | Check both collections in UseLadder action |
 
+## Session 130 Additions
+
+| Feature | Description |
+|---------|-------------|
+| **Coverage-based scarecrow planning** | Uses farm_planner to calculate how many scarecrows needed based on crop coverage |
+| **Inventory check before crafting** | Checks if scarecrow/chest already in inventory → place task instead of craft |
+| **Multi-scarecrow support** | Creates tasks for EACH scarecrow needed, deducts materials |
+| **Inventory management integration** | When inventory >80% full + chest exists → organize_inventory task (HIGH priority) |
+
 ### Roadmap Items (Future Sessions)
-- **Inventory management system** - Sort/store items in chests automatically
 - **Crafting/upgrades integration** - Use blacksmith, craft items
 - **Popup event handling** - Dismiss dialogs, handle festivals
+- **Food reservation** - Keep 1-2 edible items for mining health
 
 ---
 
@@ -93,6 +102,8 @@ python src/python-agent/unified_agent.py --goal "Do farm chores and go mining"
 | `unified_agent.py` | 4303-4314 | State refresh after buying seeds |
 | `unified_agent.py` | 5219-5324 | Planting prioritizes empty tilled tiles |
 | `ActionExecutor.cs` | 1434-1462 | UseLadder checks both Objects collections |
+| `daily_planner.py` | 534-610 | Coverage-based scarecrow planning |
+| `daily_planner.py` | 651-674 | Inventory management task generation |
 
 ---
 
