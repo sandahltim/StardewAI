@@ -22,6 +22,7 @@ languages:
 - typescript
 - java
 - cpp
+- csharp
 encoding: "utf-8"
 
 # whether to use the project's gitignore file to ignore files

@@ -424,6 +424,13 @@ public class FishingState
     public string Season { get; set; }
     public int TimeOfDay { get; set; }
     public List<FishDetails> AvailableFish { get; set; } = new();
+    // Session 126: Real-time fishing status
+    public bool HasRodEquipped { get; set; }  // Is fishing rod selected
+    public bool IsCasting { get; set; }       // In casting animation
+    public bool IsFishing { get; set; }       // Line is in water
+    public bool IsNibbling { get; set; }      // Fish is biting (the ! moment)
+    public bool IsMinigameActive { get; set; } // BobberBar minigame is showing
+    public bool IsReeling { get; set; }       // In reel-in animation
 }
 
 /// <summary>Fish that can be caught</summary>
@@ -451,6 +458,9 @@ public class MiningState
     public string FloorType { get; set; }      // normal, frozen, lava, etc.
     public bool LadderFound { get; set; }
     public bool ShaftFound { get; set; }
+    // Session 126: Add ladder/shaft coordinates for navigation
+    public TilePosition LadderPosition { get; set; }  // null if no ladder
+    public TilePosition ShaftPosition { get; set; }   // null if no shaft
     public List<MineObject> Rocks { get; set; } = new();
     public List<MineMonster> Monsters { get; set; } = new();
 }

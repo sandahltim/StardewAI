@@ -89,6 +89,19 @@ public class ActionExecutor
                 "enter_mine_level" => EnterMineLevel(command.Level),
                 "use_ladder" => UseLadder(),
                 "swing_weapon" => SwingWeapon(command.Direction),
+                // Session 125: Fishing
+                "cast_fishing_rod" => CastFishingRod(command.Direction),
+                "start_fishing" => StartFishing(),
+                // Session 125: Animals
+                "pet_animal" => PetAnimal(command.Direction),
+                "milk_animal" => MilkAnimal(command.Direction),
+                "shear_animal" => ShearAnimal(command.Direction),
+                "collect_animal_product" => CollectAnimalProduct(command.Direction),
+                // Session 125: Foraging
+                "shake_tree" => ShakeTree(command.Direction),
+                "dig_artifact_spot" => DigArtifactSpot(command.Direction),
+                // Session 125: Next mine level (reliable alternative)
+                "descend_mine" => DescendMine(),
                 _ => new ActionResult { Success = false, Error = $"Unknown action: {command.Action}", State = ActionState.Failed }
             };
         }
@@ -2376,5 +2389,476 @@ public class ActionExecutor
             result += $" (+{items.Count - 5} more types)";
         
         return result;
+    }
+
+    // =============================================================================
+    // SESSION 125: FISHING ACTIONS
+    // =============================================================================
+
+    private ActionResult CastFishingRod(string direction)
+    {
+        var player = Game1.player;
+
+        // Set facing direction
+        if (!string.IsNullOrEmpty(direction))
+        {
+            int facing = TilePathfinder.DirectionToFacing(direction);
+            if (facing >= 0) player.FacingDirection = facing;
+        }
+
+        // Check if holding fishing rod
+        if (player.CurrentTool is not StardewValley.Tools.FishingRod rod)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No fishing rod equipped. Use select_item_type with 'Fishing Rod'.",
+                State = ActionState.Failed
+            };
+        }
+
+        // Start fishing
+        player.BeginUsingTool();
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = "Cast fishing rod",
+            State = ActionState.PerformingAction
+        };
+    }
+
+    private ActionResult StartFishing()
+    {
+        var player = Game1.player;
+        var location = player.currentLocation;
+
+        // Equip fishing rod if not equipped
+        for (int i = 0; i < player.Items.Count; i++)
+        {
+            if (player.Items[i] is StardewValley.Tools.FishingRod)
+            {
+                player.CurrentToolIndex = i;
+                break;
+            }
+        }
+
+        if (player.CurrentTool is not StardewValley.Tools.FishingRod rod)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No fishing rod in inventory",
+                State = ActionState.Failed
+            };
+        }
+
+        // Face water (find nearest water tile)
+        var playerTile = player.TilePoint;
+        int[] directions = { 0, 2, 1, 3 }; // Check down, up, right, left
+        foreach (int dir in directions)
+        {
+            var delta = GetDirectionDelta(dir);
+            var checkTile = new Point(playerTile.X + delta.X, playerTile.Y + delta.Y);
+            if (location.isWaterTile(checkTile.X, checkTile.Y))
+            {
+                player.FacingDirection = dir;
+                break;
+            }
+        }
+
+        // Start fishing
+        player.BeginUsingTool();
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = "Started fishing",
+            State = ActionState.PerformingAction
+        };
+    }
+
+    // =============================================================================
+    // SESSION 125: ANIMAL ACTIONS
+    // =============================================================================
+
+    private ActionResult PetAnimal(string direction)
+    {
+        var player = Game1.player;
+        var location = player.currentLocation;
+
+        // Set facing direction
+        if (!string.IsNullOrEmpty(direction))
+        {
+            int facing = TilePathfinder.DirectionToFacing(direction);
+            if (facing >= 0) player.FacingDirection = facing;
+        }
+
+        // Find animal at facing tile
+        var delta = GetDirectionDelta(player.FacingDirection);
+        var targetTile = new Vector2(player.TilePoint.X + delta.X, player.TilePoint.Y + delta.Y);
+        var targetRect = new Microsoft.Xna.Framework.Rectangle((int)targetTile.X * 64, (int)targetTile.Y * 64, 64, 64);
+
+        foreach (var animal in location.animals.Values)
+        {
+            if (animal.GetBoundingBox().Intersects(targetRect))
+            {
+                // Pet the animal
+                animal.pet(player);
+
+                return new ActionResult
+                {
+                    Success = true,
+                    Message = $"Petted {animal.displayName}",
+                    State = ActionState.Complete
+                };
+            }
+        }
+
+        return new ActionResult
+        {
+            Success = false,
+            Error = "No animal found in that direction",
+            State = ActionState.Failed
+        };
+    }
+
+    private ActionResult MilkAnimal(string direction)
+    {
+        var player = Game1.player;
+        var location = player.currentLocation;
+
+        // Set facing direction
+        if (!string.IsNullOrEmpty(direction))
+        {
+            int facing = TilePathfinder.DirectionToFacing(direction);
+            if (facing >= 0) player.FacingDirection = facing;
+        }
+
+        // Session 126: Verify there's a milkable animal in range first
+        var delta = GetDirectionDelta(player.FacingDirection);
+        var targetTile = new Vector2(player.TilePoint.X + delta.X, player.TilePoint.Y + delta.Y);
+        var targetRect = new Microsoft.Xna.Framework.Rectangle((int)targetTile.X * 64, (int)targetTile.Y * 64, 64, 64);
+
+        StardewValley.FarmAnimal targetAnimal = null;
+        foreach (var animal in location.animals.Values)
+        {
+            if (animal.GetBoundingBox().Intersects(targetRect))
+            {
+                // Check if milkable (cow or goat that hasn't been milked today)
+                string type = animal.type.Value.ToLower();
+                if ((type.Contains("cow") || type.Contains("goat")) && !animal.wasPet.Value)
+                {
+                    targetAnimal = animal;
+                    break;
+                }
+            }
+        }
+
+        if (targetAnimal == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No milkable animal found in that direction",
+                State = ActionState.Failed
+            };
+        }
+
+        // Equip milk pail
+        for (int i = 0; i < player.Items.Count; i++)
+        {
+            if (player.Items[i] is StardewValley.Tools.MilkPail)
+            {
+                player.CurrentToolIndex = i;
+                break;
+            }
+        }
+
+        if (player.CurrentTool is not StardewValley.Tools.MilkPail)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No milk pail in inventory",
+                State = ActionState.Failed
+            };
+        }
+
+        player.BeginUsingTool();
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Milking {targetAnimal.displayName}",
+            State = ActionState.PerformingAction
+        };
+    }
+
+    private ActionResult ShearAnimal(string direction)
+    {
+        var player = Game1.player;
+        var location = player.currentLocation;
+
+        // Set facing direction
+        if (!string.IsNullOrEmpty(direction))
+        {
+            int facing = TilePathfinder.DirectionToFacing(direction);
+            if (facing >= 0) player.FacingDirection = facing;
+        }
+
+        // Session 126: Verify there's a shearable animal in range first
+        var delta = GetDirectionDelta(player.FacingDirection);
+        var targetTile = new Vector2(player.TilePoint.X + delta.X, player.TilePoint.Y + delta.Y);
+        var targetRect = new Microsoft.Xna.Framework.Rectangle((int)targetTile.X * 64, (int)targetTile.Y * 64, 64, 64);
+
+        StardewValley.FarmAnimal targetAnimal = null;
+        foreach (var animal in location.animals.Values)
+        {
+            if (animal.GetBoundingBox().Intersects(targetRect))
+            {
+                // Check if shearable (sheep or rabbit with wool ready)
+                string type = animal.type.Value.ToLower();
+                if ((type.Contains("sheep") || type.Contains("rabbit")) && animal.currentProduce.Value != null)
+                {
+                    targetAnimal = animal;
+                    break;
+                }
+            }
+        }
+
+        if (targetAnimal == null)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No shearable animal found in that direction",
+                State = ActionState.Failed
+            };
+        }
+
+        // Equip shears
+        for (int i = 0; i < player.Items.Count; i++)
+        {
+            if (player.Items[i] is StardewValley.Tools.Shears)
+            {
+                player.CurrentToolIndex = i;
+                break;
+            }
+        }
+
+        if (player.CurrentTool is not StardewValley.Tools.Shears)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No shears in inventory",
+                State = ActionState.Failed
+            };
+        }
+
+        player.BeginUsingTool();
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Shearing {targetAnimal.displayName}",
+            State = ActionState.PerformingAction
+        };
+    }
+
+    private ActionResult CollectAnimalProduct(string direction)
+    {
+        var player = Game1.player;
+        var location = player.currentLocation;
+
+        // Set facing direction
+        if (!string.IsNullOrEmpty(direction))
+        {
+            int facing = TilePathfinder.DirectionToFacing(direction);
+            if (facing >= 0) player.FacingDirection = facing;
+        }
+
+        // Check for items on ground (eggs, truffles, etc.)
+        var delta = GetDirectionDelta(player.FacingDirection);
+        var targetTile = new Vector2(player.TilePoint.X + delta.X, player.TilePoint.Y + delta.Y);
+
+        if (location.Objects.TryGetValue(targetTile, out var obj))
+        {
+            // Try to pick up
+            if (player.addItemToInventoryBool(obj))
+            {
+                location.Objects.Remove(targetTile);
+                return new ActionResult
+                {
+                    Success = true,
+                    Message = $"Collected {obj.DisplayName}",
+                    State = ActionState.Complete
+                };
+            }
+            else
+            {
+                return new ActionResult
+                {
+                    Success = false,
+                    Error = "Inventory full",
+                    State = ActionState.Failed
+                };
+            }
+        }
+
+        return new ActionResult
+        {
+            Success = false,
+            Error = "No item to collect at that tile",
+            State = ActionState.Failed
+        };
+    }
+
+    // =============================================================================
+    // SESSION 125: FORAGING ACTIONS
+    // =============================================================================
+
+    private ActionResult ShakeTree(string direction)
+    {
+        var player = Game1.player;
+        var location = player.currentLocation;
+
+        // Set facing direction
+        if (!string.IsNullOrEmpty(direction))
+        {
+            int facing = TilePathfinder.DirectionToFacing(direction);
+            if (facing >= 0) player.FacingDirection = facing;
+        }
+
+        var delta = GetDirectionDelta(player.FacingDirection);
+        var targetTile = new Vector2(player.TilePoint.X + delta.X, player.TilePoint.Y + delta.Y);
+
+        // Check for tree at target tile
+        if (location.terrainFeatures.TryGetValue(targetTile, out var feature))
+        {
+            if (feature is StardewValley.TerrainFeatures.Tree tree)
+            {
+                // Shake the tree
+                tree.performUseAction(targetTile);
+
+                return new ActionResult
+                {
+                    Success = true,
+                    Message = "Shook tree",
+                    State = ActionState.Complete
+                };
+            }
+            else if (feature is StardewValley.TerrainFeatures.FruitTree fruitTree)
+            {
+                // Shake fruit tree
+                fruitTree.performUseAction(targetTile);
+
+                return new ActionResult
+                {
+                    Success = true,
+                    Message = "Shook fruit tree",
+                    State = ActionState.Complete
+                };
+            }
+        }
+
+        return new ActionResult
+        {
+            Success = false,
+            Error = "No tree found in that direction",
+            State = ActionState.Failed
+        };
+    }
+
+    private ActionResult DigArtifactSpot(string direction)
+    {
+        var player = Game1.player;
+        var location = player.currentLocation;
+
+        // Set facing direction
+        if (!string.IsNullOrEmpty(direction))
+        {
+            int facing = TilePathfinder.DirectionToFacing(direction);
+            if (facing >= 0) player.FacingDirection = facing;
+        }
+
+        // Equip hoe
+        for (int i = 0; i < player.Items.Count; i++)
+        {
+            if (player.Items[i] is Hoe)
+            {
+                player.CurrentToolIndex = i;
+                break;
+            }
+        }
+
+        if (player.CurrentTool is not Hoe)
+        {
+            return new ActionResult
+            {
+                Success = false,
+                Error = "No hoe in inventory",
+                State = ActionState.Failed
+            };
+        }
+
+        // Use tool (hoe will reveal artifact if spot exists)
+        player.BeginUsingTool();
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = "Digging artifact spot",
+            State = ActionState.PerformingAction
+        };
+    }
+
+    // =============================================================================
+    // SESSION 125: RELIABLE MINE DESCENT
+    // =============================================================================
+
+    private ActionResult DescendMine()
+    {
+        var player = Game1.player;
+        var location = player.currentLocation;
+
+        // If not in mines, warp there first
+        if (location?.Name != "Mine" && location is not MineShaft)
+        {
+            Game1.warpFarmer("Mine", 13, 10, false);
+            return new ActionResult
+            {
+                Success = true,
+                Message = "Warped to mine entrance - call descend_mine again to enter level 1",
+                State = ActionState.Complete
+            };
+        }
+
+        // Get current level
+        int currentLevel = 0;
+        if (location is MineShaft mine)
+        {
+            currentLevel = mine.mineLevel;
+        }
+
+        // Enter next level
+        int nextLevel = currentLevel + 1;
+
+        // Skull Cavern starts at 121
+        if (location?.Name == "SkullCave" || (location is MineShaft ms && ms.mineLevel >= 121))
+        {
+            nextLevel = Math.Max(121, currentLevel + 1);
+        }
+
+        _monitor.Log($"DescendMine: From level {currentLevel} to level {nextLevel}", LogLevel.Info);
+        Game1.enterMine(nextLevel);
+
+        return new ActionResult
+        {
+            Success = true,
+            Message = $"Descended from level {currentLevel} to level {nextLevel}",
+            State = ActionState.Complete
+        };
     }
 }

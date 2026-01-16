@@ -733,6 +733,20 @@ public class ModEntry : Mod
         // This provides basic location info; full fish data would need Content API
         result.AvailableFish = new List<FishDetails>();
 
+        // Session 126: Real-time fishing status
+        var player = Game1.player;
+        if (player?.CurrentTool is StardewValley.Tools.FishingRod rod)
+        {
+            result.HasRodEquipped = true;
+            result.IsCasting = rod.isTimingCast;
+            result.IsFishing = rod.isFishing;
+            result.IsNibbling = rod.isNibbling;
+            result.IsReeling = rod.isReeling;
+        }
+
+        // Check if fishing minigame is active
+        result.IsMinigameActive = Game1.activeClickableMenu is StardewValley.Menus.BobberBar;
+
         return result;
     }
 
@@ -752,8 +766,22 @@ public class ModEntry : Mod
         {
             result.Floor = mine.mineLevel;
             result.FloorType = GetMineFloorType(mine.mineLevel);
-            result.LadderFound = mine.Objects.Values.Any(o => o.Name == "Ladder");
-            result.ShaftFound = mine.Objects.Values.Any(o => o.Name == "Shaft");
+
+            // Session 126: Find ladder/shaft with coordinates
+            foreach (var pair in mine.Objects.Pairs)
+            {
+                var obj = pair.Value;
+                if (obj.Name == "Ladder" && !result.LadderFound)
+                {
+                    result.LadderFound = true;
+                    result.LadderPosition = new TilePosition { X = (int)pair.Key.X, Y = (int)pair.Key.Y };
+                }
+                else if (obj.Name == "Shaft" && !result.ShaftFound)
+                {
+                    result.ShaftFound = true;
+                    result.ShaftPosition = new TilePosition { X = (int)pair.Key.X, Y = (int)pair.Key.Y };
+                }
+            }
 
             // Read rocks/ores
             foreach (var pair in mine.objects.Pairs)
