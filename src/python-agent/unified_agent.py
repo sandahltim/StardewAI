@@ -3353,9 +3353,12 @@ class StardewAgent:
                     params['target_direction'] = facing_map.get(facing, "south")
                     logging.info(f"   ↳ Using facing direction: {params['target_direction']}")
         
-        if not self.skill_executor or skill_name not in self.skills_dict:
-            logging.warning(f"Skill not found or executor not ready: {skill_name}")
-            return False
+        # Session 125: Batch skills are handled specially, not in skills_dict
+        BATCH_SKILLS = {"auto_farm_chores", "auto_mine"}
+        if skill_name not in BATCH_SKILLS:
+            if not self.skill_executor or skill_name not in self.skills_dict:
+                logging.warning(f"Skill not found or executor not ready: {skill_name}")
+                return False
 
         # CROP PROTECTION: Block till_soil when standing on a planted crop
         if skill_name == "till_soil" and self.last_surroundings:
