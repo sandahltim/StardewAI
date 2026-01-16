@@ -239,14 +239,15 @@ class PrereqResolver:
         """Infer task type from description."""
         desc_lower = description.lower()
 
-        if "water" in desc_lower and "crop" in desc_lower:
+        # Session 127: Check "ship" BEFORE "harvest" - "Ship crops after harvest" was matching "harvest"
+        if "ship" in desc_lower or "sell" in desc_lower:
+            return "ship_items"
+        elif "water" in desc_lower and "crop" in desc_lower:
             return "water_crops"
         elif "harvest" in desc_lower:
             return "harvest_crops"
         elif "plant" in desc_lower and "seed" in desc_lower:
             return "plant_seeds"
-        elif "ship" in desc_lower or "sell" in desc_lower:
-            return "ship_items"
         elif "clear" in desc_lower and "debris" in desc_lower:
             return "clear_debris"
         elif "buy" in desc_lower and "seed" in desc_lower:

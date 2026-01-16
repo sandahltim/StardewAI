@@ -284,7 +284,12 @@ class TargetGenerator:
         data = game_state.get("data") or game_state
         location = data.get("location") or {}
         inventory = data.get("inventory") or []
-        
+
+        # Session 127: VERBOSE diagnostic - show exactly what we're checking
+        logger.info(f"📦 Ship check: game_state keys={list(game_state.keys())[:5]}")
+        logger.info(f"📦 Ship check: data keys={list(data.keys())[:8] if isinstance(data, dict) else 'NOT A DICT'}")
+        logger.info(f"📦 Ship check: inventory type={type(inventory).__name__}, len={len(inventory) if inventory else 0}")
+
         # Check if there are sellable items in inventory
         # Session 127: Added "fruit" - SMAPI returns "fruit" for FruitsCategory (berries, melons, etc.)
         sellable_categories = ["crop", "fruit", "forage", "artisan"]
